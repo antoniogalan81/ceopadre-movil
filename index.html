@@ -32,12 +32,12 @@
 <section id="p-list" class="screen" hidden>
   <header class="top">
     <h1 class="brand">CEO<span>Padre</span></h1>
-    <button class="btn ghost" id="b-new-project">+ Proyecto</button>
+    <button class="btn ghost" id="b-new-project" aria-label="Vincular proyecto: conectar una carpeta existente">+ Vincular proyecto</button>
   </header>
   <p class="pcline" id="pc-line" hidden></p>
   <h2 class="section-title">Mis proyectos</h2>
   <main id="cards" class="cards" aria-live="polite"></main>
-  <p class="empty" id="empty" hidden>Todavía no hay proyectos. Pulsa <b>+ Proyecto</b>.</p>
+  <p class="empty" id="empty" hidden>Todavía no hay proyectos. Pulsa <b>+ Vincular proyecto</b> para conectar una carpeta que ya tengas en el PC.</p>
 </section>
 
 <section id="p-detail" class="screen" hidden>
@@ -58,6 +58,39 @@
       <button class="btn primary" id="dlg-ok" value="ok">Aceptar</button>
     </div>
   </form>
+</dialog>
+
+<!-- VINCULAR = conectar una carpeta que YA existe. No crea ni toca nada en ella. -->
+<dialog id="link" class="sheet" aria-labelledby="link-title">
+  <div class="link-body">
+    <header class="link-head">
+      <h2 id="link-title">Vincular proyecto</h2>
+      <button class="btn ghost small" id="link-close" aria-label="Cerrar">Cerrar</button>
+    </header>
+    <p class="muted">Conecta una carpeta que ya existe en el PC. CEOPadre no crea ni modifica nada en ella.</p>
+    <p class="pcline" id="link-offline" hidden>PC SIN CONEXIÓN · No se pueden buscar ni vincular carpetas ahora.</p>
+
+    <section id="link-confirm" class="panel" hidden>
+      <h4>Confirmar</h4>
+      <label class="field">Nombre<input id="link-name" type="text" maxlength="40" spellcheck="false"></label>
+      <p class="field-label">Carpeta</p>
+      <p class="mono" id="link-path"></p>
+      <div class="row">
+        <button class="btn ghost" id="link-back">Volver</button>
+        <button class="btn primary" id="link-ok">Vincular</button>
+      </div>
+    </section>
+
+    <div id="link-main">
+      <button class="btn primary big" id="link-pick">Elegir carpeta en este PC</button>
+      <div class="link-list-head">
+        <h4 id="link-list-title">Proyectos detectados en el PC</h4>
+        <button class="btn ghost small" id="link-refresh">Actualizar lista</button>
+      </div>
+      <p class="muted" id="link-status" role="status" aria-live="polite"></p>
+      <ul class="cand" id="link-list"></ul>
+    </div>
+  </div>
 </dialog>
 
 <div class="toast" id="toast" role="status" aria-live="polite"></div>

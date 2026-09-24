@@ -242,7 +242,8 @@ async function paintDetail(force) {
   const wasOpen = new Set([...body.querySelectorAll('details[open]')].map((x) => x.dataset.k));
   body.replaceChildren(
     card(c),
-    h('section', { class: 'panel' }, h('h4', {}, 'Proyecto'), h('p', { class: 'mono' }, d.proyecto?.ruta || c.ruta)),
+    h('section', { class: 'panel' }, h('h4', {}, 'Proyecto'), h('p', { class: 'mono' }, d.proyecto?.ruta || c.ruta),
+      h('div', { class: 'row' }, h('button', { class: 'btn ghost-danger small', onclick: (e) => unlink(c, e.currentTarget) }, 'Desvincular proyecto'))),
     m ? h('section', { class: 'panel' }, h('h4', {}, 'Consumo de este objetivo'),
       h('ul', { class: 'kv' },
         h('li', {}, `Rondas Codex ↔ Claude: ${m.rondas}`),
@@ -288,10 +289,82 @@ function lessonItem(l) {
 // ------------------------------------------------------------------ arranque
 
 $('#d-back').addEventListener('click', () => { openId = null; show('p-list'); });
-$('#b-new-project').addEventListener('click', async (e) => {
-  const r = await ask({ title: 'Nuevo proyecto', help: 'La carpeta tiene que existir en el PC.',
-    fields: [{ name: 'nombre', label: 'Nombre', placeholder: 'GEST7' }, { name: 'ruta', label: 'Carpeta en el PC', placeholder: 'E:\\ECOAPP\\Palma\\Palmaycocotpv' }], ok: 'Crear' });
-  if (r?.nombre && r?.ruta) run('proyecto.crear', r, 'Proyecto creado', e.currentTarget);
+async function unlink(c, btn) {
+  const ok = await ask({ title: `¿Desvincular ${c.nombre}?`, ok: 'Sí, desvincular', danger: true,
+    help: 'CEOPadre dejará de mostrar este proyecto. NO se borra la carpeta, ni Git, ni ningún archivo, y el historial se conserva. Podrás volver a vincularlo cuando quieras.' });
+  if (ok && await run('proyecto.desvincular', { proyecto: c.id, confirmar: true }, 'Proyecto desvinculado', btn)) { openId = null; show('p-list'); }
+}
+
+// ------------------------------------------------------------------ vincular proyecto
+// Vincular = decirle a CEOPadre qué carpeta EXISTENTE es un proyecto. En el PC: selector de carpetas de
+// Windows o lista detectada. En el móvil: sólo la lista que detecta el PC (nunca rutas escritas).
+
+let linkTarget = null; // { ruta, nombre, candidato? }
+const linkStatus = (t) => { $('#link-status').textContent = t; };
+
+function linkConfirm(target) {
+  linkTarget = target;
+  $('#link-name').value = target.nombre;
+  $('#link-path').textContent = target.ruta;
+  $('#link-main').hidden = true;
+  $('#link-confirm').hidden = false;
+  $('#link-name').focus();
+}
+
+function linkBack() { linkTarget = null; $('#link-confirm').hidden = true; $('#link-main').hidden = false; }
+
+async function linkLoad(refresh, tries = 0) {
+  if (!tries) { linkStatus(refresh ? 'Buscando proyectos…' : 'Cargando…'); $('#link-list').textContent = ''; }
+  const r = await api.cmd('proyecto.candidatos', { actualizar: refresh });
+  if (!r?.ok) { linkStatus(r?.error || 'No se pudo consultar el PC'); return; }
+  const c = r.data;
+  if (c.buscando && tries < 20) { linkStatus('Buscando proyectos…'); setTimeout(() => linkLoad(false, tries + 1), 1500); return; }
+  const ul = $('#link-list');
+  ul.replaceChildren(...c.lista.map((x) => h('li', {},
+    h('div', { class: 'cand-text' }, h('b', {}, x.nombre), h('small', { class: 'mono' }, x.ruta)),
+    h('button', { class: 'btn small', onclick: () => linkConfirm({ ruta: x.ruta, nombre: x.nombre, candidato: x.id }) }, 'Vincular'))));
+  linkStatus(c.lista.length
+    ? `${c.lista.length} sin vincular en ${c.raices.join(', ')}${c.actualizado ? ` · buscado ${ago(c.actualizado)}` : ''}`
+    : `No hay proyectos sin vincular en ${c.raices.join(', ')}.`);
+}
+
+async function openLink() {
+  const dlg = $('#link');
+  linkBack();
+  $('#link-pick').hidden = !LOCAL; // el selector de carpetas sólo tiene sentido delante del PC
+  const offline = !LOCAL && !data.pc.online;
+  $('#link-offline').hidden = !offline;
+  $('#link-refresh').disabled = offline;
+  $('#link-list').textContent = '';
+  linkStatus('');
+  dlg.showModal();
+  if (!offline) await linkLoad(false);
+}
+
+$('#b-new-project').addEventListener('click', openLink);
+$('#link-close').addEventListener('click', () => $('#link').close());
+$('#link-back').addEventListener('click', linkBack);
+$('#link-refresh').addEventListener('click', () => linkLoad(true));
+$('#link-pick').addEventListener('click', async (e) => {
+  const b = e.currentTarget;
+  b.disabled = true;
+  linkStatus('Se ha abierto el selector de carpetas de Windows en el PC…');
+  try {
+    const r = await api.cmd('proyecto.elegir_carpeta', {});
+    if (!r?.ok) { linkStatus(r?.error || 'No se pudo abrir el selector'); return; }
+    if (r.data.cancelado) { linkStatus('No se eligió ninguna carpeta.'); return; }
+    if (r.data.ya_vinculado) { linkStatus(`${r.data.ruta} ya está vinculada.`); return; }
+    linkStatus('');
+    linkConfirm({ ruta: r.data.ruta, nombre: r.data.nombre });
+  } finally { b.disabled = false; }
+});
+$('#link-ok').addEventListener('click', async (e) => {
+  const nombre = $('#link-name').value.trim();
+  if (!nombre) { $('#link-name').focus(); return; }
+  const t = linkTarget;
+  const ok = await run(t.candidato ? 'proyecto.vincular' : 'proyecto.crear',
+    t.candidato ? { candidato: t.candidato, nombre } : { nombre, ruta: t.ruta }, 'Proyecto vinculado', e.currentTarget);
+  if (ok) $('#link').close();
 });
 setInterval(() => { for (const el of document.querySelectorAll('[data-ago]')) el.textContent = ago(el.dataset.ago); }, 5000);
 

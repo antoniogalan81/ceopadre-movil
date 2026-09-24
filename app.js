@@ -293,7 +293,7 @@ $('#b-new-project').addEventListener('click', async (e) => {
 setInterval(() => { for (const el of document.querySelectorAll('[data-ago]')) el.textContent = ago(el.dataset.ago); }, 5000);
 
 async function start() {
-  api = LOCAL ? localApi() : await remoteApi();
+  api ??= LOCAL ? localApi() : await remoteApi();
   if (!LOCAL) {
     const { data: s } = await api.sb.auth.getSession();
     if (!s.session) {

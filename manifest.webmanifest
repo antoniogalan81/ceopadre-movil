@@ -1,0 +1,12 @@
+{
+  "name": "CEOPadre",
+  "short_name": "CEOPadre",
+  "description": "Mando de proyectos: Codex dirige, Claude ejecuta.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f4efe6",
+  "theme_color": "#f4efe6",
+  "icons": [{ "src": "icono.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+}

@@ -248,7 +248,7 @@ async function paintDetail(force) {
         h('li', {}, `Rondas Codex ↔ Claude: ${m.rondas}`),
         h('li', {}, `Decisiones Codex: ${m.codex.n ?? 0} · entrada ${fmt(m.codex.ent)} car. / ${fmt(m.codex.tin)} tokens (${fmt(m.codex.tcache)} en caché) · salida ${fmt(m.codex.sal)} car. / ${fmt(m.codex.tout)} tokens`),
         h('li', {}, `Encargos a Claude: ${m.claude.n ?? 0} · prompts ${fmt(m.claude.ent)} car. · tokens salida ${fmt(m.claude.tout)}`),
-        h('li', {}, `Auditorías Codex: ${m.auditorias.n ?? 0}`),
+        h('li', {}, `Mayor entrada a Codex: ${fmt(m.codex.max_ent)} car. · informes antiguos reenviados: ${m.codex.informes_antiguos}`),
         h('li', {}, `Intervenciones de Antonio: ${m.intervenciones_antonio}`),
         h('li', {}, `Fallos/reintentos: ${(m.codex.fallos ?? 0) + (m.claude.fallos ?? 0)}`),
         h('li', {}, `Duración: ${Math.round(m.duracion_s / 60)} min`))) : null,
@@ -266,13 +266,16 @@ async function paintDetail(force) {
 const fmt = (n) => (n == null ? '—' : Number(n).toLocaleString('es-ES'));
 
 function roundItem(r) {
-  const title = r.kind === 'ceo' ? `Codex · ${r.decision || 'sin decisión'}${r.relacion ? ` · ${r.relacion}` : ''}`
-    : r.kind === 'audit' ? 'Auditoría Codex' : `Claude · ronda ${r.n}${r.estado_claude ? ` · ${r.estado_claude}` : ''}`;
-  let body = r.kind === 'ceo' ? (() => { try { const d = JSON.parse(r.report); return `AHORA: ${d.ahora}\nSIGUIENTE: ${d.siguiente}\nMOTIVO: ${d.motivo}`; } catch { return r.report || ''; } })() : (r.report || '');
-  if (!r.ok) body = `FALLO: ${r.error || ''}`;
-  return h('details', { class: `round ${r.ok ? '' : 'failed'}`, 'data-k': `${r.kind}-${r.n}-${r.started_at}` },
-    h('summary', {}, h('b', {}, title), h('small', {}, ` ${ago(r.ended_at || r.started_at)}`)),
-    r.kind === 'claude' && r.prompt ? h('pre', { class: 'prompt' }, `ENCARGO:\n${r.prompt}`) : null,
+  const list = (label, items) => (items?.length ? `${label}:\n${items.map((x) => `- ${x}`).join('\n')}` : '');
+  const body = [list('Claude hizo', r.hecho), list('Claude comprobó', r.comprobado), list('SIN COMPROBAR', r.no_comprobado),
+    list('Pendiente', r.pendiente), list('Problemas', r.problemas), r.cambio_de_alcance ? `Cambio de alcance: ${r.cambio_de_alcance}` : '',
+    r.sin_formato ? '(Claude no devolvió el informe con formato)' : '', r.codex_decidio ? `Codex decidió → ${r.codex_decidio}` : 'Codex aún no ha decidido']
+    .filter(Boolean).join('\n\n');
+  const failed = String(r.estado).startsWith('FALLO');
+  return h('details', { class: `round ${failed ? 'failed' : ''}`, 'data-k': `r-${r.ronda}-${r.fin}` },
+    h('summary', {}, h('b', {}, `RONDA ${r.ronda} · ${r.estado}`),
+      r.no_comprobado?.length ? h('em', {}, ` · sin comprobar: ${r.no_comprobado.length}`) : null, h('small', {}, ` ${ago(r.fin)}`)),
+    h('pre', { class: 'prompt' }, `Codex pidió:\n${r.codex_pidio}`),
     h('pre', {}, body));
 }
 

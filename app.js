@@ -76,10 +76,24 @@ async function remoteApi() {
 const STATES = {
   LIBRE: ['⚪', 'SIN OBJETIVO', 'idle'], EN_COLA: ['⏳', 'EN COLA', 'idle'], TRABAJANDO: ['🟢', 'TRABAJANDO', 'work'],
   ESPERANDO_DECISION: ['🟡', 'ESPERANDO DECISIÓN', 'ask'], PAUSADO: ['⏸️', 'PAUSADO', 'idle'],
+  ESPERANDO_CLAUDE: ['⏳', 'ESPERANDO CLAUDE', 'warn'], ESPERANDO_CEO: ['⏳', 'ESPERANDO CEO', 'warn'],
   SIN_ACTIVIDAD: ['🟠', 'SIN ACTIVIDAD', 'warn'], BLOQUEADO: ['🔴', 'BLOQUEADO', 'bad'], ERROR: ['🔴', 'ERROR', 'bad'],
   TERMINADO: ['✅', 'TERMINADO', 'ok'], CANCELADO: ['⚪', 'CANCELADO', 'idle'],
 };
 const OPEN = ['LIBRE', 'TERMINADO', 'CANCELADO'];
+const WAITING = ['ESPERANDO_CLAUDE', 'ESPERANDO_CEO'];
+// La hora de vuelta se compara con el reloj de ESTE dispositivo: al pasar, cambia el texto sin llamar a nadie.
+const future = (iso) => !!iso && Date.parse(iso) > Date.now();
+const hhmm = (iso) => {
+  const d = new Date(iso), t = d.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+  return d.toDateString() === new Date().toDateString() ? t : `${d.toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric' })} ${t}`;
+};
+function waitLines(c) {
+  const who = c.estado === 'ESPERANDO_CLAUDE' ? 'Claude' : 'un CEO';
+  if (future(c.espera_hasta)) return [`Esperando a ${who} hasta aproximadamente las ${hhmm(c.espera_hasta)}.`, 'Pulsa CONTINUAR cuando quieras reintentarlo.'];
+  if (c.espera_hasta) return [`${c.estado === 'ESPERANDO_CLAUDE' ? 'Claude debería' : 'Debería haber un CEO'} estar disponible.`, 'Ya puedes continuar: pulsa CONTINUAR.'];
+  return [`${c.estado === 'ESPERANDO_CLAUDE' ? 'Claude no está disponible' : 'Ningún CEO está disponible'} temporalmente (sin hora conocida).`, 'Pulsa CONTINUAR cuando quieras reintentarlo.'];
+}
 
 function ago(iso) {
   if (!iso) return '—';
@@ -152,7 +166,19 @@ function ask({ title, help = '', fields = [], ok = 'Aceptar', danger = false }) 
 
 const actions = {
   pause: (c, b) => run('trabajo.pausar', { trabajo: c.trabajo }, 'Pausado', b),
-  resume: (c, b) => run('trabajo.reanudar', { trabajo: c.trabajo }, 'Reanudado', b),
+  // CONTINUAR antes de la hora anunciada: el PC no llama a nadie y avisa; probar igualmente es decisión de Antonio.
+  async resume(c, b) {
+    b.disabled = true;
+    let r;
+    try { r = await api.cmd('trabajo.reanudar', { trabajo: c.trabajo }); } finally { b.disabled = false; }
+    if (r?.ok && r.data?.esperar) {
+      const ok = await ask({ title: 'Todavía no', help: `${r.data.mensaje}. Si pruebas ahora se gasta un intento que probablemente falle.`, ok: 'PROBAR AHORA' });
+      if (ok) await run('trabajo.reanudar', { trabajo: c.trabajo, probar_ahora: true }, 'Probando ahora', b);
+      return;
+    }
+    if (r?.ok) toast(r.data?.mensaje || 'Reanudado', 'ok'); else toast(r?.error || 'No se pudo', 'bad');
+    await refresh();
+  },
   async cancel(c, b) {
     const ok = await ask({ title: `¿Cancelar ${c.nombre}?`, help: 'Se detiene este objetivo y sus procesos. No se borra ni se revierte nada del proyecto; el historial se conserva.', ok: 'Sí, cancelar', danger: true });
     if (ok) run('trabajo.cancelar', { trabajo: c.trabajo, confirmar: true }, 'Cancelado', b);
@@ -177,6 +203,7 @@ function buttonsFor(c) {
   const e = c.estado;
   if (OPEN.includes(e)) return [B('NUEVO OBJETIVO', 'goal', 'primary'), e === 'TERMINADO' ? B('DAR INSTRUCCIÓN', 'instruct') : null, B('DETALLES', 'details', 'ghost')];
   if (e === 'ESPERANDO_DECISION') return [B('CANCELAR', 'cancel', 'ghost-danger'), B('DETALLES', 'details', 'ghost')];
+  if (WAITING.includes(e)) return [B('CONTINUAR', 'resume', 'primary'), B('PAUSAR', 'pause'), B('CANCELAR', 'cancel', 'ghost-danger'), B('DAR INSTRUCCIÓN', 'instruct'), B('DETALLES', 'details', 'ghost')];
   const main = e === 'TRABAJANDO' || e === 'EN_COLA' ? B('PAUSAR', 'pause')
     : B(e === 'PAUSADO' ? 'REANUDAR' : 'REINTENTAR', 'resume', 'primary');
   return [main, B('CANCELAR', 'cancel', 'ghost-danger'), e !== 'EN_COLA' ? B('DAR INSTRUCCIÓN', 'instruct') : null, B('DETALLES', 'details', 'ghost')];
@@ -195,14 +222,15 @@ function card(c) {
       h('button', { class: 'btn', onclick: (e) => actions.reject(c, e.currentTarget) }, 'RECHAZAR'),
       h('button', { class: 'btn ghost', onclick: (e) => actions.instruct(c, e.currentTarget) }, 'DAR OTRA INSTRUCCIÓN'))) : null;
   const running = ['TRABAJANDO', 'SIN_ACTIVIDAD'].includes(c.estado);
+  const [ahora, siguiente] = WAITING.includes(c.estado) ? waitLines(c) : [c.ahora, c.siguiente];
   return h('article', { class: `card tone-${tone}`, 'data-id': c.id },
     h('header', { class: 'card-head' },
       h('h3', {}, c.nombre),
       h('span', { class: `pill tone-${tone}` }, h('span', { 'aria-hidden': 'true' }, icon), ` ${label}`)),
     c.estado === 'LIBRE' ? h('p', { class: 'muted' }, 'Sin objetivos todavía.') : [
       block('OBJETIVO', c.objetivo, 'goal'),
-      block('AHORA', c.ahora),
-      block('SIGUIENTE', c.siguiente),
+      block('AHORA', ahora),
+      block('SIGUIENTE', siguiente),
       c.detalle && !running ? h('p', { class: 'note' }, c.detalle) : null,
       c.detalle && c.estado === 'SIN_ACTIVIDAD' ? h('p', { class: 'note' }, c.detalle) : null,
       h('dl', { class: 'meta' },
@@ -246,7 +274,10 @@ async function paintDetail(force) {
       h('div', { class: 'row' }, h('button', { class: 'btn ghost-danger small', onclick: (e) => unlink(c, e.currentTarget) }, 'Desvincular proyecto'))),
     d.ceo ? h('section', { class: 'panel' }, h('h4', {}, `CEO ACTUAL: ${d.ceo.actual}`),
       d.ceo.motivo ? h('ul', { class: 'kv' }, h('li', {}, `Motivo: ${d.ceo.motivo}`),
-        d.ceo.vuelve ? h('li', {}, `${d.ceo.modo === 'AUTO' ? 'Codex' : 'Se'} vuelve a probarse: ${when(d.ceo.vuelve)}`) : null) : null) : null,
+        d.ceo.vuelve ? h('li', {}, `${d.ceo.modo === 'AUTO' ? 'Codex' : 'Se'} vuelve a probarse: ${when(d.ceo.vuelve)}`) : null) : null,
+      // Sólo lo relevante: quién está limitado y hasta cuándo (con el reloj de este dispositivo).
+      h('ul', { class: 'kv' }, (d.ceo.proveedores || []).map((x) => h('li', {}, `${x.nombre.toUpperCase()}: ${future(x.hasta)
+        ? `limitado (${x.motivo}) hasta aprox. ${hhmm(x.hasta)}` : 'Disponible'}`)))) : null,
     m ? h('section', { class: 'panel' }, h('h4', {}, 'Consumo de este objetivo'),
       h('ul', { class: 'kv' },
         h('li', {}, `Rondas Codex ↔ Claude: ${m.rondas}`),
@@ -371,6 +402,12 @@ $('#link-ok').addEventListener('click', async (e) => {
   if (ok) $('#link').close();
 });
 setInterval(() => { for (const el of document.querySelectorAll('[data-ago]')) el.textContent = ago(el.dataset.ago); }, 5000);
+// Al pasar la hora de vuelta, repintar con el reloj local (ninguna llamada ni al PC ni a ninguna IA).
+let waitSig = '';
+setInterval(() => {
+  const sig = data.proyectos.filter((c) => WAITING.includes(c.estado)).map((c) => `${c.id}:${future(c.espera_hasta)}`).join();
+  if (sig !== waitSig && !$('#dlg').open) { waitSig = sig; paintList(); }
+}, 15_000);
 
 async function start() {
   api ??= LOCAL ? localApi() : await remoteApi();

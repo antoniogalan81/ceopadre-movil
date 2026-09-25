@@ -8,5 +8,8 @@
   "orientation": "portrait",
   "background_color": "#f4efe6",
   "theme_color": "#f4efe6",
-  "icons": [{ "src": "icono.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+  "icons": [
+    { "src": "icono-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icono-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
 }

@@ -11,8 +11,9 @@
      el cliente de Supabase viaja en vendor/, no desde una CDN (lección de Batuta). -->
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; manifest-src 'self'; connect-src 'self' https://pzlotrzphjpnqixrtvin.supabase.co wss://pzlotrzphjpnqixrtvin.supabase.co; form-action 'none'; base-uri 'none'">
 <link rel="manifest" href="manifest.webmanifest">
-<link rel="icon" href="icono.svg" type="image/svg+xml">
-<link rel="apple-touch-icon" href="icono.svg">
+<link rel="icon" href="favicon.ico" sizes="any">
+<link rel="icon" href="icono-192.png" type="image/png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="stylesheet" href="style.css">
 <title>CEOPadre</title>
 </head>
@@ -20,6 +21,7 @@
 
 <section id="p-login" class="screen" hidden>
   <div class="login">
+    <img class="brand-logo big" src="logo.png" alt="" width="96" height="96">
     <h1 class="brand">CEO<span>Padre</span></h1>
     <p class="muted">Entra una vez con la cuenta de CEOPadre. El teléfono recuerda la sesión.</p>
     <label class="field">Correo<input id="l-email" type="email" autocomplete="username" spellcheck="false" value="antonio@ceopadre.local"></label>
@@ -31,7 +33,7 @@
 
 <section id="p-list" class="screen" hidden>
   <header class="top">
-    <h1 class="brand">CEO<span>Padre</span></h1>
+    <h1 class="brand"><img class="brand-logo" src="logo.png" alt="" width="34" height="34">CEO<span>Padre</span></h1>
     <button class="btn ghost" id="b-new-project" aria-label="Vincular proyecto: conectar una carpeta existente">+ Vincular proyecto</button>
   </header>
   <p class="pcline" id="pc-line" hidden></p>

@@ -244,12 +244,15 @@ async function paintDetail(force) {
     card(c),
     h('section', { class: 'panel' }, h('h4', {}, 'Proyecto'), h('p', { class: 'mono' }, d.proyecto?.ruta || c.ruta),
       h('div', { class: 'row' }, h('button', { class: 'btn ghost-danger small', onclick: (e) => unlink(c, e.currentTarget) }, 'Desvincular proyecto'))),
+    d.ceo ? h('section', { class: 'panel' }, h('h4', {}, `CEO ACTUAL: ${d.ceo.actual}`),
+      d.ceo.motivo ? h('ul', { class: 'kv' }, h('li', {}, `Motivo: ${d.ceo.motivo}`),
+        d.ceo.vuelve ? h('li', {}, `${d.ceo.modo === 'AUTO' ? 'Codex' : 'Se'} vuelve a probarse: ${when(d.ceo.vuelve)}`) : null) : null) : null,
     m ? h('section', { class: 'panel' }, h('h4', {}, 'Consumo de este objetivo'),
       h('ul', { class: 'kv' },
         h('li', {}, `Rondas Codex ↔ Claude: ${m.rondas}`),
-        h('li', {}, `Decisiones Codex: ${m.codex.n ?? 0} · entrada ${fmt(m.codex.ent)} car. / ${fmt(m.codex.tin)} tokens (${fmt(m.codex.tcache)} en caché) · salida ${fmt(m.codex.sal)} car. / ${fmt(m.codex.tout)} tokens`),
+        h('li', {}, `Decisiones CEO: ${m.codex.n ?? 0}${m.decisiones_por_ceo ? ` (${Object.entries(m.decisiones_por_ceo).map(([k, v]) => `${k} ${v}`).join(' · ')})` : ''} · entrada ${fmt(m.codex.ent)} car. / ${fmt(m.codex.tin)} tokens (${fmt(m.codex.tcache)} en caché) · salida ${fmt(m.codex.sal)} car. / ${fmt(m.codex.tout)} tokens`),
         h('li', {}, `Encargos a Claude: ${m.claude.n ?? 0} · prompts ${fmt(m.claude.ent)} car. · tokens salida ${fmt(m.claude.tout)}`),
-        h('li', {}, `Mayor entrada a Codex: ${fmt(m.codex.max_ent)} car. · informes antiguos reenviados: ${m.codex.informes_antiguos}`),
+        h('li', {}, `Mayor entrada al CEO: ${fmt(m.codex.max_ent)} car. · informes antiguos reenviados: ${m.codex.informes_antiguos}`),
         h('li', {}, `Intervenciones de Antonio: ${m.intervenciones_antonio}`),
         h('li', {}, `Fallos/reintentos: ${(m.codex.fallos ?? 0) + (m.claude.fallos ?? 0)}`),
         h('li', {}, `Duración: ${Math.round(m.duracion_s / 60)} min`))) : null,
@@ -265,18 +268,19 @@ async function paintDetail(force) {
 }
 
 const fmt = (n) => (n == null ? '—' : Number(n).toLocaleString('es-ES'));
+const when = (iso) => new Date(iso).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 
 function roundItem(r) {
   const list = (label, items) => (items?.length ? `${label}:\n${items.map((x) => `- ${x}`).join('\n')}` : '');
   const body = [list('Claude hizo', r.hecho), list('Claude comprobó', r.comprobado), list('SIN COMPROBAR', r.no_comprobado),
     list('Pendiente', r.pendiente), list('Problemas', r.problemas), r.cambio_de_alcance ? `Cambio de alcance: ${r.cambio_de_alcance}` : '',
-    r.sin_formato ? '(Claude no devolvió el informe con formato)' : '', r.codex_decidio ? `Codex decidió → ${r.codex_decidio}` : 'Codex aún no ha decidido']
+    r.sin_formato ? '(Claude no devolvió el informe con formato)' : '', r.codex_decidio ? `${r.ceo || 'Codex'} decidió → ${r.codex_decidio}` : 'El CEO aún no ha decidido']
     .filter(Boolean).join('\n\n');
   const failed = String(r.estado).startsWith('FALLO');
   return h('details', { class: `round ${failed ? 'failed' : ''}`, 'data-k': `r-${r.ronda}-${r.fin}` },
     h('summary', {}, h('b', {}, `RONDA ${r.ronda} · ${r.estado}`),
       r.no_comprobado?.length ? h('em', {}, ` · sin comprobar: ${r.no_comprobado.length}`) : null, h('small', {}, ` ${ago(r.fin)}`)),
-    h('pre', { class: 'prompt' }, `Codex pidió:\n${r.codex_pidio}`),
+    h('pre', { class: 'prompt' }, `El CEO pidió:\n${r.codex_pidio}`),
     h('pre', {}, body));
 }
 

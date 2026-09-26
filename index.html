@@ -3,10 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#f4efe6" media="(prefers-color-scheme: light)">
-<meta name="theme-color" content="#16140f" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#173f33">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="CEOPadre">
+<meta name="application-name" content="CEOPadre">
+<meta name="format-detection" content="telephone=no">
 <!-- La misma página sirve en el PC (API local) y en el móvil (Supabase). Scripts sólo propios:
      el cliente de Supabase viaja en vendor/, no desde una CDN (lección de Batuta). -->
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; manifest-src 'self'; connect-src 'self' https://pzlotrzphjpnqixrtvin.supabase.co wss://pzlotrzphjpnqixrtvin.supabase.co; form-action 'none'; base-uri 'none'">
@@ -31,31 +34,39 @@
   </div>
 </section>
 
+<!-- LA OFICINA: arriba lo que está en marcha (puestos de trabajo), abajo lo que espera (azulejos).
+     GESTIONES es una unidad más que se abre como un cajón en esta misma página. -->
 <section id="p-list" class="screen" hidden>
-  <header class="top">
-    <h1 class="brand"><img class="brand-logo" src="logo.png" alt="" width="34" height="34">CEO<span>Padre</span></h1>
-    <div class="top-actions">
-      <button class="btn primary small" id="b-create-project" title="Crea la carpeta E:\ECOAPP\&lt;nombre&gt; y la añade">+ Nuevo proyecto</button>
-      <button class="btn ghost small" id="b-new-project" aria-label="Vincular proyecto: conectar una carpeta existente">Vincular</button>
+  <header class="bar">
+    <div class="bar-brand">
+      <img class="brand-logo" src="logo.png" alt="" width="42" height="42">
+      <div>
+        <h1 class="brand">CEO<span>Padre</span></h1>
+        <p class="bar-sub"><span>Mi oficina</span> · <span id="office-sum"></span></p>
+      </div>
+    </div>
+    <div class="bar-side">
+      <p class="net m-ok" id="net" role="status" aria-live="polite"><i class="dot" aria-hidden="true"></i><span>Operativo</span></p>
+      <div class="top-actions">
+        <button class="btn light small" id="b-install" type="button" hidden>Instalar CEOPadre</button>
+        <button class="btn accent small" id="b-create-project" type="button" title="Crea la carpeta E:\ECOAPP\&lt;nombre&gt; y la añade">+ Nuevo proyecto</button>
+        <button class="btn light small" id="b-new-project" type="button" aria-label="Vincular proyecto: conectar una carpeta existente">Vincular</button>
+      </div>
     </div>
   </header>
   <p class="pcline" id="pc-line" hidden></p>
-  <div class="section-row"><h2 class="section-title">Mis proyectos</h2><small class="muted acct" id="acct"></small></div>
-  <main id="cards" class="cards" aria-live="polite"></main>
-  <p class="empty" id="empty" hidden>Todavía no hay proyectos. Pulsa <b>+ Nuevo proyecto</b> o <b>Vincular</b> para conectar una carpeta que ya tengas en el PC.</p>
-</section>
 
-<!-- GESTIONES: contenedor visual. Cada gestión es una carpeta de E:\ECOAPP\Gestiones y un proyecto independiente. -->
-<section id="p-gest" class="screen" hidden>
-  <header class="top">
-    <button class="btn ghost small" id="g-back" aria-label="Volver a Mis proyectos">‹ Volver</button>
-    <div class="top-actions">
-      <button class="btn primary small" id="b-new-gest" title="Crea la carpeta E:\ECOAPP\Gestiones\&lt;nombre&gt; y la añade">+ Nueva gestión</button>
-    </div>
-  </header>
-  <h2 class="section-title">Gestiones</h2>
-  <main id="g-cards" class="cards" aria-live="polite"></main>
-  <p class="empty" id="g-empty" hidden>Todavía no hay gestiones. Pulsa <b>+ Nueva gestión</b> (p. ej. Hacienda, Facturas, Seguros).</p>
+  <section class="zone" aria-labelledby="h-marcha">
+    <div class="zone-head"><h2 id="h-marcha">En marcha</h2><span class="count" id="n-marcha">0</span></div>
+    <main id="marcha" class="desks" aria-live="polite"></main>
+    <p class="zone-empty" id="marcha-empty" hidden>Nadie está trabajando ahora mismo. Dale un objetivo a un proyecto en espera.</p>
+  </section>
+
+  <section class="zone" aria-labelledby="h-espera">
+    <div class="zone-head"><h2 id="h-espera">En espera</h2><span class="count" id="n-espera">0</span><small class="acct" id="acct"></small></div>
+    <div id="espera" class="tiles"></div>
+  </section>
+  <p class="empty" id="empty" hidden>Todavía no hay proyectos. Pulsa <b>+ Nuevo proyecto</b> o <b>Vincular</b> para conectar una carpeta que ya tengas en el PC.</p>
 </section>
 
 <section id="p-detail" class="screen" hidden>
@@ -112,6 +123,12 @@
 </dialog>
 
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+<!-- Aviso de versión nueva (PWA): nunca recarga sola; lo decide Antonio. -->
+<div class="update" id="update" role="status" hidden>
+  <span>Nueva versión disponible</span>
+  <button class="btn accent small" id="b-update" type="button">ACTUALIZAR</button>
+</div>
 
 <script src="vendor/supabase.js"></script>
 <script type="module" src="app.js"></script>

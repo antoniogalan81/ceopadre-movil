@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-label="Gestiones">
+  <!-- GESTIONES · CEOPadre: un archivador de oficina (dos bandejas y una pestaña). Maestro vectorial. -->
+  <rect x="8" y="8" width="240" height="240" rx="56" fill="#1d5a47"/>
+  <path d="M60 92h54l12 -14h70a10 10 0 0 1 10 10v8" fill="none" stroke="#9ed9bf" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="50" y="100" width="156" height="58" rx="14" fill="#f3fbf7"/>
+  <rect x="50" y="166" width="156" height="42" rx="14" fill="#cfeee0"/>
+  <rect x="104" y="122" width="48" height="12" rx="6" fill="#1d5a47"/>
+  <rect x="112" y="181" width="32" height="10" rx="5" fill="#1d5a47"/>
+</svg>

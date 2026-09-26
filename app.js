@@ -1,5 +1,7 @@
 // CEOPadre en el navegador. En el PC habla con la API local; en el móvil, con Supabase.
 // No ejecuta nada: pinta el estado y deja órdenes. Todo el texto se inserta como texto (nunca HTML).
+import { gestText, mood, netStatus, office, priority, zone } from './zones.js';
+
 const LOCAL = ['127.0.0.1', 'localhost'].includes(location.hostname);
 const $ = (s) => document.querySelector(s);
 
@@ -97,9 +99,9 @@ async function remoteApi() {
 // ------------------------------------------------------------------ vocabulario
 
 const STATES = {
-  LIBRE: ['⚪', 'SIN OBJETIVO', 'idle'], EN_COLA: ['⏳', 'EN COLA', 'idle'], TRABAJANDO: ['🟢', 'TRABAJANDO', 'work'],
+  LIBRE: ['⚪', 'SIN OBJETIVO', 'idle'], EN_COLA: ['⏳', 'EN COLA', 'wait'], TRABAJANDO: ['🟢', 'TRABAJANDO', 'work'],
   ESPERANDO_DECISION: ['🟡', 'ESPERANDO DECISIÓN', 'ask'], PAUSADO: ['⏸️', 'PAUSADO', 'idle'],
-  ESPERANDO_CLAUDE: ['⏳', 'ESPERANDO CLAUDE', 'warn'], ESPERANDO_CEO: ['⏳', 'ESPERANDO CEO', 'warn'],
+  ESPERANDO_CLAUDE: ['⏳', 'ESPERANDO CLAUDE', 'wait'], ESPERANDO_CEO: ['⏳', 'ESPERANDO CEO', 'wait'],
   SIN_ACTIVIDAD: ['🟠', 'SIN ACTIVIDAD', 'warn'], BLOQUEADO: ['🔴', 'BLOQUEADO', 'bad'], ERROR: ['🔴', 'ERROR', 'bad'],
   TERMINADO: ['✅', 'TERMINADO', 'ok'], CANCELADO: ['⚪', 'CANCELADO', 'idle'],
 };
@@ -129,7 +131,7 @@ function ago(iso) {
 
 // ------------------------------------------------------------------ app
 
-let api, data = { proyectos: [], pc: { online: true } }, openId = null, backTo = 'p-list';
+let api, data = { proyectos: [], pc: { online: true } }, openId = null;
 
 let toastT;
 function toast(msg, kind = '') {
@@ -138,10 +140,19 @@ function toast(msg, kind = '') {
   clearTimeout(toastT); toastT = setTimeout(() => { t.className = 'toast'; }, 3500);
 }
 
-const show = (id) => { for (const s of ['p-login', 'p-list', 'p-gest', 'p-detail']) $('#' + s).hidden = s !== id; };
+const show = (id) => { for (const s of ['p-login', 'p-list', 'p-detail']) $('#' + s).hidden = s !== id; };
 
 async function refresh() {
-  try { data = await api.state(); } catch (e) { toast(`No se pudo leer: ${e.message}`, 'bad'); return; }
+  try {
+    data = await api.state();
+    net = 'ok';
+  } catch (e) {
+    // Sin red: se dice en el indicador (una vez) y se sigue enseñando lo último conocido; otro fallo sí se avisa.
+    const offline = !navigator.onLine || /fetch|network|load failed/i.test(String(e?.message));
+    if (offline) { net = 'offline'; paintList(); return; }
+    toast(`No se pudo leer: ${e.message}`, 'bad');
+    return;
+  }
   paintList();
   if (openId) paintDetail();
 }
@@ -203,6 +214,8 @@ const ICONS = {
   image: 'M4 4h16v16H4zM4 16l5-5 4 4 3-3 4 4M15 8.5v.01',
   folder: 'M3 6h6l2 2h10v11H3zM12 11v5M9.5 13.5h5',
   briefcase: 'M3 7h18v12H3zM9 7V5h6v2M3 12h18',
+  chevron: 'M6 9l6 6 6-6',
+  download: 'M12 4v11M7 10l5 5 5-5M5 20h14',
 };
 function svg(name) {
   const NS = 'http://www.w3.org/2000/svg';
@@ -258,7 +271,7 @@ const actions = {
       fields: [{ name: 'texto', label: 'Objetivo', type: 'textarea', placeholder: 'Ej.: Sigue creando turnos partidos cuando la empleada tiene NO. Corrígelo.' }], ok: 'Iniciar' });
     if (r?.texto) run('objetivo.iniciar', { proyecto: c.id, texto: r.texto }, 'Objetivo iniciado', b);
   },
-  details: (c) => { backTo = $('#p-gest').hidden ? 'p-list' : 'p-gest'; openId = c.id; paintDetail(true); show('p-detail'); window.scrollTo(0, 0); },
+  details: (c) => { openId = c.id; paintDetail(true); show('p-detail'); window.scrollTo(0, 0); },
   unlink: (c, b) => unlink(c, b),
 };
 
@@ -284,7 +297,7 @@ const line = (label, text, cls = '') => h('p', { class: `ln ${cls}` }, h('b', {}
 
 /** Tarjeta compacta (lista). `full` = la misma tarjeta en DETALLES, sin recortar textos y con los datos completos. */
 function card(c, full = false) {
-  const [icon, label, tone] = STATES[c.estado] || ['⚪', c.estado, 'idle'];
+  const [, label, tone] = STATES[c.estado] || ['⚪', c.estado, 'idle'];
   const decision = c.estado === 'ESPERANDO_DECISION' ? h('div', { class: 'decision' },
     line('PROPUESTA', c.propuesta), line('RECOMIENDA', c.recomendacion),
     h('div', { class: 'row' },
@@ -298,7 +311,7 @@ function card(c, full = false) {
       logo(c),
       h('div', { class: 'title' },
         h('h3', { title: c.nombre }, c.nombre),
-        h('span', { class: `pill tone-${tone}` }, h('span', { 'aria-hidden': 'true' }, icon), ` ${label}`))),
+        h('span', { class: `pill tone-${tone}` }, h('i', { class: 'dot', 'aria-hidden': 'true' }), ` ${label}`))),
     c.estado === 'LIBRE' ? h('p', { class: 'ln muted' }, 'Sin objetivo todavía.') : [
       h('p', { class: 'ln goal', title: c.objetivo }, c.objetivo),
       line('AHORA', ahora),
@@ -314,49 +327,113 @@ function card(c, full = false) {
     h('div', { class: 'actions' }, buttonsFor(c)));
 }
 
-// GESTIONES: contenedor visual (no ejecuta nada). Resume cuántas hay y cómo van; al pulsarla se abren.
-function gestCard(list) {
-  const busy = list.filter((c) => ['TRABAJANDO', 'SIN_ACTIVIDAD'].includes(c.estado)).length;
-  const attn = list.filter((c) => ['ESPERANDO_DECISION', 'BLOQUEADO', 'ERROR', ...WAITING].includes(c.estado)).length;
-  const summary = [`${list.length} ${list.length === 1 ? 'gestión' : 'gestiones'}`, busy ? `${busy} trabajando` : '', attn ? `${attn} te necesita${attn > 1 ? 'n' : ''}` : ''].filter(Boolean).join(' · ');
-  const open = () => { show('p-gest'); paintGest(); window.scrollTo(0, 0); };
-  return h('article', { class: `card gest tone-${busy ? 'work' : attn ? 'ask' : 'idle'}`, 'data-id': 'gestiones' },
-    h('header', { class: 'card-head' },
-      h('span', { class: 'logo ph gest-ico', 'aria-hidden': 'true' }, svg('briefcase')),
-      h('div', { class: 'title' }, h('h3', {}, 'GESTIONES'))),
-    h('p', { class: 'ln' }, summary),
-    h('p', { class: 'ln muted' }, 'Asuntos pequeños: Hacienda, facturas, seguros…'),
-    h('div', { class: 'actions' }, h('button', { class: 'btn small', type: 'button', onclick: open, 'aria-label': 'Abrir GESTIONES' }, 'ABRIR')));
+// ------------------------------------------------------------------ la oficina
+
+// Texto del estado en los puestos (lo que Antonio lee de un vistazo).
+const MOOD_LABEL = { ESPERANDO_DECISION: 'Te necesita · decidir', ERROR: 'Error · revisar', BLOQUEADO: 'Bloqueado · revisar',
+  SIN_ACTIVIDAD: 'Sin actividad', TRABAJANDO: 'Trabajando', ESPERANDO_CLAUDE: 'Esperando a Claude', ESPERANDO_CEO: 'Esperando al CEO',
+  EN_COLA: 'En cola', LIBRE: 'Sin objetivo', PAUSADO: 'Pausado', TERMINADO: 'Terminado', CANCELADO: 'Cancelado' };
+const status = (c, text) => h('span', { class: 'status' }, h('i', { class: 'dot', 'aria-hidden': 'true' }), text || MOOD_LABEL[c.estado] || c.estado);
+
+/** Puesto de trabajo (EN MARCHA): qué hace, qué sigue y, si hay que decidir, la decisión a mano. */
+function desk(c) {
+  const running = ['TRABAJANDO', 'SIN_ACTIVIDAD'].includes(c.estado);
+  const [ahora, siguiente] = WAITING.includes(c.estado) ? waitLines(c) : [running && c.actividad ? `${c.actividad} · ${c.ahora || ''}` : c.ahora, c.siguiente];
+  const decision = c.estado === 'ESPERANDO_DECISION' ? h('div', { class: 'decision' },
+    line('PROPUESTA', c.propuesta), line('RECOMIENDA', c.recomendacion),
+    h('div', { class: 'row' },
+      h('button', { class: 'btn primary small', type: 'button', onclick: (e) => actions.approve(c, e.currentTarget) }, 'APROBAR'),
+      h('button', { class: 'btn small', type: 'button', onclick: (e) => actions.reject(c, e.currentTarget) }, 'RECHAZAR'))) : null;
+  return h('article', { class: `desk m-${mood(c)}`, 'data-id': c.id },
+    h('header', { class: 'unit-head' }, logo(c),
+      h('div', { class: 'title' }, h('h3', { title: c.nombre }, c.nombre), status(c)),
+      c.estado === 'TRABAJANDO' ? h('span', { class: 'beacon', title: 'Trabajando ahora', 'aria-hidden': 'true' }) : null),
+    h('p', { class: 'ln goal', title: c.objetivo }, c.objetivo),
+    line('AHORA', ahora),
+    line('SIGUIENTE', siguiente, 'next'),
+    c.detalle && ['BLOQUEADO', 'ERROR', 'SIN_ACTIVIDAD'].includes(c.estado) ? h('p', { class: 'note' }, c.detalle) : null,
+    decision,
+    h('div', { class: 'actions' }, buttonsFor(c)));
 }
 
-const byUse = (a, b) => String(b.usado || '').localeCompare(String(a.usado || ''));
-const gestiones = () => data.proyectos.filter((c) => c.tipo === 'GESTION').sort(byUse);
+/** Azulejo (EN ESPERA): logo, nombre, estado mínimo y las acciones de siempre. */
+function tile(c) {
+  return h('article', { class: `tile m-${mood(c)}`, 'data-id': c.id },
+    logo(c),
+    h('div', { class: 'title' }, h('h3', { title: c.nombre }, c.nombre), status(c)),
+    h('div', { class: 'actions' }, buttonsFor(c)));
+}
+
+// GESTIONES: una unidad más de la oficina (mismo tamaño que sus vecinas) que se abre como un cajón, en la misma página.
+let gestOpen = (() => { try { return localStorage.getItem('ceo-gest-open') === '1'; } catch { return false; } })();
+function gestUnit(o, asDesk) {
+  const r = o.resumen;
+  const m = r.necesita ? 'need' : r.trabajando ? 'work' : r.esperando ? 'wait' : 'idle';
+  const toggle = () => {
+    gestOpen = !gestOpen;
+    try { localStorage.setItem('ceo-gest-open', gestOpen ? '1' : '0'); } catch { /* sin almacenamiento */ }
+    paintList();
+    $('[data-id="gestiones"] .chevron')?.focus({ preventScroll: true });
+  };
+  const btn = h('button', { class: `icon-btn chevron${gestOpen ? ' open' : ''}`, type: 'button', 'aria-expanded': String(gestOpen), 'aria-controls': 'gest-list',
+    'aria-label': gestOpen ? 'Cerrar GESTIONES' : 'Abrir GESTIONES', title: gestOpen ? 'Cerrar' : 'Abrir', onclick: (e) => { e.stopPropagation(); toggle(); } }, svg('chevron'));
+  const head = [h('img', { class: 'logo', src: 'gestiones.svg', alt: '', width: 36, height: 36 }),
+    h('div', { class: 'title' }, h('h3', {}, 'GESTIONES'), status({ estado: '' }, gestText(r)))];
+  // Abierta: la propia unidad se despliega a lo ancho con sus gestiones dentro (un cajón, no otra página).
+  if (gestOpen) {
+    return h('section', { class: `drawer gest m-${m} is-open`, 'data-id': 'gestiones', 'aria-label': 'Gestiones' },
+      h('header', { class: 'unit-head' }, ...head,
+        h('button', { class: 'btn primary small', type: 'button', onclick: (e) => createFolder('gestion.crear', 'gestión', 'E:\\ECOAPP\\Gestiones', e.currentTarget) }, '+ Nueva gestión'),
+        btn),
+      h('div', { class: 'drawer-grid', id: 'gest-list' },
+        o.gestiones.length ? o.gestiones.map((c) => (zone(c) === 'marcha' ? desk(c) : tile(c)))
+          : h('p', { class: 'zone-empty' }, 'Todavía no hay gestiones. Crea la primera: Hacienda, Facturas, Seguros…')));
+  }
+  return h('article', { class: `${asDesk ? 'desk' : 'tile'} gest m-${m}`, 'data-id': 'gestiones', onclick: toggle },
+    asDesk ? [h('header', { class: 'unit-head' }, ...head, btn), h('p', { class: 'ln' }, 'Asuntos pequeños con su propia carpeta: Hacienda, facturas, seguros…')]
+      : [...head, h('div', { class: 'actions' }, btn)]);
+}
 
 function repaint(box, items) {
-  const active = document.activeElement?.closest?.('.card')?.dataset.id;
+  const active = document.activeElement?.closest?.('[data-id]')?.dataset.id;
   box.replaceChildren(...items);
   if (active) box.querySelector(`[data-id="${CSS.escape(active)}"] button`)?.focus({ preventScroll: true });
 }
 
 function paintList() {
-  const line_ = $('#pc-line');
-  line_.hidden = LOCAL || data.pc.online;
-  if (!line_.hidden) line_.textContent = data.pc.visto ? `El PC no está conectado (visto ${ago(data.pc.visto)}). Ves el último estado conocido; las órdenes no se envían.` : 'Aún no se ha visto el PC.';
-  $('#acct').textContent = data.cuenta ? `Cuenta: ${data.cuenta}` : '';
-  // Proyectos y la tarjeta GESTIONES, por último uso (la de GESTIONES, según su gestión más reciente).
-  const g = gestiones();
-  const items = [...data.proyectos.filter((c) => c.tipo !== 'GESTION').map((c) => ({ usado: c.usado, el: () => card(c) })),
-    { usado: g[0]?.usado || '', el: () => gestCard(g) }].sort(byUse);
-  repaint($('#cards'), items.map((x) => x.el()));
+  const pcl = $('#pc-line');
+  pcl.hidden = LOCAL || data.pc.online || net === 'offline';
+  if (!pcl.hidden) pcl.textContent = data.pc.visto ? `El PC no está conectado (visto ${ago(data.pc.visto)}). Ves el último estado conocido; las órdenes no se envían.` : 'Aún no se ha visto el PC.';
+  $('#acct').textContent = data.cuenta || '';
+  paintNet();
+  const o = office(data.proyectos);
+  const gestActive = o.gestiones.some((c) => zone(c) === 'marcha');
+  const marcha = o.marcha.map(desk), espera = o.espera.map(tile);
+  // GESTIONES entra en su zona según su prioridad (te necesita > trabajando > esperando), como un proyecto más.
+  if (gestActive) {
+    const p = o.resumen.necesita ? 0 : o.resumen.trabajando ? 1 : 2;
+    const at = o.marcha.findIndex((c) => priority(c) > p);
+    marcha.splice(at < 0 ? marcha.length : at, 0, gestUnit(o, true));
+  } else espera.unshift(gestUnit(o, false));
+  repaint($('#marcha'), marcha.filter(Boolean));
+  repaint($('#espera'), espera.filter(Boolean));
+  $('#n-marcha').textContent = String(o.marcha.length + (gestActive ? 1 : 0));
+  $('#n-espera').textContent = String(o.espera.length + (gestActive ? 0 : 1));
+  $('#marcha-empty').hidden = marcha.filter(Boolean).length > 0;
+  $('#office-sum').textContent = `${o.marcha.length} en marcha · ${o.espera.length} en espera · ${o.resumen.total} ${o.resumen.total === 1 ? 'gestión' : 'gestiones'}`;
   $('#empty').hidden = data.proyectos.length > 0;
-  if (!$('#p-gest').hidden) paintGest();
 }
 
-function paintGest() {
-  const g = gestiones();
-  repaint($('#g-cards'), g.map((c) => card(c)));
-  $('#g-empty').hidden = g.length > 0;
+// Indicador de conexión: Operativo · PC desconectado · Sin internet. Con lo que ya hay (latido del PC y el navegador).
+let net = 'ok';
+function paintNet() {
+  const s = netStatus({ local: LOCAL, browserOnline: navigator.onLine, reachable: net !== 'offline', pcOnline: data.pc.online });
+  const el = $('#net');
+  el.className = `net m-${s[0]}`;
+  el.lastChild.textContent = s[1];
 }
+window.addEventListener('online', () => { net = 'ok'; void refresh(); });
+window.addEventListener('offline', () => { net = 'offline'; paintNet(); paintList(); });
 
 // NUEVO PROYECTO (E:\ECOAPP\<nombre>) y NUEVA GESTIÓN (E:\ECOAPP\Gestiones\<nombre>): sólo crean la carpeta y la vinculan.
 async function createFolder(op, what, where, b) {
@@ -381,7 +458,7 @@ async function createFolder(op, what, where, b) {
 let detailCache = null;
 async function paintDetail(force) {
   const c = data.proyectos.find((p) => p.id === openId);
-  if (!c) { openId = null; show(backTo); return; }
+  if (!c) { openId = null; show('p-list'); return; }
   $('#d-name').textContent = c.nombre;
   if (force || !detailCache || detailCache.id !== openId || Date.now() - detailCache.at > 4000) {
     detailCache = { id: openId, at: Date.now(), d: await api.details(openId) };
@@ -449,15 +526,13 @@ function lessonItem(l) {
 
 // ------------------------------------------------------------------ arranque
 
-$('#d-back').addEventListener('click', () => { openId = null; show(backTo); if (backTo === 'p-gest') paintGest(); });
-$('#g-back').addEventListener('click', () => show('p-list'));
+$('#d-back').addEventListener('click', () => { openId = null; show('p-list'); });
 $('#b-create-project').addEventListener('click', (e) => createFolder('proyecto.nuevo', 'proyecto', 'E:\\ECOAPP', e.currentTarget));
-$('#b-new-gest').addEventListener('click', (e) => createFolder('gestion.crear', 'gestión', 'E:\\ECOAPP\\Gestiones', e.currentTarget));
 // QUITAR = desvincular. CEOPadre no tiene ninguna función que borre carpetas.
 async function unlink(c, btn) {
   const ok = await ask({ title: `¿Quitar ${c.nombre} de CEOPadre?`, ok: 'Sí, quitar', danger: true,
     help: 'Se quitará de CEOPadre. La carpeta y todos sus archivos permanecerán intactos. El historial se conserva y podrás volver a vincularlo cuando quieras.' });
-  if (ok && await run('proyecto.desvincular', { proyecto: c.id, confirmar: true }, 'Quitado de CEOPadre', btn) && openId) { openId = null; show(backTo); }
+  if (ok && await run('proyecto.desvincular', { proyecto: c.id, confirmar: true }, 'Quitado de CEOPadre', btn) && openId) { openId = null; show('p-list'); }
 }
 
 // ------------------------------------------------------------------ vincular proyecto
@@ -559,4 +634,49 @@ async function start() {
   await refresh();
   api.watch(() => void refresh());
 }
+
+// ------------------------------------------------------------------ PWA (sólo en el móvil publicado)
+
+const standalone = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+// ¿Hay algo escrito sin enviar? Entonces no se recarga (no se pierde texto de Antonio).
+const typing = () => [...document.querySelectorAll('dialog[open] textarea, dialog[open] input:not([type=password])')].some((x) => x.value.trim());
+
+function pwa() {
+  if (LOCAL || !('serviceWorker' in navigator)) return;
+  let asked = false; // sólo se recarga si Antonio pulsó ACTUALIZAR (nunca en la primera instalación ni en bucle)
+  navigator.serviceWorker.addEventListener('controllerchange', () => { if (asked) { asked = false; location.reload(); } });
+  navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then((reg) => {
+    const offer = (w) => {
+      if (!w || !navigator.serviceWorker.controller) return; // primera visita: no hay nada que «actualizar»
+      $('#update').hidden = false;
+      $('#b-update').onclick = () => {
+        if (typing()) { toast('Termina (o cierra) lo que estás escribiendo y vuelve a pulsar ACTUALIZAR', 'bad'); return; }
+        asked = true;
+        $('#b-update').disabled = true;
+        w.postMessage('SKIP_WAITING');
+      };
+    };
+    offer(reg.waiting);
+    reg.addEventListener('updatefound', () => {
+      const w = reg.installing;
+      w?.addEventListener('statechange', () => { if (w.state === 'installed') offer(w); });
+    });
+    // Al volver a la app se mira si hay versión nueva (una petición del propio sw.js; nada de sondeos).
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') reg.update().catch(() => {}); });
+  }).catch(() => { /* sin service worker la app sigue funcionando en línea */ });
+
+  // Android/Chrome: «Instalar CEOPadre» discreto, sólo cuando el navegador lo ofrece y si no está ya instalada.
+  let deferred = null;
+  window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); deferred = e; $('#b-install').hidden = standalone(); });
+  window.addEventListener('appinstalled', () => { deferred = null; $('#b-install').hidden = true; });
+  $('#b-install').addEventListener('click', async () => {
+    if (!deferred) return;
+    deferred.prompt();
+    await deferred.userChoice.catch(() => null);
+    deferred = null;
+    $('#b-install').hidden = true;
+  });
+}
+
+pwa();
 start();

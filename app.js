@@ -51,10 +51,18 @@ async function remoteApi() {
       pc = p.data;
       const proyectos = c.data.map((r) => r.datos);
       // Logos: sólo los que faltan o cambiaron de huella, una vez (tabla ceo_logo, sin Realtime).
+      // Caché del teléfono por huella: un logo sólo se descarga de nuevo si cambia.
+      for (const x of proyectos) {
+        if (!x.logo || logos.get(x.id)?.hash === x.logo) continue;
+        try { const v = JSON.parse(localStorage.getItem(`ceo-logo-${x.id}`) || 'null'); if (v?.hash === x.logo) logos.set(x.id, v); } catch { /* sin almacenamiento */ }
+      }
       const need = proyectos.filter((x) => x.logo && logos.get(x.id)?.hash !== x.logo).map((x) => x.id);
       if (need.length) {
         const l = await sb.from('ceo_logo').select('id,hash,data').in('id', need);
-        for (const x of l.data || []) logos.set(x.id, x);
+        for (const x of l.data || []) {
+          logos.set(x.id, x);
+          try { localStorage.setItem(`ceo-logo-${x.id}`, JSON.stringify({ hash: x.hash, data: x.data })); } catch { /* lleno o bloqueado: sólo memoria */ }
+        }
       }
       for (const x of proyectos) x._logo = x.logo && logos.get(x.id)?.hash === x.logo ? logos.get(x.id).data : null;
       cuenta ??= (await sb.auth.getUser()).data.user?.email || '';

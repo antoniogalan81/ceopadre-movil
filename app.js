@@ -1,21 +1,11 @@
 // CEOPadre en el navegador. En el PC habla con la API local; en el móvil, con Supabase.
 // No ejecuta nada: pinta el estado y deja órdenes. Todo el texto se inserta como texto (nunca HTML).
 import { gestText, mood, netStatus, office, priority, PROMPT_LIMIT, PROMPT_WARN, quotaView, zone } from './zones.js';
+import { h } from './dom.js';
+import { mapBody, mapPanel } from './map.js';
 
 const LOCAL = ['127.0.0.1', 'localhost'].includes(location.hostname);
 const $ = (s) => document.querySelector(s);
-
-function h(tag, attrs = {}, ...kids) {
-  const el = document.createElement(tag);
-  for (const [k, v] of Object.entries(attrs)) {
-    if (v === false || v == null) continue;
-    if (k === 'class') el.className = v;
-    else if (k.startsWith('on')) el.addEventListener(k.slice(2), v);
-    else el.setAttribute(k, v === true ? '' : v);
-  }
-  for (const k of kids.flat()) if (k != null && k !== false) el.append(k instanceof Node ? k : String(k));
-  return el;
-}
 
 // ------------------------------------------------------------------ transporte
 
@@ -162,6 +152,7 @@ async function run(op, params, okMsg, btn) {
   try {
     const r = await api.cmd(op, params);
     if (r?.ok) toast(r.data?.mensaje || okMsg, 'ok'); else toast(r?.error || 'No se pudo', 'bad');
+    detailCache = null; // tras una orden, DETALLES (y el mapa) se vuelven a pedir: nada de estado viejo en pantalla
     await refresh();
     return r?.ok;
   } finally { if (btn) btn.disabled = false; }
@@ -510,6 +501,13 @@ function seg(name, legend, options, value, onchange) {
 }
 
 // Visor de texto largo (objetivo o informe completo): texto plano, nunca HTML.
+// Mapa completo: mismo diálogo grande que el editor; conserva el scroll al repintarse.
+function paintMap(m, decide) {
+  const box = $('#map-body'), y = box.scrollTop;
+  box.replaceChildren(...mapBody(m, decide).filter(Boolean));
+  box.scrollTop = y;
+}
+
 function view(title, text) {
   $('#viewer-title').textContent = title;
   $('#viewer-text').textContent = text;
@@ -528,7 +526,11 @@ async function paintDetail(force) {
   const body = $('#d-body');
   const wasOpen = new Set([...body.querySelectorAll('details[open]')].map((x) => x.dataset.k));
   // replaceChildren() pintaría «null» como texto: sólo nodos.
-  body.replaceChildren(...[summaryPanel(c, d), writePanel(c, d), roundsPanel(d), techPanel(c, d)].filter(Boolean));
+  // Canon: decidir un cambio propuesto (sólo Antonio). El mapa completo se repinta si está abierto.
+  const decide = (id, que, b) => run(`canon.${que}`, { proyecto: c.id, id }, que === 'aprobar' ? 'Aprobado' : 'Rechazado', b);
+  const openMap = () => { $('#map-title').textContent = `Mapa · ${c.nombre}`; paintMap(d.mapa, decide); $('#map').showModal(); };
+  body.replaceChildren(...[summaryPanel(c, d), mapPanel(d.mapa, { open: openMap, decide }), writePanel(c, d), roundsPanel(d), techPanel(c, d)].filter(Boolean));
+  if ($('#map').open) paintMap(d.mapa, decide);
   for (const x of body.querySelectorAll('details')) if (wasOpen.has(x.dataset.k)) x.open = true;
 }
 
@@ -557,7 +559,7 @@ function summaryPanel(c, d) {
         ceo.vuelve ? h('li', {}, `Codex vuelve a probarse: ${when(ceo.vuelve)}`) : null,
         (ceo.proveedores || []).map((x) => h('li', {}, `${x.nombre}: ${future(x.hasta) ? `limitado (${x.motivo}) hasta aprox. ${hhmm(x.hasta)}` : 'disponible'}`)))) : null,
     hasJob ? [
-      h('p', { class: 'lbl' }, 'OBJETIVO'),
+      h('p', { class: 'lbl' }, 'OBJETIVO ACTUAL'),
       h('p', { class: 'sum-goal' }, c.objetivo),
       long || (c.objetivo || '').length > 180 ? h('button', { class: 'link', type: 'button', onclick: () => openGoal(c) }, 'Ver objetivo completo') : null,
       line('AHORA', ahora), line('SIGUIENTE', siguiente, 'next'),

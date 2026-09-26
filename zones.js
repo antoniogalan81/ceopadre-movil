@@ -85,3 +85,13 @@ export function quotaView(rows, now = Date.now()) {
 // ponytail: fijo (~200k tokens de texto); si Claude admite más contexto, se sube aquí y vale para todo.
 export const PROMPT_LIMIT = 800_000;
 export const PROMPT_WARN = 400_000;
+
+// PC vivo = latido sellado por el reloj de Supabase hace menos de `tolerancia` (el PC late cada 20 s). Un sello
+// «del futuro» por un desfase pequeño del reloj del teléfono cuenta como reciente; uno muy futuro o ilegible, no.
+export const PC_ONLINE_MS = 60_000;
+export function pcOnline(vistoEn, now = Date.now(), tolerancia = PC_ONLINE_MS) {
+  const t = Date.parse(vistoEn || '');
+  if (!Number.isFinite(t)) return false;
+  const age = now - t;
+  return age < tolerancia && age > -5 * 60_000;
+}

@@ -1,10 +1,10 @@
 // CEOPadre · service worker. SÓLO la carcasa de la app (HTML, CSS, JS, iconos) en una caché versionada.
 // Los datos (Supabase: proyectos, órdenes, sesión) nunca pasan por aquí: van siempre a la red y no se guardan.
 // VERSION la sella tools/publish-mobile.mjs con la huella del contenido: cada publicación es una caché nueva.
-const VERSION = '793d621b76a2';
+const VERSION = 'f1daddfdd077';
 const CACHE = `ceopadre-${VERSION}`;
 const SHELL = ['./', 'index.html', 'style.css', 'app.js', 'zones.js', 'dom.js', 'map.js', 'config.js', 'vendor/supabase.js', 'manifest.webmanifest',
-  'logo.png', 'gestiones.svg', 'icono-192.png', 'icono-512.png', 'icono-maskable-512.png', 'apple-touch-icon.png', 'favicon.ico'];
+  'logo.png', 'gestiones.svg', 'icono-v2-192.png', 'icono-v2-512.png', 'icono-v2-maskable-512.png', 'apple-touch-icon-v2.png', 'favicon.ico'];
 
 self.addEventListener('install', (e) => {
   // Sin skipWaiting: la versión nueva espera a que Antonio pulse ACTUALIZAR (nunca recarga por sorpresa).

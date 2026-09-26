@@ -1,6 +1,6 @@
 // CEOPadre en el navegador. En el PC habla con la API local; en el móvil, con Supabase.
 // No ejecuta nada: pinta el estado y deja órdenes. Todo el texto se inserta como texto (nunca HTML).
-import { gestText, mood, netStatus, office, priority, PROMPT_LIMIT, PROMPT_WARN, quotaView, zone } from './zones.js';
+import { gestText, mood, netStatus, office, pcOnline, priority, PROMPT_LIMIT, PROMPT_WARN, quotaView, zone } from './zones.js';
 import { h } from './dom.js';
 import { mapBody, mapPanel } from './map.js';
 
@@ -31,10 +31,10 @@ async function remoteApi() {
   const { SUPABASE_URL, SUPABASE_ANON } = await import('./config.js');
   const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON, {
     auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false }, global: { headers: { 'x-ceo': 'movil' } } });
-  const ONLINE_MS = 60_000;
+
   let pc = null, cuenta = null;
   const logos = new Map(); // id → { hash, data }
-  const online = () => !!pc && Date.now() - Date.parse(pc.visto_en) < ONLINE_MS;
+  const online = () => pcOnline(pc?.visto_en); // tiempo real contra el sello del servidor; nunca un valor guardado
   return {
     sb,
     async state() {

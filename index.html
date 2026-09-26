@@ -106,7 +106,8 @@
   <form method="dialog" class="cmp-body">
     <header class="cmp-head"><h2 id="cmp-title">Escribir</h2><span class="cmp-count" id="cmp-count" aria-live="polite"></span></header>
     <div class="cmp-opts" id="cmp-opts"></div>
-    <p class="cmp-help muted" id="cmp-help"></p>
+    <div class="cmp-tools"><p class="cmp-help muted" id="cmp-help"></p>
+      <button class="btn ghost small icon-text" type="button" id="cmp-paste">Pegar último informe</button></div>
     <textarea id="cmp-text" aria-labelledby="cmp-title" placeholder="Escribe o pega aquí…"></textarea>
     <p class="cmp-warn" id="cmp-warn" role="alert" hidden></p>
     <div class="row">
@@ -127,7 +128,9 @@
 <!-- Visor de texto largo: objetivo o informe completos (texto plano). -->
 <dialog id="viewer" class="sheet composer" aria-labelledby="viewer-title">
   <form method="dialog" class="cmp-body">
-    <header class="cmp-head"><h2 id="viewer-title"></h2><button class="btn ghost small" value="close">Cerrar</button></header>
+    <header class="cmp-head"><h2 id="viewer-title"></h2><span class="head-act">
+      <button class="btn ghost small icon-text" type="button" id="viewer-copy" aria-label="Copiar informe completo" title="Copiar informe completo" hidden>Copiar</button>
+      <button class="btn ghost small" value="close">Cerrar</button></span></header>
     <pre class="viewer-text" id="viewer-text"></pre>
   </form>
 </dialog>

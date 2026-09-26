@@ -126,6 +126,9 @@ let api, data = { proyectos: [], pc: { online: true } }, openId = null;
 let toastT;
 function toast(msg, kind = '') {
   const t = $('#toast');
+  // Con un diálogo modal abierto, el aviso vive dentro de él: si no, quedaría tapado por el fondo.
+  const host = document.querySelector('dialog[open]') || document.body;
+  if (t.parentElement !== host) host.append(t);
   t.textContent = msg; t.className = `toast show ${kind}`;
   clearTimeout(toastT); toastT = setTimeout(() => { t.className = 'toast'; }, 3500);
 }
@@ -200,7 +203,7 @@ const HELP = {
   CONTINUAR: 'Claude mantiene el contexto de esta conversación.', NUEVA: 'Inicia una conversación limpia con Claude.',
 };
 let draft = ''; // lo último escrito y cancelado sin querer (sólo en memoria de esta pestaña)
-function compose({ title, text = '', tipo = 'INSTRUCCION', sesion = 'CONTINUAR', modo = null, ok = 'Enviar', sesiones = true }) {
+function compose({ title, text = '', tipo = 'INSTRUCCION', sesion = 'CONTINUAR', modo = null, ok = 'Enviar', sesiones = true, trabajo = null }) {
   const dlg = $('#composer'), ta = $('#cmp-text'), okBtn = $('#cmp-ok');
   const v = { tipo, sesion, modo };
   $('#cmp-title').textContent = title;
@@ -222,6 +225,20 @@ function compose({ title, text = '', tipo = 'INSTRUCCION', sesion = 'CONTINUAR',
   ].filter(Boolean));
   ta.value = text || draft; // editar un pendiente trae su texto; escribir uno nuevo recupera el borrador
   ta.oninput = paint;
+  // Pegar último informe: lo trae CEOPadre (no el portapapeles). Se inserta en el cursor sin borrar nada; no envía
+  // ni cambia TIPO/SESIÓN/CEO. Sin objetivo no hay informe que pegar.
+  const paste = $('#cmp-paste');
+  paste.disabled = !trabajo;
+  paste.title = trabajo ? 'Pegar el informe completo del último resultado de Claude' : NO_REPORT;
+  paste.setAttribute('aria-label', paste.title);
+  paste.onclick = async () => {
+    paste.disabled = true;
+    const r = await fullReport(trabajo);
+    paste.disabled = false;
+    if (r.error) { toast(r.error, 'bad'); return; }
+    insertText(ta, r.texto);
+    paint();
+  };
   paint();
   dlg.returnValue = '';
   dlg.showModal();
@@ -255,6 +272,8 @@ const ICONS = {
   edit: 'M4 20h4L19 9l-4-4L4 16zM13 7l4 4',
   trash: 'M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6',
   gauge: 'M4 18a8 8 0 1 1 16 0M12 18l4-6',
+  copy: 'M9 9h11v11H9zM5 15H4V4h11v1',
+  paste: 'M8 4h8v3H8zM6 5.5H5V21h14V5.5h-1M9 12h6M9 16h6',
 };
 function svg(name) {
   const NS = 'http://www.w3.org/2000/svg';
@@ -300,7 +319,7 @@ const actions = {
   },
   // Escribir (instrucción o prompt directo) sobre el objetivo actual. Con algo en marcha queda como pendiente.
   async instruct(c, b) {
-    const r = await compose({ title: `Escribir · ${c.nombre}`, modo: c.modo || 'AUTO' });
+    const r = await compose({ title: `Escribir · ${c.nombre}`, modo: c.modo || 'AUTO', trabajo: c.trabajo });
     // Si el PC lo rechaza, el texto vuelve al borrador: nunca se pierde lo escrito.
     if (r && !(await run('trabajo.instruccion', { trabajo: c.trabajo, texto: r.texto, tipo: r.tipo, sesion: r.sesion, modo: r.modo }, 'Enviado', b))) draft = r.texto;
   },
@@ -308,7 +327,7 @@ const actions = {
   reject: (c, b) => run('trabajo.rechazar', { trabajo: c.trabajo }, 'Rechazado', b),
   // Objetivo nuevo = sesión de Claude nueva y CEO AUTO por defecto.
   async goal(c, b) {
-    const r = await compose({ title: `Nuevo objetivo · ${c.nombre}`, modo: 'AUTO', sesiones: false, ok: 'Iniciar' });
+    const r = await compose({ title: `Nuevo objetivo · ${c.nombre}`, modo: 'AUTO', sesiones: false, ok: 'Iniciar', trabajo: c.trabajo });
     if (r && !(await run('objetivo.iniciar', { proyecto: c.id, texto: r.texto, tipo: r.tipo, modo: r.modo }, 'Objetivo iniciado', b))) draft = r.texto;
   },
   details: (c) => { openId = c.id; paintDetail(true); show('p-detail'); window.scrollTo(0, 0); },
@@ -534,10 +553,72 @@ function paintMap(m, decide) {
   box.scrollTop = y;
 }
 
-function view(title, text) {
+function view(title, text, src = null) {
   $('#viewer-title').textContent = title;
   $('#viewer-text').textContent = text;
-  $('#viewer').showModal();
+  viewerSrc = src;
+  $('#viewer-copy').hidden = !src;
+  if (!$('#viewer').open) $('#viewer').showModal();
+}
+
+// ---- Informe completo de Claude: UNA fuente (orden «ronda.informe», la respuesta final tal cual) para el visor,
+// los dos botones COPIAR y «Pegar último informe». Sólo lectura: 0 IA, no crea rondas ni toca el objetivo.
+const NO_REPORT = 'No hay informe de Claude todavía.';
+const reports = new Map(); // «trabajo:ronda» → texto (las rondas son inmutables)
+let viewerSrc = null;      // { trabajo, ronda } del informe abierto en el visor
+
+/** Sin `ronda`: el del último resultado. Devuelve { ronda, texto } o { error } (mensaje para Antonio). */
+async function fullReport(trabajo, ronda = null) {
+  if (!trabajo) return { error: NO_REPORT };
+  const k = `${trabajo}:${ronda}`;
+  if (ronda != null && reports.has(k)) return { ronda, texto: reports.get(k) };
+  try {
+    const r = await api.cmd('ronda.informe', { trabajo, ronda });
+    if (!r?.ok) return { error: r?.error || 'No se pudo leer el informe' };
+    reports.set(`${trabajo}:${r.data.ronda}`, r.data.texto);
+    return r.data;
+  } catch { return { error: 'No se pudo leer el informe' }; }
+}
+
+/** Portapapeles: API moderna y, si no hay permiso o contexto seguro, la copia clásica con una selección oculta. */
+async function copyText(text) {
+  try { await navigator.clipboard.writeText(text); return true; } catch { /* se prueba la vía clásica */ }
+  const ta = h('textarea', { class: 'clip-buf', readonly: true, 'aria-hidden': 'true' });
+  ta.value = text;
+  (document.querySelector('dialog[open]') || document.body).append(ta); // fuera del modal no se puede seleccionar
+  ta.select();
+  let ok = false;
+  try { ok = document.execCommand('copy'); } catch { /* sin soporte */ }
+  ta.remove();
+  return ok;
+}
+
+/** COPIAR (resumen y visor): el informe completo de esa ronda (sin ronda: el último), nunca el resumen. */
+async function copiarInformeCompleto(trabajo, ronda, btn) {
+  if (btn) btn.disabled = true;
+  try {
+    const r = await fullReport(trabajo, ronda);
+    if (r.error) { toast(r.error, 'bad'); return false; }
+    const ok = await copyText(r.texto);
+    toast(ok ? 'Informe copiado' : 'CEOPadre no pudo copiar el informe.', ok ? 'ok' : 'bad');
+    return ok;
+  } finally { if (btn) btn.disabled = false; }
+}
+
+async function viewReport(trabajo, ronda) {
+  const r = await fullReport(trabajo, ronda);
+  if (r.error) { toast(r.error, 'bad'); return; }
+  view(`Informe completo · ronda ${r.ronda}`, r.texto, { trabajo, ronda: r.ronda });
+}
+
+/** Inserta en el cursor (o al final) separando con una línea en blanco; nunca sustituye lo escrito. */
+function insertText(ta, text) {
+  const v = ta.value, at = Math.min(ta.selectionEnd ?? v.length, v.length);
+  const before = v.slice(0, at), after = v.slice(at);
+  const pre = !before || before.endsWith('\n\n') ? '' : before.endsWith('\n') ? '\n' : '\n\n';
+  const post = !after || after.startsWith('\n\n') ? '' : after.startsWith('\n') ? '\n' : '\n\n';
+  ta.setRangeText(pre + text + post, at, at, 'end');
+  ta.focus();
 }
 
 let detailCache = null;
@@ -597,7 +678,10 @@ function summaryPanel(c, d) {
         h('button', { class: 'btn small', type: 'button', onclick: (e) => actions.reject(c, e.currentTarget) }, 'RECHAZAR'))) : null,
     r ? h('div', { class: 'result' }, h('p', { class: 'lbl' }, `ÚLTIMO RESULTADO · ronda ${r.ronda} · ${r.estado}`),
       h('ul', {}, r.puntos.map((x) => h('li', { class: `r-${x.tipo}` }, h('i', { 'aria-hidden': 'true' }, MARK[x.tipo] || '·'), ' ', x.texto))),
-      h('button', { class: 'link', type: 'button', onclick: () => view(`Informe completo · ronda ${r.ronda}`, r.informe) }, 'Ver informe completo')) : null,
+      h('div', { class: 'result-act' },
+        h('button', { class: 'link', type: 'button', onclick: () => viewReport(c.trabajo, r.ronda) }, 'Ver informe completo'),
+        h('button', { class: 'link icon-text', type: 'button', 'aria-label': 'Copiar informe completo', title: 'Copiar informe completo',
+          onclick: (e) => copiarInformeCompleto(c.trabajo, null, e.currentTarget) }, svg('copy'), 'Copiar'))) : null,
     h('div', { class: 'actions' }, buttonsFor(c).filter((b) => b && b.getAttribute('aria-label') !== `Detalles de ${c.nombre}`)));
 }
 
@@ -627,7 +711,7 @@ async function editPending(p) {
   const r = await api.cmd('pendiente.leer', { id: p.id });
   if (!r?.ok) { toast(r?.error || 'No se pudo leer', 'bad'); return; }
   if (r.data.consumida) { toast('Ya se entregó (CONSUMIDA): no se puede editar', 'bad'); await refresh(); return; }
-  const v = await compose({ title: 'Editar pendiente', text: r.data.texto, tipo: r.data.tipo, sesion: r.data.sesion, ok: 'Guardar' });
+  const v = await compose({ title: 'Editar pendiente', text: r.data.texto, tipo: r.data.tipo, sesion: r.data.sesion, ok: 'Guardar', trabajo: detailCache?.d?.trabajo?.trabajo });
   if (v) await run('pendiente.editar', { id: p.id, texto: v.texto, tipo: v.tipo, sesion: v.sesion }, 'Pendiente actualizado');
 }
 async function deletePending(p, b) {
@@ -638,7 +722,7 @@ async function deletePending(p, b) {
 /** Historial de rondas: siempre visible, cada ronda plegada. */
 function roundsPanel(d) {
   return h('section', { class: 'panel' }, h('h4', {}, `Rondas (${d.rondas?.length || 0})`),
-    ...(d.rondas?.length ? d.rondas.map(roundItem) : [h('p', { class: 'muted' }, 'Sin rondas todavía.')]));
+    ...(d.rondas?.length ? d.rondas.map((r) => roundItem(r, d.trabajo?.trabajo)) : [h('p', { class: 'muted' }, 'Sin rondas todavía.')]));
 }
 
 /** Todo lo técnico, plegado: consumo, lecciones, mensajes, objetivos anteriores y la carpeta. */
@@ -666,7 +750,7 @@ function techPanel(c, d) {
       h('div', { class: 'row' }, iconBtn('unlink', 'Quitar de CEOPadre', (e) => unlink(c, e.currentTarget), 'danger'))));
 }
 
-function roundItem(r) {
+function roundItem(r, trabajo) {
   const list = (label, items) => (items?.length ? `${label}:\n${items.map((x) => `- ${x}`).join('\n')}` : '');
   const body = [list('Claude hizo', r.hecho), list('Claude comprobó', r.comprobado), list('SIN COMPROBAR', r.no_comprobado),
     list('Pendiente', r.pendiente), list('Problemas', r.problemas), r.cambio_de_alcance ? `Cambio de alcance: ${r.cambio_de_alcance}` : '',
@@ -677,7 +761,8 @@ function roundItem(r) {
     h('summary', {}, h('b', {}, `RONDA ${r.ronda} · ${r.estado}`),
       r.no_comprobado?.length ? h('em', {}, ` · sin comprobar: ${r.no_comprobado.length}`) : null, h('small', {}, ` ${ago(r.fin)}`)),
     h('pre', { class: 'prompt' }, `${r.origen === 'ANTONIO' ? 'Antonio envió (literal)' : 'El CEO pidió'}:\n${r.codex_pidio}`),
-    h('pre', {}, body));
+    h('pre', {}, body),
+    failed || !trabajo ? null : h('button', { class: 'link', type: 'button', onclick: () => viewReport(trabajo, r.ronda) }, 'Ver informe completo'));
 }
 
 function lessonItem(l) {
@@ -689,6 +774,9 @@ function lessonItem(l) {
 // ------------------------------------------------------------------ arranque
 
 $('#d-back').addEventListener('click', () => { openId = null; show('p-list'); });
+$('#viewer-copy').prepend(svg('copy'));
+$('#viewer-copy').addEventListener('click', (e) => viewerSrc && copiarInformeCompleto(viewerSrc.trabajo, viewerSrc.ronda, e.currentTarget));
+$('#cmp-paste').prepend(svg('paste'));
 $('#b-create-project').addEventListener('click', (e) => createFolder('proyecto.nuevo', 'proyecto', 'E:\\ECOAPP', e.currentTarget));
 // QUITAR = desvincular. CEOPadre no tiene ninguna función que borre carpetas.
 async function unlink(c, btn) {

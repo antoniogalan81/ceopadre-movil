@@ -423,6 +423,16 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); box-sh
 #cmp-text { flex: 1; min-height: 160px; resize: none; font-size: 15px; line-height: 1.45; }
 .cmp-warn { margin: 0; font-size: 13px; font-weight: 700; color: var(--warn); }
 .composer .row { margin-top: 0; }
+/* Copiar / pegar el informe completo de Claude: pequeños, con icono; 44 px de toque en el móvil. */
+.icon-text { display: inline-flex; align-items: center; gap: 6px; }
+.icon-text svg { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+.result-act { display: flex; align-items: center; gap: 4px 16px; flex-wrap: wrap; }
+.link.icon-text { text-decoration: none; }
+.cmp-tools { display: flex; align-items: center; gap: 10px; }
+.cmp-tools .cmp-help { flex: 1; }
+.head-act { display: flex; gap: 8px; flex: none; }
+.clip-buf { position: fixed; top: 0; left: 0; width: 1px; height: 1px; opacity: 0; }
+@media (pointer: coarse) { .result-act .link, .cmp-tools .btn.small, .head-act .btn.small { min-height: 44px; } }
 .viewer-text { flex: 1; margin: 0; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; font: 13.5px/1.5 var(--mono);
   background: var(--bg); border-radius: 10px; padding: 12px; }
 @media (max-width: 640px) {

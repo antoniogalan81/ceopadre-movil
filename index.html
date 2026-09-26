@@ -24,7 +24,7 @@
     <img class="brand-logo big" src="logo.png" alt="" width="96" height="96">
     <h1 class="brand">CEO<span>Padre</span></h1>
     <p class="muted">Entra una vez con la cuenta de CEOPadre. El teléfono recuerda la sesión.</p>
-    <label class="field">Correo<input id="l-email" type="email" autocomplete="username" spellcheck="false" value="antonio@ceopadre.local"></label>
+    <label class="field">Correo<input id="l-email" type="email" autocomplete="username" spellcheck="false" value="antoniogalan81@gmail.com"></label>
     <label class="field">Contraseña<input id="l-pass" type="password" autocomplete="current-password"></label>
     <button class="btn primary big" id="l-go">Entrar</button>
     <p class="error" id="l-err" hidden></p>
@@ -34,12 +34,28 @@
 <section id="p-list" class="screen" hidden>
   <header class="top">
     <h1 class="brand"><img class="brand-logo" src="logo.png" alt="" width="34" height="34">CEO<span>Padre</span></h1>
-    <button class="btn ghost" id="b-new-project" aria-label="Vincular proyecto: conectar una carpeta existente">+ Vincular proyecto</button>
+    <div class="top-actions">
+      <button class="btn primary small" id="b-create-project" title="Crea la carpeta E:\ECOAPP\&lt;nombre&gt; y la añade">+ Nuevo proyecto</button>
+      <button class="btn ghost small" id="b-new-project" aria-label="Vincular proyecto: conectar una carpeta existente">Vincular</button>
+    </div>
   </header>
   <p class="pcline" id="pc-line" hidden></p>
-  <h2 class="section-title">Mis proyectos</h2>
+  <div class="section-row"><h2 class="section-title">Mis proyectos</h2><small class="muted acct" id="acct"></small></div>
   <main id="cards" class="cards" aria-live="polite"></main>
-  <p class="empty" id="empty" hidden>Todavía no hay proyectos. Pulsa <b>+ Vincular proyecto</b> para conectar una carpeta que ya tengas en el PC.</p>
+  <p class="empty" id="empty" hidden>Todavía no hay proyectos. Pulsa <b>+ Nuevo proyecto</b> o <b>Vincular</b> para conectar una carpeta que ya tengas en el PC.</p>
+</section>
+
+<!-- GESTIONES: contenedor visual. Cada gestión es una carpeta de E:\ECOAPP\Gestiones y un proyecto independiente. -->
+<section id="p-gest" class="screen" hidden>
+  <header class="top">
+    <button class="btn ghost small" id="g-back" aria-label="Volver a Mis proyectos">‹ Volver</button>
+    <div class="top-actions">
+      <button class="btn primary small" id="b-new-gest" title="Crea la carpeta E:\ECOAPP\Gestiones\&lt;nombre&gt; y la añade">+ Nueva gestión</button>
+    </div>
+  </header>
+  <h2 class="section-title">Gestiones</h2>
+  <main id="g-cards" class="cards" aria-live="polite"></main>
+  <p class="empty" id="g-empty" hidden>Todavía no hay gestiones. Pulsa <b>+ Nueva gestión</b> (p. ej. Hacienda, Facturas, Seguros).</p>
 </section>
 
 <section id="p-detail" class="screen" hidden>

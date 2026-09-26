@@ -23,7 +23,12 @@ function localApi() {
     return r.json();
   };
   return {
-    async state() { const r = await call('/api/state'); return { proyectos: r.data.proyectos, pc: { online: true }, remoto: r.data.remoto }; },
+    async state() {
+      const r = await call('/api/state');
+      // En el PC el logo lo sirve el propio CEOPadre (la huella en la URL evita cachés viejas).
+      for (const c of r.data.proyectos) c._logo = c.logo ? `/logo/${encodeURIComponent(c.id)}?h=${c.logo}` : null;
+      return { proyectos: r.data.proyectos, pc: { online: true }, remoto: r.data.remoto, cuenta: r.data.remoto?.cuenta || '' };
+    },
     async details(id) { return (await call(`/api/details?proyecto=${encodeURIComponent(id)}`)).data; },
     cmd: (op, params) => call('/api/cmd', { method: 'POST', body: JSON.stringify({ op, params }) }),
     watch(cb) { setInterval(cb, 2500); },
@@ -35,7 +40,8 @@ async function remoteApi() {
   const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON, {
     auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false }, global: { headers: { 'x-ceo': 'movil' } } });
   const ONLINE_MS = 60_000;
-  let pc = null;
+  let pc = null, cuenta = null;
+  const logos = new Map(); // id → { hash, data }
   const online = () => !!pc && Date.now() - Date.parse(pc.visto_en) < ONLINE_MS;
   return {
     sb,
@@ -43,7 +49,16 @@ async function remoteApi() {
       const [c, p] = await Promise.all([sb.from('ceo_card').select('datos,posicion').order('posicion'), sb.from('ceo_pc').select('*').maybeSingle()]);
       if (c.error) throw new Error(c.error.message);
       pc = p.data;
-      return { proyectos: c.data.map((r) => r.datos), pc: { online: online(), visto: pc?.visto_en } };
+      const proyectos = c.data.map((r) => r.datos);
+      // Logos: sólo los que faltan o cambiaron de huella, una vez (tabla ceo_logo, sin Realtime).
+      const need = proyectos.filter((x) => x.logo && logos.get(x.id)?.hash !== x.logo).map((x) => x.id);
+      if (need.length) {
+        const l = await sb.from('ceo_logo').select('id,hash,data').in('id', need);
+        for (const x of l.data || []) logos.set(x.id, x);
+      }
+      for (const x of proyectos) x._logo = x.logo && logos.get(x.id)?.hash === x.logo ? logos.get(x.id).data : null;
+      cuenta ??= (await sb.auth.getUser()).data.user?.email || '';
+      return { proyectos, pc: { online: online(), visto: pc?.visto_en }, cuenta };
     },
     async details(id) { const r = await sb.from('ceo_card').select('detalle').eq('id', id).maybeSingle(); return r.data?.detalle; },
     async cmd(op, params) {
@@ -106,7 +121,7 @@ function ago(iso) {
 
 // ------------------------------------------------------------------ app
 
-let api, data = { proyectos: [], pc: { online: true } }, openId = null;
+let api, data = { proyectos: [], pc: { online: true } }, openId = null, backTo = 'p-list';
 
 let toastT;
 function toast(msg, kind = '') {
@@ -115,7 +130,7 @@ function toast(msg, kind = '') {
   clearTimeout(toastT); toastT = setTimeout(() => { t.className = 'toast'; }, 3500);
 }
 
-const show = (id) => { for (const s of ['p-login', 'p-list', 'p-detail']) $('#' + s).hidden = s !== id; };
+const show = (id) => { for (const s of ['p-login', 'p-list', 'p-gest', 'p-detail']) $('#' + s).hidden = s !== id; };
 
 async function refresh() {
   try { data = await api.state(); } catch (e) { toast(`No se pudo leer: ${e.message}`, 'bad'); return; }
@@ -146,6 +161,8 @@ function ask({ title, help = '', fields = [], ok = 'Aceptar', danger = false }) 
       ? h('textarea', { name: f.name, rows: 5, placeholder: f.placeholder || '', required: true })
       : h('input', { name: f.name, type: 'text', placeholder: f.placeholder || '', required: true, spellcheck: 'false' });
     input.value = f.value || '';
+    // Intro en un campo de una línea = Aceptar (si no, el formulario enviaría el primer botón: «Volver»).
+    if (f.type !== 'textarea') input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); $('#dlg-ok').click(); } });
     box.append(h('label', { class: 'field' }, f.label, input));
   }
   const okBtn = $('#dlg-ok');
@@ -163,6 +180,44 @@ function ask({ title, help = '', fields = [], ok = 'Aceptar', danger = false }) 
     }, { once: true });
   });
 }
+
+// ------------------------------------------------------------------ iconos (SVG en línea, sin librerías)
+
+const ICONS = {
+  target: 'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 4a6 6 0 1 0 0 12 6 6 0 0 0 0-12zm0 4a2 2 0 1 0 0 4 2 2 0 0 0 0-4z',
+  info: 'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 8v7m0-10.5v.5',
+  unlink: 'M9 15l6-6M10.5 5.5l1.8-1.8a4.2 4.2 0 0 1 6 6l-1.8 1.8M13.5 18.5l-1.8 1.8a4.2 4.2 0 0 1-6-6l1.8-1.8M3 3l18 18',
+  pause: 'M8 5v14M16 5v14',
+  play: 'M7 4.5v15l12-7.5z',
+  stop: 'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zM9 9l6 6M15 9l-6 6',
+  message: 'M4 5h16v11H9l-5 4z',
+  retry: 'M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7',
+  image: 'M4 4h16v16H4zM4 16l5-5 4 4 3-3 4 4M15 8.5v.01',
+  folder: 'M3 6h6l2 2h10v11H3zM12 11v5M9.5 13.5h5',
+  briefcase: 'M3 7h18v12H3zM9 7V5h6v2M3 12h18',
+};
+function svg(name) {
+  const NS = 'http://www.w3.org/2000/svg';
+  const s = document.createElementNS(NS, 'svg');
+  s.setAttribute('viewBox', '0 0 24 24'); s.setAttribute('aria-hidden', 'true'); s.setAttribute('focusable', 'false');
+  const p = document.createElementNS(NS, 'path');
+  p.setAttribute('d', ICONS[name]);
+  s.append(p);
+  return s;
+}
+// Botón de icono: siempre con aria-label y title (accesible y con ayuda al pasar el ratón).
+const iconBtn = (name, label, onclick, cls = '') => h('button', { class: `icon-btn ${cls}`, type: 'button', 'aria-label': label, title: label, onclick }, svg(name));
+
+// Logo del proyecto o, si no hay, un marcador limpio con la inicial.
+function logo(c, cls = '') {
+  const ph = () => h('span', { class: `logo ph ${cls}`, 'aria-hidden': 'true' }, (c.nombre || '?').trim().charAt(0).toUpperCase());
+  if (!c._logo) return ph();
+  const img = h('img', { class: `logo ${cls}`, src: c._logo, alt: '', width: 32, height: 32, loading: 'lazy', decoding: 'async' });
+  img.addEventListener('error', () => img.replaceWith(ph()), { once: true });
+  return img;
+}
+
+// ------------------------------------------------------------------ acciones
 
 const actions = {
   pause: (c, b) => run('trabajo.pausar', { trabajo: c.trabajo }, 'Pausado', b),
@@ -185,7 +240,7 @@ const actions = {
   },
   async instruct(c, b) {
     const r = await ask({ title: 'Dar instrucción', help: `${c.nombre}: Codex la leerá antes de su siguiente decisión. No cambia el objetivo.`,
-      fields: [{ name: 'texto', label: 'Instrucción', type: 'textarea', placeholder: 'Ej.: Recuerda que Macarena puede trabajar 4 horas menos.' }], ok: 'Enviar' });
+      fields: [{ name: 'texto', label: 'Instrucción', type: 'textarea', placeholder: 'Ej.: En la web cambia el texto del botón de contacto.' }], ok: 'Enviar' });
     if (r?.texto) run('trabajo.instruccion', { trabajo: c.trabajo, texto: r.texto }, 'Instrucción entregada', b);
   },
   approve: (c, b) => run('trabajo.aprobar', { trabajo: c.trabajo }, 'Aprobado', b),
@@ -195,63 +250,122 @@ const actions = {
       fields: [{ name: 'texto', label: 'Objetivo', type: 'textarea', placeholder: 'Ej.: Sigue creando turnos partidos cuando la empleada tiene NO. Corrígelo.' }], ok: 'Iniciar' });
     if (r?.texto) run('objetivo.iniciar', { proyecto: c.id, texto: r.texto }, 'Objetivo iniciado', b);
   },
-  details: (c) => { openId = c.id; paintDetail(true); show('p-detail'); window.scrollTo(0, 0); },
+  details: (c) => { backTo = $('#p-gest').hidden ? 'p-list' : 'p-gest'; openId = c.id; paintDetail(true); show('p-detail'); window.scrollTo(0, 0); },
+  unlink: (c, b) => unlink(c, b),
 };
 
+// Acción principal con texto (sólo cuando hay que decidir algo); el resto, iconos.
 function buttonsFor(c) {
-  const B = (label, act, cls = '') => h('button', { class: `btn ${cls}`, onclick: (e) => actions[act](c, e.currentTarget) }, label);
+  const I = (icon, label, act, cls) => iconBtn(icon, label, (e) => actions[act](c, e.currentTarget), cls);
+  const T = (label, act) => h('button', { class: 'btn primary small', type: 'button', onclick: (e) => actions[act](c, e.currentTarget) }, label);
   const e = c.estado;
-  if (OPEN.includes(e)) return [B('NUEVO OBJETIVO', 'goal', 'primary'), e === 'TERMINADO' ? B('DAR INSTRUCCIÓN', 'instruct') : null, B('DETALLES', 'details', 'ghost')];
-  if (e === 'ESPERANDO_DECISION') return [B('CANCELAR', 'cancel', 'ghost-danger'), B('DETALLES', 'details', 'ghost')];
-  if (WAITING.includes(e)) return [B('CONTINUAR', 'resume', 'primary'), B('PAUSAR', 'pause'), B('CANCELAR', 'cancel', 'ghost-danger'), B('DAR INSTRUCCIÓN', 'instruct'), B('DETALLES', 'details', 'ghost')];
-  const main = e === 'TRABAJANDO' || e === 'EN_COLA' ? B('PAUSAR', 'pause')
-    : B(e === 'PAUSADO' ? 'REANUDAR' : 'REINTENTAR', 'resume', 'primary');
-  return [main, B('CANCELAR', 'cancel', 'ghost-danger'), e !== 'EN_COLA' ? B('DAR INSTRUCCIÓN', 'instruct') : null, B('DETALLES', 'details', 'ghost')];
+  const info = I('info', `Detalles de ${c.nombre}`, 'details');
+  const instr = I('message', 'Dar instrucción', 'instruct');
+  const stop = I('stop', 'Cancelar objetivo', 'cancel', 'danger');
+  if (OPEN.includes(e)) return [I('target', 'Nuevo objetivo', 'goal', 'accent'), e === 'TERMINADO' ? instr : null, info, I('unlink', 'Quitar de CEOPadre', 'unlink', 'danger')];
+  if (e === 'ESPERANDO_DECISION') return [instr, stop, info];
+  if (WAITING.includes(e)) return [T('CONTINUAR', 'resume'), I('pause', 'Pausar', 'pause'), instr, stop, info];
+  if (e === 'TRABAJANDO' || e === 'EN_COLA') return [I('pause', 'Pausar', 'pause'), e !== 'EN_COLA' ? instr : null, stop, info];
+  return [T(e === 'PAUSADO' ? 'REANUDAR' : 'REINTENTAR', 'resume'), instr, stop, info];
 }
 
 function block(label, text, cls = '') {
   return h('div', { class: `blk ${cls}` }, h('span', { class: 'blk-label' }, label), h('p', {}, text || '—'));
 }
+const line = (label, text, cls = '') => h('p', { class: `ln ${cls}` }, h('b', {}, label), ' ', text || '—');
 
-function card(c) {
+/** Tarjeta compacta (lista). `full` = la misma tarjeta en DETALLES, sin recortar textos y con los datos completos. */
+function card(c, full = false) {
   const [icon, label, tone] = STATES[c.estado] || ['⚪', c.estado, 'idle'];
   const decision = c.estado === 'ESPERANDO_DECISION' ? h('div', { class: 'decision' },
-    block('PROPUESTA', c.propuesta), block('RECOMENDACIÓN CEO', c.recomendacion),
+    line('PROPUESTA', c.propuesta), line('RECOMIENDA', c.recomendacion),
     h('div', { class: 'row' },
-      h('button', { class: 'btn primary', onclick: (e) => actions.approve(c, e.currentTarget) }, 'APROBAR'),
-      h('button', { class: 'btn', onclick: (e) => actions.reject(c, e.currentTarget) }, 'RECHAZAR'),
-      h('button', { class: 'btn ghost', onclick: (e) => actions.instruct(c, e.currentTarget) }, 'DAR OTRA INSTRUCCIÓN'))) : null;
+      h('button', { class: 'btn primary small', type: 'button', onclick: (e) => actions.approve(c, e.currentTarget) }, 'APROBAR'),
+      h('button', { class: 'btn small', type: 'button', onclick: (e) => actions.reject(c, e.currentTarget) }, 'RECHAZAR'))) : null;
   const running = ['TRABAJANDO', 'SIN_ACTIVIDAD'].includes(c.estado);
   const [ahora, siguiente] = WAITING.includes(c.estado) ? waitLines(c) : [c.ahora, c.siguiente];
-  return h('article', { class: `card tone-${tone}`, 'data-id': c.id },
+  const note = c.detalle && (!running || c.estado === 'SIN_ACTIVIDAD') ? h('p', { class: 'note' }, c.detalle) : null;
+  return h('article', { class: `card tone-${tone}${full ? ' full' : ''}`, 'data-id': c.id },
     h('header', { class: 'card-head' },
-      h('h3', {}, c.nombre),
-      h('span', { class: `pill tone-${tone}` }, h('span', { 'aria-hidden': 'true' }, icon), ` ${label}`)),
-    c.estado === 'LIBRE' ? h('p', { class: 'muted' }, 'Sin objetivos todavía.') : [
-      block('OBJETIVO', c.objetivo, 'goal'),
-      block('AHORA', ahora),
-      block('SIGUIENTE', siguiente),
-      c.detalle && !running ? h('p', { class: 'note' }, c.detalle) : null,
-      c.detalle && c.estado === 'SIN_ACTIVIDAD' ? h('p', { class: 'note' }, c.detalle) : null,
-      h('dl', { class: 'meta' },
+      logo(c),
+      h('div', { class: 'title' },
+        h('h3', { title: c.nombre }, c.nombre),
+        h('span', { class: `pill tone-${tone}` }, h('span', { 'aria-hidden': 'true' }, icon), ` ${label}`))),
+    c.estado === 'LIBRE' ? h('p', { class: 'ln muted' }, 'Sin objetivo todavía.') : [
+      h('p', { class: 'ln goal', title: c.objetivo }, c.objetivo),
+      line('AHORA', ahora),
+      line('SIGUIENTE', siguiente, 'next'),
+      full ? note : (note && ['BLOQUEADO', 'ERROR', 'SIN_ACTIVIDAD'].includes(c.estado) ? note : null),
+      full ? h('dl', { class: 'meta' },
         h('div', {}, h('dt', {}, 'Última actividad'), h('dd', { 'data-ago': c.ultima_actividad || c.updated_at }, ago(c.ultima_actividad || c.updated_at))),
         h('div', {}, h('dt', {}, 'Ronda'), h('dd', {}, String(c.ronda ?? 0))),
         running && c.actividad ? h('div', {}, h('dt', {}, 'Ahora mismo'), h('dd', {}, c.actividad)) : null,
-        c.cola ? h('div', {}, h('dt', {}, 'En cola'), h('dd', {}, String(c.cola))) : null),
+        c.cola ? h('div', {}, h('dt', {}, 'En cola'), h('dd', {}, String(c.cola))) : null) : null,
     ],
     decision,
     h('div', { class: 'actions' }, buttonsFor(c)));
 }
 
-function paintList() {
-  const line = $('#pc-line');
-  line.hidden = LOCAL || data.pc.online;
-  if (!line.hidden) line.textContent = data.pc.visto ? `El PC no está conectado (visto ${ago(data.pc.visto)}). Ves el último estado conocido; las órdenes no se envían.` : 'Aún no se ha visto el PC.';
-  const box = $('#cards');
+// GESTIONES: contenedor visual (no ejecuta nada). Resume cuántas hay y cómo van; al pulsarla se abren.
+function gestCard(list) {
+  const busy = list.filter((c) => ['TRABAJANDO', 'SIN_ACTIVIDAD'].includes(c.estado)).length;
+  const attn = list.filter((c) => ['ESPERANDO_DECISION', 'BLOQUEADO', 'ERROR', ...WAITING].includes(c.estado)).length;
+  const summary = [`${list.length} ${list.length === 1 ? 'gestión' : 'gestiones'}`, busy ? `${busy} trabajando` : '', attn ? `${attn} te necesita${attn > 1 ? 'n' : ''}` : ''].filter(Boolean).join(' · ');
+  const open = () => { show('p-gest'); paintGest(); window.scrollTo(0, 0); };
+  return h('article', { class: `card gest tone-${busy ? 'work' : attn ? 'ask' : 'idle'}`, 'data-id': 'gestiones' },
+    h('header', { class: 'card-head' },
+      h('span', { class: 'logo ph gest-ico', 'aria-hidden': 'true' }, svg('briefcase')),
+      h('div', { class: 'title' }, h('h3', {}, 'GESTIONES'))),
+    h('p', { class: 'ln' }, summary),
+    h('p', { class: 'ln muted' }, 'Asuntos pequeños: Hacienda, facturas, seguros…'),
+    h('div', { class: 'actions' }, h('button', { class: 'btn small', type: 'button', onclick: open, 'aria-label': 'Abrir GESTIONES' }, 'ABRIR')));
+}
+
+const byUse = (a, b) => String(b.usado || '').localeCompare(String(a.usado || ''));
+const gestiones = () => data.proyectos.filter((c) => c.tipo === 'GESTION').sort(byUse);
+
+function repaint(box, items) {
   const active = document.activeElement?.closest?.('.card')?.dataset.id;
-  box.replaceChildren(...data.proyectos.map(card));
-  if (active) box.querySelector(`[data-id="${CSS.escape(active)}"] .btn`)?.focus({ preventScroll: true });
+  box.replaceChildren(...items);
+  if (active) box.querySelector(`[data-id="${CSS.escape(active)}"] button`)?.focus({ preventScroll: true });
+}
+
+function paintList() {
+  const line_ = $('#pc-line');
+  line_.hidden = LOCAL || data.pc.online;
+  if (!line_.hidden) line_.textContent = data.pc.visto ? `El PC no está conectado (visto ${ago(data.pc.visto)}). Ves el último estado conocido; las órdenes no se envían.` : 'Aún no se ha visto el PC.';
+  $('#acct').textContent = data.cuenta ? `Cuenta: ${data.cuenta}` : '';
+  // Proyectos y la tarjeta GESTIONES, por último uso (la de GESTIONES, según su gestión más reciente).
+  const g = gestiones();
+  const items = [...data.proyectos.filter((c) => c.tipo !== 'GESTION').map((c) => ({ usado: c.usado, el: () => card(c) })),
+    { usado: g[0]?.usado || '', el: () => gestCard(g) }].sort(byUse);
+  repaint($('#cards'), items.map((x) => x.el()));
   $('#empty').hidden = data.proyectos.length > 0;
+  if (!$('#p-gest').hidden) paintGest();
+}
+
+function paintGest() {
+  const g = gestiones();
+  repaint($('#g-cards'), g.map((c) => card(c)));
+  $('#g-empty').hidden = g.length > 0;
+}
+
+// NUEVO PROYECTO (E:\ECOAPP\<nombre>) y NUEVA GESTIÓN (E:\ECOAPP\Gestiones\<nombre>): sólo crean la carpeta y la vinculan.
+async function createFolder(op, what, where, b) {
+  const r = await ask({ title: `Nueva ${what === 'proyecto' ? 'carpeta de proyecto' : 'gestión'}`,
+    help: `Se crea la carpeta ${where}\\<nombre> y se añade a CEOPadre. No se genera código ni se ejecuta ninguna IA.`,
+    fields: [{ name: 'nombre', label: 'Nombre', placeholder: what === 'proyecto' ? 'Ej.: MiProyecto' : 'Ej.: Facturas' }], ok: 'Crear' });
+  if (!r?.nombre) return;
+  b.disabled = true;
+  let res;
+  try { res = await api.cmd(op, { nombre: r.nombre }); } finally { b.disabled = false; }
+  if (res?.ok && res.data?.existe) {
+    const ok = await ask({ title: 'Esa carpeta ya existe', help: `${res.data.mensaje}`, ok: 'Vincular la existente' });
+    if (ok) await run(op, { nombre: r.nombre, vincular_existente: true }, 'Vinculada', b);
+    return;
+  }
+  if (res?.ok) toast(res.data?.mensaje || 'Creado', 'ok'); else toast(res?.error || 'No se pudo', 'bad');
+  await refresh();
 }
 
 // ------------------------------------------------------------------ detalles
@@ -259,7 +373,7 @@ function paintList() {
 let detailCache = null;
 async function paintDetail(force) {
   const c = data.proyectos.find((p) => p.id === openId);
-  if (!c) { openId = null; show('p-list'); return; }
+  if (!c) { openId = null; show(backTo); return; }
   $('#d-name').textContent = c.nombre;
   if (force || !detailCache || detailCache.id !== openId || Date.now() - detailCache.at > 4000) {
     detailCache = { id: openId, at: Date.now(), d: await api.details(openId) };
@@ -269,9 +383,13 @@ async function paintDetail(force) {
   const body = $('#d-body');
   const wasOpen = new Set([...body.querySelectorAll('details[open]')].map((x) => x.dataset.k));
   body.replaceChildren(
-    card(c),
-    h('section', { class: 'panel' }, h('h4', {}, 'Proyecto'), h('p', { class: 'mono' }, d.proyecto?.ruta || c.ruta),
-      h('div', { class: 'row' }, h('button', { class: 'btn ghost-danger small', onclick: (e) => unlink(c, e.currentTarget) }, 'Desvincular proyecto'))),
+    card(c, true),
+    h('section', { class: 'panel' }, h('h4', {}, c.tipo === 'GESTION' ? 'Gestión' : 'Proyecto'), h('p', { class: 'mono' }, d.proyecto?.ruta || c.ruta),
+      c.componentes?.length ? h('p', { class: 'ln' }, h('b', {}, 'COMPONENTES'), ' ', c.componentes.join(' · ')) : null,
+      h('div', { class: 'row' },
+        h('button', { class: 'btn ghost small', type: 'button', title: 'Pon logo.png (o .svg, .jpg, .webp, .ico) en la raíz de la carpeta y pulsa aquí',
+          onclick: (e) => run('proyecto.logo', { proyecto: c.id }, 'Logo actualizado', e.currentTarget) }, svg('image'), ' Actualizar logo'),
+        h('button', { class: 'btn ghost-danger small', type: 'button', onclick: (e) => unlink(c, e.currentTarget) }, svg('unlink'), ' Quitar de CEOPadre'))),
     d.ceo ? h('section', { class: 'panel' }, h('h4', {}, `CEO ACTUAL: ${d.ceo.actual}`),
       d.ceo.motivo ? h('ul', { class: 'kv' }, h('li', {}, `Motivo: ${d.ceo.motivo}`),
         d.ceo.vuelve ? h('li', {}, `${d.ceo.modo === 'AUTO' ? 'Codex' : 'Se'} vuelve a probarse: ${when(d.ceo.vuelve)}`) : null) : null,
@@ -323,11 +441,15 @@ function lessonItem(l) {
 
 // ------------------------------------------------------------------ arranque
 
-$('#d-back').addEventListener('click', () => { openId = null; show('p-list'); });
+$('#d-back').addEventListener('click', () => { openId = null; show(backTo); if (backTo === 'p-gest') paintGest(); });
+$('#g-back').addEventListener('click', () => show('p-list'));
+$('#b-create-project').addEventListener('click', (e) => createFolder('proyecto.nuevo', 'proyecto', 'E:\\ECOAPP', e.currentTarget));
+$('#b-new-gest').addEventListener('click', (e) => createFolder('gestion.crear', 'gestión', 'E:\\ECOAPP\\Gestiones', e.currentTarget));
+// QUITAR = desvincular. CEOPadre no tiene ninguna función que borre carpetas.
 async function unlink(c, btn) {
-  const ok = await ask({ title: `¿Desvincular ${c.nombre}?`, ok: 'Sí, desvincular', danger: true,
-    help: 'CEOPadre dejará de mostrar este proyecto. NO se borra la carpeta, ni Git, ni ningún archivo, y el historial se conserva. Podrás volver a vincularlo cuando quieras.' });
-  if (ok && await run('proyecto.desvincular', { proyecto: c.id, confirmar: true }, 'Proyecto desvinculado', btn)) { openId = null; show('p-list'); }
+  const ok = await ask({ title: `¿Quitar ${c.nombre} de CEOPadre?`, ok: 'Sí, quitar', danger: true,
+    help: 'Se quitará de CEOPadre. La carpeta y todos sus archivos permanecerán intactos. El historial se conserva y podrás volver a vincularlo cuando quieras.' });
+  if (ok && await run('proyecto.desvincular', { proyecto: c.id, confirmar: true }, 'Quitado de CEOPadre', btn) && openId) { openId = null; show(backTo); }
 }
 
 // ------------------------------------------------------------------ vincular proyecto
@@ -356,7 +478,8 @@ async function linkLoad(refresh, tries = 0) {
   if (c.buscando && tries < 20) { linkStatus('Buscando proyectos…'); setTimeout(() => linkLoad(false, tries + 1), 1500); return; }
   const ul = $('#link-list');
   ul.replaceChildren(...c.lista.map((x) => h('li', {},
-    h('div', { class: 'cand-text' }, h('b', {}, x.nombre), h('small', { class: 'mono' }, x.ruta)),
+    h('div', { class: 'cand-text' }, h('b', {}, x.nombre), h('small', { class: 'mono' }, x.ruta),
+      x.componentes?.length ? h('small', {}, `Componentes: ${x.componentes.join(', ')}`) : null),
     h('button', { class: 'btn small', onclick: () => linkConfirm({ ruta: x.ruta, nombre: x.nombre, candidato: x.id }) }, 'Vincular'))));
   linkStatus(c.lista.length
     ? `${c.lista.length} sin vincular en ${c.raices.join(', ')}${c.actualizado ? ` · buscado ${ago(c.actualizado)}` : ''}`

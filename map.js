@@ -49,6 +49,7 @@ export function mapPanel(m, { open, decide, answer, postpone }) {
   return h('section', { class: 'panel map', 'aria-label': 'Mapa del proyecto' },
     h('header', { class: 'map-head' }, h('h4', {}, 'MAPA DEL PROYECTO'), h('small', { class: 'muted' }, `canon v${m.revision}`),
       h('button', { class: 'link', type: 'button', onclick: open }, 'Ver mapa completo')),
+    m.definicion?.resumen ? [lbl('QUÉ ES'), h('p', { class: 'summary' }, m.definicion.resumen)] : null,
     lbl('MISIÓN DEL PROYECTO'),
     m.mision ? h('p', { class: 'mission' }, m.mision) : [h('p', { class: 'mission muted' }, 'Necesita revisión: la misión aún no está definida.'),
       m.preguntas.length ? h('p', { class: 'note' }, '? ', m.preguntas[0]) : null],
@@ -70,6 +71,21 @@ function flow(steps) {
 }
 
 const sec = (title, ...kids) => h('section', { class: 'msec' }, h('h3', {}, title), ...kids);
+const line = (k, v) => (v ? h('p', { class: 'ln' }, h('b', {}, k), ' ', v) : null);
+
+/** QUÉ ES Y QUÉ HACE: definición del proyecto y la lista completa de capacidades (existe / en desarrollo / planificado). */
+function definition(d) {
+  if (!d) return null;
+  const n = d.actuales.reduce((s, g) => s + g.items.length, 0);
+  return [
+    sec('QUÉ ES', d.que_es || d.resumen ? h('p', {}, d.que_es || d.resumen) : null,
+      line('FUNCIÓN PRINCIPAL', d.funcion), line('USUARIO PRINCIPAL', d.usuario), line('ESTADO', d.estado)),
+    n ? sec(`QUÉ HACE HOY (${n})`, d.actuales.map((g) => [g.grupo ? lbl(g.grupo.toUpperCase()) : null, list(g.items, 'caps')])) : null,
+    d.en_desarrollo.length ? sec(`EN DESARROLLO (${d.en_desarrollo.length})`, list(d.en_desarrollo)) : null,
+    d.planificado.length ? sec(`PLANIFICADO (${d.planificado.length})`, list(d.planificado, 'plan')) : null,
+    d.sin_verificar.length ? sec('SIN VERIFICAR', list(d.sin_verificar, 'warn')) : null,
+  ];
+}
 
 /** Mapa completo (dentro del diálogo): todo el canon legible, en el orden de prioridad de Antonio. */
 export function mapBody(m, decide) {
@@ -78,6 +94,7 @@ export function mapBody(m, decide) {
   const stat = (k, t) => sec(`${t} (${e[k].length})`, e[k].length ? h('ul', { class: 'mlist st' }, e[k].map((it) => statusItem(k, it, true))) : h('p', { class: 'muted' }, '—'));
   return [
     proposals(m, decide),
+    ...(definition(m.definicion) || []),
     sec('MISIÓN', m.mision ? h('p', { class: 'mission' }, m.mision) : h('p', { class: 'muted' }, 'Necesita revisión.'),
       m.criterios.length ? [lbl('CRITERIOS DE ÉXITO'), list(m.criterios)] : null),
     m.incluido.length || m.excluido.length ? sec('ALCANCE', m.incluido.length ? list(m.incluido) : null,

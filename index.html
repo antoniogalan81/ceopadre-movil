@@ -43,11 +43,16 @@
       <div>
         <h1 class="brand">CEO<span>Padre</span></h1>
         <p class="bar-sub"><span>Mi oficina</span> · <span id="office-sum"></span></p>
-        <p class="bar-sub quota" id="quota" title="Cuota de suscripción de toda la cuenta (no sólo CEOPadre), según el último aviso de cada herramienta en este PC. No son tokens ni coste." hidden></p>
       </div>
     </div>
     <div class="bar-side">
+      <div class="bar-status">
       <p class="net m-ok" id="net" role="status" aria-live="polite"><i class="dot" aria-hidden="true"></i><span>Operativo</span></p>
+      <details class="quota" id="quota" hidden>
+        <summary aria-label="Cuota de suscripción de Codex y Claude" title="Cuota de suscripción (toda la cuenta)"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 18a8 8 0 1 1 16 0M12 18l4-6"/></svg><span class="q-max"></span></summary>
+        <div class="quota-pop"></div>
+      </details>
+      </div>
       <div class="top-actions">
         <button class="btn light small" id="b-install" type="button" hidden>Instalar CEOPadre</button>
         <button class="btn accent small" id="b-create-project" type="button" title="Crea la carpeta E:\ECOAPP\&lt;nombre&gt; y la añade">+ Nuevo proyecto</button>
@@ -74,6 +79,10 @@
   <header class="top">
     <button class="btn ghost" id="d-back" aria-label="Volver">‹ Volver</button>
     <h1 class="detail-name" id="d-name"></h1>
+    <details class="quota" id="d-quota" hidden>
+        <summary aria-label="Cuota de suscripción de Codex y Claude" title="Cuota de suscripción (toda la cuenta)"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 18a8 8 0 1 1 16 0M12 18l4-6"/></svg><span class="q-max"></span></summary>
+        <div class="quota-pop"></div>
+      </details>
   </header>
   <main id="d-body" class="detail"></main>
 </section>
@@ -87,6 +96,29 @@
       <button class="btn ghost" value="cancel" formnovalidate>Volver</button>
       <button class="btn primary" id="dlg-ok" value="ok">Aceptar</button>
     </div>
+  </form>
+</dialog>
+
+<!-- Editor: INSTRUCCIÓN o PROMPT DIRECTO, sesión y CEO. Sin límite de interfaz; el texto no se recorta. -->
+<dialog id="composer" class="sheet composer" aria-labelledby="cmp-title">
+  <form method="dialog" class="cmp-body">
+    <header class="cmp-head"><h2 id="cmp-title">Escribir</h2><span class="cmp-count" id="cmp-count" aria-live="polite"></span></header>
+    <div class="cmp-opts" id="cmp-opts"></div>
+    <p class="cmp-help muted" id="cmp-help"></p>
+    <textarea id="cmp-text" aria-labelledby="cmp-title" placeholder="Escribe o pega aquí…"></textarea>
+    <p class="cmp-warn" id="cmp-warn" role="alert" hidden></p>
+    <div class="row">
+      <button class="btn ghost" value="cancel" formnovalidate>Cancelar</button>
+      <button class="btn primary" id="cmp-ok" value="ok">Enviar</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- Visor de texto largo: objetivo o informe completos (texto plano). -->
+<dialog id="viewer" class="sheet composer" aria-labelledby="viewer-title">
+  <form method="dialog" class="cmp-body">
+    <header class="cmp-head"><h2 id="viewer-title"></h2><button class="btn ghost small" value="close">Cerrar</button></header>
+    <pre class="viewer-text" id="viewer-text"></pre>
   </form>
 </dialog>
 

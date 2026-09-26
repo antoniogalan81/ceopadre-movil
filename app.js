@@ -1,6 +1,6 @@
 // CEOPadre en el navegador. En el PC habla con la API local; en el móvil, con Supabase.
 // No ejecuta nada: pinta el estado y deja órdenes. Todo el texto se inserta como texto (nunca HTML).
-import { gestText, mood, netStatus, office, priority, quotaText, zone } from './zones.js';
+import { gestText, mood, netStatus, office, priority, PROMPT_LIMIT, PROMPT_WARN, quotaView, zone } from './zones.js';
 
 const LOCAL = ['127.0.0.1', 'localhost'].includes(location.hostname);
 const $ = (s) => document.querySelector(s);
@@ -29,7 +29,7 @@ function localApi() {
       const r = await call('/api/state');
       // En el PC el logo lo sirve el propio CEOPadre (la huella en la URL evita cachés viejas).
       for (const c of r.data.proyectos) c._logo = c.logo ? `/logo/${encodeURIComponent(c.id)}?h=${c.logo}` : null;
-      return { proyectos: r.data.proyectos, pc: { online: true }, remoto: r.data.remoto, cuenta: r.data.remoto?.cuenta || '', consumo: r.data.consumo };
+      return { proyectos: r.data.proyectos, pc: { online: true }, remoto: r.data.remoto, cuenta: r.data.remoto?.cuenta || '', cuotas: r.data.cuotas };
     },
     async details(id) { return (await call(`/api/details?proyecto=${encodeURIComponent(id)}`)).data; },
     cmd: (op, params) => call('/api/cmd', { method: 'POST', body: JSON.stringify({ op, params }) }),
@@ -68,7 +68,7 @@ async function remoteApi() {
       }
       for (const x of proyectos) x._logo = x.logo && logos.get(x.id)?.hash === x.logo ? logos.get(x.id).data : null;
       cuenta ??= (await sb.auth.getUser()).data.user?.email || '';
-      return { proyectos, pc: { online: online(), visto: pc?.visto_en }, cuenta, consumo: pc?.datos?.consumo };
+      return { proyectos, pc: { online: online(), visto: pc?.visto_en }, cuenta, cuotas: pc?.datos?.cuotas };
     },
     async details(id) { const r = await sb.from('ceo_card').select('detalle').eq('id', id).maybeSingle(); return r.data?.detalle; },
     async cmd(op, params) {
@@ -103,7 +103,7 @@ const STATES = {
   ESPERANDO_DECISION: ['🟡', 'ESPERANDO DECISIÓN', 'ask'], PAUSADO: ['⏸️', 'PAUSADO', 'idle'],
   ESPERANDO_CLAUDE: ['⏳', 'ESPERANDO CLAUDE', 'wait'], ESPERANDO_CEO: ['⏳', 'ESPERANDO CEO', 'wait'],
   SIN_ACTIVIDAD: ['🟠', 'SIN ACTIVIDAD', 'warn'], BLOQUEADO: ['🔴', 'BLOQUEADO', 'bad'], ERROR: ['🔴', 'ERROR', 'bad'],
-  TERMINADO: ['✅', 'TERMINADO', 'ok'], CANCELADO: ['⚪', 'CANCELADO', 'idle'],
+  LISTO: ['✅', 'LISTO · TU TURNO', 'ok'], TERMINADO: ['✅', 'TERMINADO', 'ok'], CANCELADO: ['⚪', 'CANCELADO', 'idle'],
 };
 const OPEN = ['LIBRE', 'TERMINADO', 'CANCELADO'];
 const WAITING = ['ESPERANDO_CLAUDE', 'ESPERANDO_CEO'];
@@ -200,6 +200,51 @@ function ask({ title, help = '', fields = [], ok = 'Aceptar', danger = false }) 
   });
 }
 
+// Editor grande (casi pantalla completa en el móvil). TIPO · SESIÓN · CEO arriba; el texto NUNCA se recorta ni se
+// retoca. Sólo avisa cerca del límite práctico de Claude y no deja enviar por encima (lo mismo comprueba el PC).
+// `modo` null = sin selector de CEO; `sesiones` false = sin selector de sesión (objetivo nuevo: siempre sesión nueva).
+const HELP = {
+  INSTRUCCION: { AUTO: 'Codex decide el mejor prompt para Claude.', MANUAL: 'CEO en MANUAL: tu instrucción va tal cual a Claude.' },
+  DIRECTO: 'Claude recibe exactamente este texto. Codex no lo lee.',
+  CONTINUAR: 'Claude mantiene el contexto de esta conversación.', NUEVA: 'Inicia una conversación limpia con Claude.',
+};
+let draft = ''; // lo último escrito y cancelado sin querer (sólo en memoria de esta pestaña)
+function compose({ title, text = '', tipo = 'INSTRUCCION', sesion = 'CONTINUAR', modo = null, ok = 'Enviar', sesiones = true }) {
+  const dlg = $('#composer'), ta = $('#cmp-text'), okBtn = $('#cmp-ok');
+  const v = { tipo, sesion, modo };
+  $('#cmp-title').textContent = title;
+  okBtn.textContent = ok;
+  const paint = () => {
+    const n = ta.value.length;
+    $('#cmp-count').textContent = `${n.toLocaleString('es-ES')} caracteres`;
+    const over = n > PROMPT_LIMIT;
+    $('#cmp-warn').hidden = n <= PROMPT_WARN;
+    $('#cmp-warn').textContent = over ? `Este prompt supera el límite práctico de Claude (${PROMPT_LIMIT.toLocaleString('es-ES')} caracteres). No se recorta: acórtalo o divídelo.`
+      : 'Se acerca al límite práctico de Claude.';
+    okBtn.disabled = over || !ta.value.trim();
+    $('#cmp-help').textContent = [v.tipo === 'DIRECTO' ? HELP.DIRECTO : v.modo ? HELP.INSTRUCCION[v.modo] : 'En AUTO la interpreta Codex; en MANUAL va tal cual a Claude.', sesiones ? HELP[v.sesion] : 'Objetivo nuevo: conversación limpia con Claude.'].join(' ');
+  };
+  $('#cmp-opts').replaceChildren(...[
+    seg('cmp-tipo', 'TIPO', [['INSTRUCCION', 'INSTRUCCIÓN', 'Te digo lo que quiero y Codex decide el prompt'], ['DIRECTO', 'PROMPT DIRECTO', HELP.DIRECTO]], v.tipo, (x) => { v.tipo = x; paint(); }),
+    sesiones ? seg('cmp-sesion', 'SESIÓN', [['CONTINUAR', 'CONTINUAR', HELP.CONTINUAR], ['NUEVA', 'NUEVA', HELP.NUEVA]], v.sesion, (x) => { v.sesion = x; paint(); }) : null,
+    modo ? seg('cmp-modo', 'CEO', [['AUTO', 'AUTO', MODO_HELP.AUTO], ['MANUAL', 'MANUAL', MODO_HELP.MANUAL]], v.modo, (x) => { v.modo = x; paint(); }) : null,
+  ].filter(Boolean));
+  ta.value = text || draft; // editar un pendiente trae su texto; escribir uno nuevo recupera el borrador
+  ta.oninput = paint;
+  paint();
+  dlg.returnValue = '';
+  dlg.showModal();
+  ta.focus();
+  return new Promise((resolve) => {
+    dlg.addEventListener('close', () => {
+      const texto = ta.value;
+      const sent = dlg.returnValue === 'ok' && texto.trim() && texto.length <= PROMPT_LIMIT;
+      if (!text) draft = sent ? '' : texto;
+      resolve(sent ? { texto, ...v } : null);
+    }, { once: true });
+  });
+}
+
 // ------------------------------------------------------------------ iconos (SVG en línea, sin librerías)
 
 const ICONS = {
@@ -216,6 +261,9 @@ const ICONS = {
   briefcase: 'M3 7h18v12H3zM9 7V5h6v2M3 12h18',
   chevron: 'M6 9l6 6 6-6',
   download: 'M12 4v11M7 10l5 5 5-5M5 20h14',
+  edit: 'M4 20h4L19 9l-4-4L4 16zM13 7l4 4',
+  trash: 'M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6',
+  gauge: 'M4 18a8 8 0 1 1 16 0M12 18l4-6',
 };
 function svg(name) {
   const NS = 'http://www.w3.org/2000/svg';
@@ -259,17 +307,18 @@ const actions = {
     const ok = await ask({ title: `¿Cancelar ${c.nombre}?`, help: 'Se detiene este objetivo y sus procesos. No se borra ni se revierte nada del proyecto; el historial se conserva.', ok: 'Sí, cancelar', danger: true });
     if (ok) run('trabajo.cancelar', { trabajo: c.trabajo, confirmar: true }, 'Cancelado', b);
   },
+  // Escribir (instrucción o prompt directo) sobre el objetivo actual. Con algo en marcha queda como pendiente.
   async instruct(c, b) {
-    const r = await ask({ title: 'Dar instrucción', help: `${c.nombre}: Codex la leerá antes de su siguiente decisión. No cambia el objetivo.`,
-      fields: [{ name: 'texto', label: 'Instrucción', type: 'textarea', placeholder: 'Ej.: En la web cambia el texto del botón de contacto.' }], ok: 'Enviar' });
-    if (r?.texto) run('trabajo.instruccion', { trabajo: c.trabajo, texto: r.texto }, 'Instrucción entregada', b);
+    const r = await compose({ title: `Escribir · ${c.nombre}`, modo: c.modo || 'AUTO' });
+    // Si el PC lo rechaza, el texto vuelve al borrador: nunca se pierde lo escrito.
+    if (r && !(await run('trabajo.instruccion', { trabajo: c.trabajo, texto: r.texto, tipo: r.tipo, sesion: r.sesion, modo: r.modo }, 'Enviado', b))) draft = r.texto;
   },
   approve: (c, b) => run('trabajo.aprobar', { trabajo: c.trabajo }, 'Aprobado', b),
   reject: (c, b) => run('trabajo.rechazar', { trabajo: c.trabajo }, 'Rechazado', b),
+  // Objetivo nuevo = sesión de Claude nueva y CEO AUTO por defecto.
   async goal(c, b) {
-    const r = await ask({ title: `Nuevo objetivo · ${c.nombre}`, help: 'Escríbelo como se lo dirías a alguien. Codex prepara el trabajo y Claude lo ejecuta.',
-      fields: [{ name: 'texto', label: 'Objetivo', type: 'textarea', placeholder: 'Ej.: Sigue creando turnos partidos cuando la empleada tiene NO. Corrígelo.' }], ok: 'Iniciar' });
-    if (r?.texto) run('objetivo.iniciar', { proyecto: c.id, texto: r.texto }, 'Objetivo iniciado', b);
+    const r = await compose({ title: `Nuevo objetivo · ${c.nombre}`, modo: 'AUTO', sesiones: false, ok: 'Iniciar' });
+    if (r && !(await run('objetivo.iniciar', { proyecto: c.id, texto: r.texto, tipo: r.tipo, modo: r.modo }, 'Objetivo iniciado', b))) draft = r.texto;
   },
   details: (c) => { openId = c.id; paintDetail(true); show('p-detail'); window.scrollTo(0, 0); },
   unlink: (c, b) => unlink(c, b),
@@ -281,8 +330,11 @@ function buttonsFor(c) {
   const T = (label, act) => h('button', { class: 'btn primary small', type: 'button', onclick: (e) => actions[act](c, e.currentTarget) }, label);
   const e = c.estado;
   const info = I('info', `Detalles de ${c.nombre}`, 'details');
-  const instr = I('message', 'Dar instrucción', 'instruct');
+  const instr = I('message', 'Escribir instrucción o prompt', 'instruct');
   const stop = I('stop', 'Cancelar objetivo', 'cancel', 'danger');
+  // LISTO: Claude entregó y espera. CONTINUAR = primer pendiente o (AUTO) que el CEO retome; en MANUAL sin nada, escribir.
+  if (e === 'LISTO') return [c.modo !== 'MANUAL' || c.pendientes ? T(c.modo === 'MANUAL' ? 'ENVIAR SIGUIENTE' : 'CONTINUAR', 'resume') : null,
+    instr, I('target', 'Nuevo objetivo', 'goal', 'accent'), stop, info];
   if (OPEN.includes(e)) return [I('target', 'Nuevo objetivo', 'goal', 'accent'), e === 'TERMINADO' ? instr : null, info, I('unlink', 'Quitar de CEOPadre', 'unlink', 'danger')];
   if (e === 'ESPERANDO_DECISION') return [instr, stop, info];
   if (WAITING.includes(e)) return [T('CONTINUAR', 'resume'), I('pause', 'Pausar', 'pause'), instr, stop, info];
@@ -290,49 +342,14 @@ function buttonsFor(c) {
   return [T(e === 'PAUSADO' ? 'REANUDAR' : 'REINTENTAR', 'resume'), instr, stop, info];
 }
 
-function block(label, text, cls = '') {
-  return h('div', { class: `blk ${cls}` }, h('span', { class: 'blk-label' }, label), h('p', {}, text || '—'));
-}
 const line = (label, text, cls = '') => h('p', { class: `ln ${cls}` }, h('b', {}, label), ' ', text || '—');
-
-/** Tarjeta compacta (lista). `full` = la misma tarjeta en DETALLES, sin recortar textos y con los datos completos. */
-function card(c, full = false) {
-  const [, label, tone] = STATES[c.estado] || ['⚪', c.estado, 'idle'];
-  const decision = c.estado === 'ESPERANDO_DECISION' ? h('div', { class: 'decision' },
-    line('PROPUESTA', c.propuesta), line('RECOMIENDA', c.recomendacion),
-    h('div', { class: 'row' },
-      h('button', { class: 'btn primary small', type: 'button', onclick: (e) => actions.approve(c, e.currentTarget) }, 'APROBAR'),
-      h('button', { class: 'btn small', type: 'button', onclick: (e) => actions.reject(c, e.currentTarget) }, 'RECHAZAR'))) : null;
-  const running = ['TRABAJANDO', 'SIN_ACTIVIDAD'].includes(c.estado);
-  const [ahora, siguiente] = WAITING.includes(c.estado) ? waitLines(c) : [c.ahora, c.siguiente];
-  const note = c.detalle && (!running || c.estado === 'SIN_ACTIVIDAD') ? h('p', { class: 'note' }, c.detalle) : null;
-  return h('article', { class: `card tone-${tone}${full ? ' full' : ''}`, 'data-id': c.id },
-    h('header', { class: 'card-head' },
-      logo(c),
-      h('div', { class: 'title' },
-        h('h3', { title: c.nombre }, c.nombre),
-        h('span', { class: `pill tone-${tone}` }, h('i', { class: 'dot', 'aria-hidden': 'true' }), ` ${label}`))),
-    c.estado === 'LIBRE' ? h('p', { class: 'ln muted' }, 'Sin objetivo todavía.') : [
-      h('p', { class: 'ln goal', title: c.objetivo }, c.objetivo),
-      line('AHORA', ahora),
-      line('SIGUIENTE', siguiente, 'next'),
-      full ? note : (note && ['BLOQUEADO', 'ERROR', 'SIN_ACTIVIDAD'].includes(c.estado) ? note : null),
-      full ? h('dl', { class: 'meta' },
-        h('div', {}, h('dt', {}, 'Última actividad'), h('dd', { 'data-ago': c.ultima_actividad || c.updated_at }, ago(c.ultima_actividad || c.updated_at))),
-        h('div', {}, h('dt', {}, 'Ronda'), h('dd', {}, String(c.ronda ?? 0))),
-        running && c.actividad ? h('div', {}, h('dt', {}, 'Ahora mismo'), h('dd', {}, c.actividad)) : null,
-        c.cola ? h('div', {}, h('dt', {}, 'En cola'), h('dd', {}, String(c.cola))) : null) : null,
-    ],
-    decision,
-    h('div', { class: 'actions' }, buttonsFor(c)));
-}
 
 // ------------------------------------------------------------------ la oficina
 
 // Texto del estado en los puestos (lo que Antonio lee de un vistazo).
 const MOOD_LABEL = { ESPERANDO_DECISION: 'Te necesita · decidir', ERROR: 'Error · revisar', BLOQUEADO: 'Bloqueado · revisar',
   SIN_ACTIVIDAD: 'Sin actividad', TRABAJANDO: 'Trabajando', ESPERANDO_CLAUDE: 'Esperando a Claude', ESPERANDO_CEO: 'Esperando al CEO',
-  EN_COLA: 'En cola', LIBRE: 'Sin objetivo', PAUSADO: 'Pausado', TERMINADO: 'Terminado', CANCELADO: 'Cancelado' };
+  EN_COLA: 'En cola', LIBRE: 'Sin objetivo', PAUSADO: 'Pausado', LISTO: 'Listo · tu turno', TERMINADO: 'Terminado', CANCELADO: 'Cancelado' };
 const status = (c, text) => h('span', { class: 'status' }, h('i', { class: 'dot', 'aria-hidden': 'true' }), text || MOOD_LABEL[c.estado] || c.estado);
 
 /** Puesto de trabajo (EN MARCHA): qué hace, qué sigue y, si hay que decidir, la decisión a mano. */
@@ -352,6 +369,7 @@ function desk(c) {
     line('AHORA', ahora),
     line('SIGUIENTE', siguiente, 'next'),
     c.detalle && ['BLOQUEADO', 'ERROR', 'SIN_ACTIVIDAD'].includes(c.estado) ? h('p', { class: 'note' }, c.detalle) : null,
+    c.pendientes ? h('p', { class: 'ln muted' }, h('b', {}, 'PENDIENTES'), ` ${c.pendientes}`) : null,
     decision,
     h('div', { class: 'actions' }, buttonsFor(c)));
 }
@@ -422,9 +440,7 @@ function paintList() {
   $('#marcha-empty').hidden = marcha.filter(Boolean).length > 0;
   $('#office-sum').textContent = `${o.marcha.length} en marcha · ${o.espera.length} en espera · ${o.resumen.total} ${o.resumen.total === 1 ? 'gestión' : 'gestiones'}`;
   $('#empty').hidden = data.proyectos.length > 0;
-  const q = quotaText(data.consumo);
-  $('#quota').hidden = !q;
-  $('#quota').textContent = q;
+  paintQuota();
 }
 
 // Indicador de conexión: Operativo · PC desconectado · Sin internet. Con lo que ya hay (latido del PC y el navegador).
@@ -435,6 +451,21 @@ function paintNet() {
   el.className = `net m-${s[0]}`;
   el.lastChild.textContent = s[1];
 }
+// Cuota: sólo un icono con el % más alto; al pulsarlo, el detalle por proveedor (datos ya leídos, ninguna llamada).
+function paintQuota() {
+  const q = quotaView(data.cuotas);
+  for (const box of document.querySelectorAll('.quota')) {
+    box.hidden = !q;
+    if (!q) continue;
+    box.querySelector('.q-max').textContent = `${Math.round(q.max)} %`;
+    box.querySelector('.quota-pop').replaceChildren(
+      h('table', {}, h('thead', {}, h('tr', {}, h('th', {}, ''), h('th', {}, 'Usado'), h('th', {}, 'Disponible'), h('th', {}, 'Reinicio'))),
+        h('tbody', {}, q.filas.map((f) => h('tr', {}, h('th', {}, f.nombre), h('td', {}, f.usado), h('td', {}, f.disponible), h('td', {}, f.reinicio))))),
+      h('small', { class: 'muted' }, `Cuota de toda la cuenta (no sólo CEOPadre)${q.leida ? ` · leída ${q.leida}` : ''}`));
+  }
+}
+// Un clic fuera cierra el desplegable de cuota.
+document.addEventListener('click', (e) => { for (const d of document.querySelectorAll('.quota[open]')) if (!d.contains(e.target)) d.open = false; });
 window.addEventListener('online', () => { net = 'ok'; void refresh(); });
 window.addEventListener('offline', () => { net = 'offline'; paintNet(); paintList(); });
 
@@ -457,6 +488,33 @@ async function createFolder(op, what, where, b) {
 }
 
 // ------------------------------------------------------------------ detalles
+// Visible: estado, CEO AUTO/MANUAL, objetivo breve, AHORA, SIGUIENTE, último resultado, escribir, pendientes y rondas.
+// Plegado: proveedores, consumo, informe y objetivo completos, lecciones y acciones técnicas. Sin IA: sólo datos que ya hay.
+
+const fmt = (n) => (n == null ? '—' : Number(n).toLocaleString('es-ES'));
+const when = (iso) => new Date(iso).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+const TIPO = { INSTRUCCION: 'INSTRUCCIÓN', DIRECTO: 'DIRECTO' };
+const MODO_HELP = { AUTO: 'Codex decide y continúa', MANUAL: 'Tú decides; Claude espera' };
+const MARK = { hecho: '✓', comprobado: '✓', pendiente: '…', problema: '⚠' };
+
+/** Bloque plegable que recuerda si estaba abierto entre repintados (data-k). */
+const fold = (k, summary, ...kids) => h('details', { class: 'fold', 'data-k': k }, h('summary', {}, summary), ...kids);
+
+/** Grupo de opciones (radio nativo: teclado y lector de pantalla gratis). */
+function seg(name, legend, options, value, onchange) {
+  return h('fieldset', { class: 'seg' }, h('legend', {}, legend),
+    options.map(([v, label, help]) => {
+      const input = h('input', { type: 'radio', name, value: v, checked: v === value, onchange: () => onchange(v) });
+      return h('label', { title: help || '' }, input, h('span', {}, label));
+    }));
+}
+
+// Visor de texto largo (objetivo o informe completo): texto plano, nunca HTML.
+function view(title, text) {
+  $('#viewer-title').textContent = title;
+  $('#viewer-text').textContent = text;
+  $('#viewer').showModal();
+}
 
 let detailCache = null;
 async function paintDetail(force) {
@@ -467,57 +525,130 @@ async function paintDetail(force) {
     detailCache = { id: openId, at: Date.now(), d: await api.details(openId) };
   }
   const d = detailCache.d || {};
-  const m = d.metricas;
   const body = $('#d-body');
   const wasOpen = new Set([...body.querySelectorAll('details[open]')].map((x) => x.dataset.k));
-  body.replaceChildren(
-    card(c, true),
-    h('section', { class: 'panel' }, h('h4', {}, c.tipo === 'GESTION' ? 'Gestión' : 'Proyecto'), h('p', { class: 'mono' }, d.proyecto?.ruta || c.ruta),
-      c.componentes?.length ? h('p', { class: 'ln' }, h('b', {}, 'COMPONENTES'), ' ', c.componentes.join(' · ')) : null,
-      h('div', { class: 'row' },
-        h('button', { class: 'btn ghost small', type: 'button', title: 'Pon logo.png (o .svg, .jpg, .webp, .ico) en la raíz de la carpeta y pulsa aquí',
-          onclick: (e) => run('proyecto.logo', { proyecto: c.id }, 'Logo actualizado', e.currentTarget) }, svg('image'), ' Actualizar logo'),
-        h('button', { class: 'btn ghost-danger small', type: 'button', onclick: (e) => unlink(c, e.currentTarget) }, svg('unlink'), ' Quitar de CEOPadre'))),
-    d.ceo ? h('section', { class: 'panel' }, h('h4', {}, `CEO ACTUAL: ${d.ceo.actual}`),
-      d.ceo.motivo ? h('ul', { class: 'kv' }, h('li', {}, `Motivo: ${d.ceo.motivo}`),
-        d.ceo.vuelve ? h('li', {}, `${d.ceo.modo === 'AUTO' ? 'Codex' : 'Se'} vuelve a probarse: ${when(d.ceo.vuelve)}`) : null) : null,
-      // Sólo lo relevante: quién está limitado y hasta cuándo (con el reloj de este dispositivo).
-      h('ul', { class: 'kv' }, (d.ceo.proveedores || []).map((x) => h('li', {}, `${x.nombre.toUpperCase()}: ${future(x.hasta)
-        ? `limitado (${x.motivo}) hasta aprox. ${hhmm(x.hasta)}` : 'Disponible'}`)))) : null,
-    m ? h('section', { class: 'panel' }, h('h4', {}, 'Consumo de este objetivo'),
-      h('ul', { class: 'kv' },
-        h('li', {}, `Rondas Codex ↔ Claude: ${m.rondas}`),
-        h('li', {}, `Decisiones CEO: ${m.codex.n ?? 0}${m.decisiones_por_ceo ? ` (${Object.entries(m.decisiones_por_ceo).map(([k, v]) => `${k} ${v}`).join(' · ')})` : ''} · entrada ${fmt(m.codex.ent)} car. / ${fmt(m.codex.tin)} tokens (${fmt(m.codex.tcache)} en caché) · salida ${fmt(m.codex.sal)} car. / ${fmt(m.codex.tout)} tokens`),
-        h('li', {}, `Encargos a Claude: ${m.claude.n ?? 0} · prompts ${fmt(m.claude.ent)} car. · tokens salida ${fmt(m.claude.tout)}`),
-        h('li', {}, `Mayor entrada al CEO: ${fmt(m.codex.max_ent)} car. · informes antiguos reenviados: ${m.codex.informes_antiguos}`),
-        h('li', {}, `Intervenciones de Antonio: ${m.intervenciones_antonio}`),
-        h('li', {}, `Fallos/reintentos: ${(m.codex.fallos ?? 0) + (m.claude.fallos ?? 0)}`),
-        h('li', {}, `Duración: ${Math.round(m.duracion_s / 60)} min`))) : null,
-    h('section', { class: 'panel' }, h('h4', {}, 'Historial de rondas'),
-      ...(d.rondas?.length ? d.rondas.map(roundItem) : [h('p', { class: 'muted' }, 'Sin rondas todavía.')])),
-    d.notas?.length ? h('section', { class: 'panel' }, h('h4', {}, 'Instrucciones, decisiones y avisos'),
-      h('ul', { class: 'notes' }, d.notas.map((n) => h('li', {}, h('b', {}, n.kind), ' ', n.text, n.consumed ? '' : h('em', {}, ' (pendiente de leer por Codex)'))))) : null,
-    d.lecciones?.length ? h('section', { class: 'panel' }, h('h4', {}, 'Lecciones'), d.lecciones.map(lessonItem)) : null,
-    d.trabajos?.length > 1 ? h('section', { class: 'panel' }, h('h4', {}, 'Objetivos de este proyecto'),
-      h('ul', { class: 'notes' }, d.trabajos.map((t) => h('li', {}, h('b', {}, (STATES[t.estado] || [])[1] || t.estado), ' · ', t.objetivo)))) : null,
-  );
+  // replaceChildren() pintaría «null» como texto: sólo nodos.
+  body.replaceChildren(...[summaryPanel(c, d), writePanel(c, d), roundsPanel(d), techPanel(c, d)].filter(Boolean));
   for (const x of body.querySelectorAll('details')) if (wasOpen.has(x.dataset.k)) x.open = true;
 }
 
-const fmt = (n) => (n == null ? '—' : Number(n).toLocaleString('es-ES'));
-const when = (iso) => new Date(iso).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+/** Parte superior: esquemática. */
+function summaryPanel(c, d) {
+  const [, label, tone] = STATES[c.estado] || ['⚪', c.estado, 'idle'];
+  const hasJob = c.estado !== 'LIBRE';
+  const modo = d.modo || c.modo || 'AUTO';
+  const running = ['TRABAJANDO', 'SIN_ACTIVIDAD'].includes(c.estado);
+  const [ahora, siguiente] = WAITING.includes(c.estado) ? waitLines(c) : [running && c.actividad ? `${c.actividad} · ${c.ahora || ''}` : c.ahora, c.siguiente];
+  const ceo = d.ceo || {};
+  const exec = (ceo.proveedores || []).find((x) => x.nombre === 'Claude ejecutor');
+  const execText = exec && future(exec.hasta) ? `limitado hasta ${hhmm(exec.hasta)}` : 'disponible';
+  const r = d.resultado;
+  const long = (c.objetivo_len || 0) > (c.objetivo || '').length;
+  return h('section', { class: `panel sum m-${mood(c)}` },
+    h('div', { class: 'sum-head' }, h('span', { class: `pill tone-${tone}` }, label),
+      c.pendientes ? h('span', { class: 'chip' }, `Pendientes ${c.pendientes}`) : null),
+    hasJob && c.estado !== 'CANCELADO' ? h('div', { class: 'sum-ceo' },
+      seg(`modo-${c.trabajo}`, 'CEO', [['AUTO', 'AUTO', MODO_HELP.AUTO], ['MANUAL', 'MANUAL', MODO_HELP.MANUAL]], modo,
+        (v) => run('trabajo.modo', { trabajo: c.trabajo, modo: v }, v)),
+      h('small', { class: 'muted' }, MODO_HELP[modo])) : null,
+    hasJob ? fold('ceo', `CEO: ${modo === 'MANUAL' ? 'Antonio' : ceo.actual || 'Codex'} · ${modo} · Sesión: ${d.sesion === 'NUEVA' ? 'nueva' : 'actual'} · Claude ejecutor: ${execText}`,
+      h('ul', { class: 'kv' },
+        ceo.motivo ? h('li', {}, `Motivo: ${ceo.motivo}`) : null,
+        ceo.vuelve ? h('li', {}, `Codex vuelve a probarse: ${when(ceo.vuelve)}`) : null,
+        (ceo.proveedores || []).map((x) => h('li', {}, `${x.nombre}: ${future(x.hasta) ? `limitado (${x.motivo}) hasta aprox. ${hhmm(x.hasta)}` : 'disponible'}`)))) : null,
+    hasJob ? [
+      h('p', { class: 'lbl' }, 'OBJETIVO'),
+      h('p', { class: 'sum-goal' }, c.objetivo),
+      long || (c.objetivo || '').length > 180 ? h('button', { class: 'link', type: 'button', onclick: () => openGoal(c) }, 'Ver objetivo completo') : null,
+      line('AHORA', ahora), line('SIGUIENTE', siguiente, 'next'),
+      c.detalle && (!running || c.estado === 'SIN_ACTIVIDAD') ? h('p', { class: 'note' }, c.detalle) : null,
+    ] : h('p', { class: 'muted' }, 'Sin objetivo todavía.'),
+    c.estado === 'ESPERANDO_DECISION' ? h('div', { class: 'decision' }, line('PROPUESTA', c.propuesta), line('RECOMIENDA', c.recomendacion),
+      h('div', { class: 'row' },
+        h('button', { class: 'btn primary small', type: 'button', onclick: (e) => actions.approve(c, e.currentTarget) }, 'APROBAR'),
+        h('button', { class: 'btn small', type: 'button', onclick: (e) => actions.reject(c, e.currentTarget) }, 'RECHAZAR'))) : null,
+    r ? h('div', { class: 'result' }, h('p', { class: 'lbl' }, `ÚLTIMO RESULTADO · ronda ${r.ronda} · ${r.estado}`),
+      h('ul', {}, r.puntos.map((x) => h('li', { class: `r-${x.tipo}` }, h('i', { 'aria-hidden': 'true' }, MARK[x.tipo] || '·'), ' ', x.texto))),
+      h('button', { class: 'link', type: 'button', onclick: () => view(`Informe completo · ronda ${r.ronda}`, r.informe) }, 'Ver informe completo')) : null,
+    h('div', { class: 'actions' }, buttonsFor(c).filter((b) => b && b.getAttribute('aria-label') !== `Detalles de ${c.nombre}`)));
+}
+
+async function openGoal(c) {
+  if ((c.objetivo_len || 0) <= (c.objetivo || '').length) return view('Objetivo completo', c.objetivo);
+  const r = await api.cmd('trabajo.objetivo', { trabajo: c.trabajo });
+  if (r?.ok) view('Objetivo completo', r.data.texto); else toast(r?.error || 'No se pudo leer el objetivo', 'bad');
+}
+
+/** Escribir + pendientes (orden de creación; sólo un extracto de cada uno). */
+function writePanel(c, d) {
+  const hasJob = !['LIBRE', 'CANCELADO'].includes(c.estado);
+  const open = (e) => (hasJob ? actions.instruct(c, e.currentTarget) : actions.goal(c, e.currentTarget));
+  const pend = d.pendientes || [];
+  return h('section', { class: 'panel write' },
+    h('button', { class: 'write-btn', type: 'button', onclick: open }, hasJob ? 'Escribir…' : 'Escribir un objetivo nuevo…'),
+    pend.length ? [h('p', { class: 'lbl' }, `Instrucciones pendientes (${pend.length})`),
+      h('ol', { class: 'pend' }, pend.map((p) => h('li', {},
+        h('div', { class: 'pend-tags' }, h('span', { class: `tag ${p.tipo === 'DIRECTO' ? 'direct' : ''}` }, TIPO[p.tipo] || p.tipo),
+          h('span', { class: 'tag' }, p.sesion === 'NUEVA' ? 'NUEVA SESIÓN' : 'CONTINUAR'), h('small', { class: 'muted' }, `${fmt(p.chars)} car.`)),
+        h('p', { class: 'pend-text' }, p.extracto),
+        h('div', { class: 'pend-act' }, iconBtn('edit', 'Editar pendiente', () => editPending(p)), iconBtn('trash', 'Eliminar pendiente', (e) => deletePending(p, e.currentTarget), 'danger')))))]
+      : null);
+}
+
+async function editPending(p) {
+  const r = await api.cmd('pendiente.leer', { id: p.id });
+  if (!r?.ok) { toast(r?.error || 'No se pudo leer', 'bad'); return; }
+  if (r.data.consumida) { toast('Ya se entregó (CONSUMIDA): no se puede editar', 'bad'); await refresh(); return; }
+  const v = await compose({ title: 'Editar pendiente', text: r.data.texto, tipo: r.data.tipo, sesion: r.data.sesion, ok: 'Guardar' });
+  if (v) await run('pendiente.editar', { id: p.id, texto: v.texto, tipo: v.tipo, sesion: v.sesion }, 'Pendiente actualizado');
+}
+async function deletePending(p, b) {
+  const ok = await ask({ title: '¿Eliminar este pendiente?', help: `«${p.extracto.slice(0, 120)}${p.chars > 120 ? '…' : ''}» no se enviará.`, ok: 'Eliminar', danger: true });
+  if (ok) await run('pendiente.eliminar', { id: p.id }, 'Pendiente eliminado', b);
+}
+
+/** Historial de rondas: siempre visible, cada ronda plegada. */
+function roundsPanel(d) {
+  return h('section', { class: 'panel' }, h('h4', {}, `Rondas (${d.rondas?.length || 0})`),
+    ...(d.rondas?.length ? d.rondas.map(roundItem) : [h('p', { class: 'muted' }, 'Sin rondas todavía.')]));
+}
+
+/** Todo lo técnico, plegado: consumo, lecciones, mensajes, objetivos anteriores y la carpeta. */
+function techPanel(c, d) {
+  const m = d.metricas;
+  const lessons = d.lecciones || [];
+  return h('section', { class: 'panel folds' },
+    m ? fold('consumo', '📊 Consumo', h('ul', { class: 'kv' },
+      h('li', {}, `Rondas: ${m.rondas}`),
+      h('li', {}, `Decisiones CEO: ${m.codex.n ?? 0}${Object.keys(m.decisiones_por_ceo || {}).length ? ` (${Object.entries(m.decisiones_por_ceo).map(([k, v]) => `${k} ${v}`).join(' · ')})` : ''} · entrada ${fmt(m.codex.ent)} car. / ${fmt(m.codex.tin)} tokens (${fmt(m.codex.tcache)} en caché) · salida ${fmt(m.codex.sal)} car. / ${fmt(m.codex.tout)} tokens`),
+      h('li', {}, `Encargos a Claude: ${m.claude.n ?? 0} · prompts ${fmt(m.claude.ent)} car. · tokens salida ${fmt(m.claude.tout)}`),
+      h('li', {}, `Mayor entrada al CEO: ${fmt(m.codex.max_ent)} car. · informes antiguos reenviados: ${m.codex.informes_antiguos}`),
+      h('li', {}, `Intervenciones de Antonio: ${m.intervenciones_antonio}`),
+      h('li', {}, `Fallos/reintentos: ${(m.codex.fallos ?? 0) + (m.claude.fallos ?? 0)}`),
+      h('li', {}, `Duración: ${Math.round(m.duracion_s / 60)} min`))) : null,
+    lessons.length ? fold('lecciones', `Lecciones (${lessons.length})`, lessons.map(lessonItem)) : null,
+    d.notas?.length ? fold('notas', `Mensajes y avisos (${d.notas.length})`,
+      h('ul', { class: 'notes' }, d.notas.map((n) => h('li', {}, h('b', {}, n.kind === 'instruccion' ? `${TIPO[n.tipo] || n.tipo} · CONSUMIDA` : n.kind), ' ',
+        n.text, n.chars > n.text.length ? '…' : '')))) : null,
+    d.trabajos?.length > 1 ? fold('objetivos', `Objetivos de este proyecto (${d.trabajos.length})`,
+      h('ul', { class: 'notes' }, d.trabajos.map((t) => h('li', {}, h('b', {}, (STATES[t.estado] || [])[1] || t.estado), ' · ', t.objetivo)))) : null,
+    fold('proyecto', c.tipo === 'GESTION' ? 'Gestión' : 'Proyecto',
+      h('p', { class: 'mono' }, d.proyecto?.ruta || c.ruta),
+      c.componentes?.length ? h('p', { class: 'ln' }, h('b', {}, 'COMPONENTES'), ' ', c.componentes.join(' · ')) : null,
+      h('div', { class: 'row' }, iconBtn('unlink', 'Quitar de CEOPadre', (e) => unlink(c, e.currentTarget), 'danger'))));
+}
 
 function roundItem(r) {
   const list = (label, items) => (items?.length ? `${label}:\n${items.map((x) => `- ${x}`).join('\n')}` : '');
   const body = [list('Claude hizo', r.hecho), list('Claude comprobó', r.comprobado), list('SIN COMPROBAR', r.no_comprobado),
     list('Pendiente', r.pendiente), list('Problemas', r.problemas), r.cambio_de_alcance ? `Cambio de alcance: ${r.cambio_de_alcance}` : '',
-    r.sin_formato ? '(Claude no devolvió el informe con formato)' : '', r.codex_decidio ? `${r.ceo || 'Codex'} decidió → ${r.codex_decidio}` : 'El CEO aún no ha decidido']
+    r.sin_formato ? '(Claude no devolvió el informe con formato)' : '', r.origen === 'ANTONIO' ? 'Mensaje literal de Antonio: sin revisión del CEO' : r.codex_decidio ? `${r.ceo || 'Codex'} decidió → ${r.codex_decidio}` : 'El CEO aún no ha decidido']
     .filter(Boolean).join('\n\n');
   const failed = String(r.estado).startsWith('FALLO');
   return h('details', { class: `round ${failed ? 'failed' : ''}`, 'data-k': `r-${r.ronda}-${r.fin}` },
     h('summary', {}, h('b', {}, `RONDA ${r.ronda} · ${r.estado}`),
       r.no_comprobado?.length ? h('em', {}, ` · sin comprobar: ${r.no_comprobado.length}`) : null, h('small', {}, ` ${ago(r.fin)}`)),
-    h('pre', { class: 'prompt' }, `El CEO pidió:\n${r.codex_pidio}`),
+    h('pre', { class: 'prompt' }, `${r.origen === 'ANTONIO' ? 'Antonio envió (literal)' : 'El CEO pidió'}:\n${r.codex_pidio}`),
     h('pre', {}, body));
 }
 

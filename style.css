@@ -1,21 +1,21 @@
-/* CEOPadre — la oficina: una banda verde de mando arriba, neutros tintados hacia el verde de la marca y el color
+/* CEOPadre — la oficina: una banda azul de mando arriba, neutros tintados hacia el azul de la marca y el color
    reservado para el ESTADO (verde trabaja, ámbar te necesita, azul espera a un proveedor, rojo falla, gris reposa).
    Tipografía del sistema a propósito: funciona sin red, sin CDN y con la CSP cerrada. */
 *, *::before, *::after { box-sizing: border-box; }
 [hidden] { display: none !important; }
 
 :root {
-  --bg: oklch(0.962 0.008 170); --paper: oklch(0.995 0.003 170); --ink: oklch(0.23 0.025 170); --ink-2: oklch(0.40 0.02 170);
-  --ink-3: oklch(0.49 0.016 170); --line: oklch(0.885 0.014 170);
-  --accent: oklch(0.43 0.075 168); --mint: oklch(0.87 0.09 165);
-  --bar: oklch(0.30 0.052 168); --bar-2: oklch(0.36 0.058 168); --bar-ink: oklch(0.97 0.012 165); --bar-ink-2: oklch(0.84 0.045 165);
+  --bg: oklch(0.962 0.008 240); --paper: oklch(0.995 0.002 240); --ink: oklch(0.23 0.025 240); --ink-2: oklch(0.40 0.02 240);
+  --ink-3: oklch(0.49 0.016 240); --line: oklch(0.885 0.014 240);
+  --accent: oklch(0.43 0.075 240); --mint: oklch(0.87 0.07 240);
+  --bar: oklch(0.30 0.052 240); --bar-2: oklch(0.36 0.058 240); --bar-ink: oklch(0.97 0.012 240); --bar-ink-2: oklch(0.84 0.045 240);
   --ok: oklch(0.50 0.11 150); --ok-bg: oklch(0.95 0.035 150);
   --work: oklch(0.50 0.12 158); --work-bg: oklch(0.948 0.042 158);
   --ask: oklch(0.52 0.12 62); --ask-bg: oklch(0.953 0.05 72);
   --wait: oklch(0.50 0.11 252); --wait-bg: oklch(0.955 0.025 252);
   --warn: oklch(0.55 0.14 55); --warn-bg: oklch(0.95 0.04 60);
   --bad: oklch(0.52 0.18 27); --bad-bg: oklch(0.95 0.03 25);
-  --idle: oklch(0.50 0.012 170); --idle-bg: oklch(0.93 0.008 170);
+  --idle: oklch(0.50 0.012 240); --idle-bg: oklch(0.93 0.008 240);
   --radius: 14px; --gap: 14px;
   --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
   --mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
@@ -24,17 +24,17 @@
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: oklch(0.19 0.012 170); --paper: oklch(0.235 0.015 170); --ink: oklch(0.95 0.01 170); --ink-2: oklch(0.81 0.015 170);
-    --ink-3: oklch(0.70 0.014 170); --line: oklch(0.34 0.016 170);
-    --accent: oklch(0.80 0.09 165); --mint: oklch(0.84 0.09 165);
-    --bar: oklch(0.26 0.042 168); --bar-2: oklch(0.31 0.048 168);
+    --bg: oklch(0.19 0.012 240); --paper: oklch(0.235 0.015 240); --ink: oklch(0.95 0.01 240); --ink-2: oklch(0.81 0.015 240);
+    --ink-3: oklch(0.70 0.014 240); --line: oklch(0.34 0.016 240);
+    --accent: oklch(0.80 0.09 240); --mint: oklch(0.84 0.085 240);
+    --bar: oklch(0.26 0.042 240); --bar-2: oklch(0.31 0.048 240);
     --ok: oklch(0.80 0.12 150); --ok-bg: oklch(0.29 0.05 150);
     --work: oklch(0.82 0.13 158); --work-bg: oklch(0.29 0.055 158);
     --ask: oklch(0.85 0.13 80); --ask-bg: oklch(0.31 0.06 75);
     --wait: oklch(0.81 0.10 252); --wait-bg: oklch(0.29 0.05 252);
     --warn: oklch(0.82 0.12 60); --warn-bg: oklch(0.31 0.06 55);
     --bad: oklch(0.77 0.15 25); --bad-bg: oklch(0.31 0.07 25);
-    --idle: oklch(0.74 0.01 170); --idle-bg: oklch(0.29 0.01 170);
+    --idle: oklch(0.74 0.01 240); --idle-bg: oklch(0.29 0.01 240);
   }
 }
 
@@ -218,7 +218,7 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); box-sh
   display: flex; align-items: center; justify-content: space-between; gap: 14px 20px; flex-wrap: wrap;
   margin: 12px 0 18px; padding: 14px 18px; border-radius: 18px; color: var(--bar-ink);
   background: linear-gradient(135deg, var(--bar) 0%, var(--bar-2) 100%);
-  box-shadow: 0 10px 30px -18px oklch(0.25 0.06 168 / 0.8);
+  box-shadow: 0 10px 30px -18px oklch(0.25 0.06 240 / 0.8);
 }
 .bar-brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
 .bar .brand-logo { width: 42px; height: 42px; margin: 0; box-shadow: 0 0 0 2px oklch(1 0 0 / 0.25); }
@@ -226,9 +226,10 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); box-sh
 .bar .brand span { color: var(--mint); }
 .bar-sub { margin: 1px 0 0; font-size: 13.5px; color: var(--bar-ink-2); }
 .bar-sub span:first-child { color: var(--bar-ink); font-weight: 700; }
+.bar-sub.quota { font-size: 12.5px; font-variant-numeric: tabular-nums; }
 .bar-side { display: flex; align-items: center; gap: 10px 14px; flex-wrap: wrap; justify-content: flex-end; }
-.btn.accent { background: var(--mint); border-color: var(--mint); color: oklch(0.24 0.05 168); }
-.btn.accent:hover { background: oklch(0.93 0.08 165); border-color: oklch(0.93 0.08 165); }
+.btn.accent { background: var(--mint); border-color: var(--mint); color: oklch(0.24 0.05 240); }
+.btn.accent:hover { background: oklch(0.93 0.035 240); border-color: oklch(0.93 0.035 240); }
 .btn.light { background: transparent; border-color: oklch(1 0 0 / 0.35); color: var(--bar-ink); }
 .btn.light:hover { background: oklch(1 0 0 / 0.1); }
 
@@ -288,10 +289,10 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); box-sh
 .tiles { display: grid; gap: 8px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr)); grid-auto-flow: row dense; align-items: stretch; }
 .tile {
   display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; min-width: 0; min-height: 64px; padding: 8px 8px 8px 10px;
-  border-radius: 14px; background: var(--paper); box-shadow: inset 0 0 0 1px var(--line), 0 1px 2px oklch(0.3 0.02 170 / 0.05);
+  border-radius: 14px; background: var(--paper); box-shadow: inset 0 0 0 1px var(--line), 0 1px 2px oklch(0.3 0.02 240 / 0.05);
   transition: box-shadow .18s var(--ease), transform .18s var(--ease);
 }
-.tile:hover { box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--accent) 35%, var(--line)), 0 6px 18px -12px oklch(0.3 0.05 170 / 0.35); }
+.tile:hover { box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--accent) 35%, var(--line)), 0 6px 18px -12px oklch(0.3 0.05 240 / 0.35); }
 .tile .logo { width: 36px; height: 36px; border-radius: 9px; }
 /* El nombre tiene sitio garantizado; si no caben, las acciones bajan a su propia línea (nunca encima del texto). */
 .tile .title { flex: 1 1 160px; }
@@ -325,7 +326,7 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); box-sh
 .update {
   position: fixed; left: 50%; bottom: calc(14px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 30;
   display: flex; align-items: center; gap: 12px; padding: 8px 8px 8px 16px; border-radius: 14px;
-  background: var(--bar); color: var(--bar-ink); font-weight: 700; font-size: 14px; box-shadow: 0 10px 30px -10px oklch(0.2 0.05 168 / 0.6);
+  background: var(--bar); color: var(--bar-ink); font-weight: 700; font-size: 14px; box-shadow: 0 10px 30px -10px oklch(0.2 0.05 240 / 0.6);
   max-width: calc(100% - 24px);
 }
 

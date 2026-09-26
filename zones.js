@@ -57,3 +57,20 @@ export function netStatus({ local, browserOnline, reachable, pcOnline }) {
   if (!browserOnline || !reachable) return ['bad', 'Sin internet'];
   return pcOnline ? ['ok', 'Operativo'] : ['need', 'PC desconectado'];
 }
+
+// Reinicio en hora local: «15:36» si es hoy, «jue 12:27» si no. Sin dato → nada.
+function resetText(s, now = Date.now()) {
+  if (!Number.isFinite(s)) return '';
+  const d = new Date(s * 1000), hm = d.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+  const today = d.toDateString() === new Date(now).toDateString();
+  return ` (reinicio ${today ? '' : `${d.toLocaleDateString('es-ES', { weekday: 'short' }).replace('.', '')} `}${hm})`;
+}
+// Cuota de suscripción (no tokens ni coste): «Cuota Codex 5 h 1 % (reinicio 15:36) · 7 días 5 % (reinicio jue 12:27) · … · leída 11:29».
+// La hora es la del aviso más antiguo mostrado: la lectura es tan vieja como eso. Sin datos → '' (la línea se oculta).
+export function quotaText(c) {
+  const parts = [c?.codex, c?.claude].filter((p) => p?.ventanas?.length);
+  if (!parts.length) return '';
+  const times = parts.map((p) => Date.parse(p.leido)).filter(Number.isFinite);
+  const hhmm = times.length ? new Date(Math.min(...times)).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }) : '';
+  return `Cuota ${parts.map((p) => `${p.proveedor} ${p.ventanas.map((w) => `${w.nombre} ${w.usado} %${resetText(w.reinicia)}`).join(' · ')}`).join(' · ')}${hhmm ? ` · leída ${hhmm}` : ''}`;
+}

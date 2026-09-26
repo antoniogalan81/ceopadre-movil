@@ -1,6 +1,6 @@
 // CEOPadre en el navegador. En el PC habla con la API local; en el móvil, con Supabase.
 // No ejecuta nada: pinta el estado y deja órdenes. Todo el texto se inserta como texto (nunca HTML).
-import { gestText, mood, netStatus, office, priority, zone } from './zones.js';
+import { gestText, mood, netStatus, office, priority, quotaText, zone } from './zones.js';
 
 const LOCAL = ['127.0.0.1', 'localhost'].includes(location.hostname);
 const $ = (s) => document.querySelector(s);
@@ -29,7 +29,7 @@ function localApi() {
       const r = await call('/api/state');
       // En el PC el logo lo sirve el propio CEOPadre (la huella en la URL evita cachés viejas).
       for (const c of r.data.proyectos) c._logo = c.logo ? `/logo/${encodeURIComponent(c.id)}?h=${c.logo}` : null;
-      return { proyectos: r.data.proyectos, pc: { online: true }, remoto: r.data.remoto, cuenta: r.data.remoto?.cuenta || '' };
+      return { proyectos: r.data.proyectos, pc: { online: true }, remoto: r.data.remoto, cuenta: r.data.remoto?.cuenta || '', consumo: r.data.consumo };
     },
     async details(id) { return (await call(`/api/details?proyecto=${encodeURIComponent(id)}`)).data; },
     cmd: (op, params) => call('/api/cmd', { method: 'POST', body: JSON.stringify({ op, params }) }),
@@ -68,7 +68,7 @@ async function remoteApi() {
       }
       for (const x of proyectos) x._logo = x.logo && logos.get(x.id)?.hash === x.logo ? logos.get(x.id).data : null;
       cuenta ??= (await sb.auth.getUser()).data.user?.email || '';
-      return { proyectos, pc: { online: online(), visto: pc?.visto_en }, cuenta };
+      return { proyectos, pc: { online: online(), visto: pc?.visto_en }, cuenta, consumo: pc?.datos?.consumo };
     },
     async details(id) { const r = await sb.from('ceo_card').select('detalle').eq('id', id).maybeSingle(); return r.data?.detalle; },
     async cmd(op, params) {
@@ -422,6 +422,9 @@ function paintList() {
   $('#marcha-empty').hidden = marcha.filter(Boolean).length > 0;
   $('#office-sum').textContent = `${o.marcha.length} en marcha · ${o.espera.length} en espera · ${o.resumen.total} ${o.resumen.total === 1 ? 'gestión' : 'gestiones'}`;
   $('#empty').hidden = data.proyectos.length > 0;
+  const q = quotaText(data.consumo);
+  $('#quota').hidden = !q;
+  $('#quota').textContent = q;
 }
 
 // Indicador de conexión: Operativo · PC desconectado · Sin internet. Con lo que ya hay (latido del PC y el navegador).

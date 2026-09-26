@@ -341,3 +341,4 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); box-sh
 .drawer .logo { width: 40px; height: 40px; }
 .drawer > .unit-head { flex-wrap: wrap; }
 @media (max-width: 620px) { .drawer > .unit-head .btn { order: 3; flex: 1 1 100%; min-height: 44px; margin: 4px 0 0; } }
+.update span { white-space: nowrap; }

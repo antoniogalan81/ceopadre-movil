@@ -203,7 +203,8 @@ const HELP = {
   CONTINUAR: 'Claude mantiene el contexto de esta conversación.', NUEVA: 'Inicia una conversación limpia con Claude.',
 };
 let draft = ''; // lo último escrito y cancelado sin querer (sólo en memoria de esta pestaña)
-function compose({ title, text = '', tipo = 'INSTRUCCION', sesion = 'CONTINUAR', modo = null, ok = 'Enviar', sesiones = true, trabajo = null }) {
+// `pendientes`: los que esperan a salir; cada uno se edita desde aquí (se cierra SIN enviar y se abre su editor).
+function compose({ title, text = '', tipo = 'INSTRUCCION', sesion = 'CONTINUAR', modo = null, ok = 'Enviar', sesiones = true, trabajo = null, pendientes = [] }) {
   const dlg = $('#composer'), ta = $('#cmp-text'), okBtn = $('#cmp-ok');
   const v = { tipo, sesion, modo };
   $('#cmp-title').textContent = title;
@@ -223,6 +224,11 @@ function compose({ title, text = '', tipo = 'INSTRUCCION', sesion = 'CONTINUAR',
     sesiones ? seg('cmp-sesion', 'SESIÓN', [['CONTINUAR', 'CONTINUAR', HELP.CONTINUAR], ['NUEVA', 'NUEVA', HELP.NUEVA]], v.sesion, (x) => { v.sesion = x; paint(); }) : null,
     modo ? seg('cmp-modo', 'CEO', [['AUTO', 'AUTO', MODO_HELP.AUTO], ['MANUAL', 'MANUAL', MODO_HELP.MANUAL]], v.modo, (x) => { v.modo = x; paint(); }) : null,
   ].filter(Boolean));
+  let editar = null;
+  const box = $('#cmp-pend');
+  box.hidden = !pendientes.length;
+  box.replaceChildren(...(pendientes.length ? [h('p', { class: 'lbl' }, `Pendientes de enviar (${pendientes.length})`),
+    pendList(pendientes, (p) => [iconBtn('edit', 'Editar pendiente', () => { editar = p; dlg.close(''); })])] : []));
   ta.value = text || draft; // editar un pendiente trae su texto; escribir uno nuevo recupera el borrador
   ta.oninput = paint;
   // Pegar último informe: lo trae CEOPadre (no el portapapeles). Se inserta en el cursor sin borrar nada; no envía
@@ -248,7 +254,7 @@ function compose({ title, text = '', tipo = 'INSTRUCCION', sesion = 'CONTINUAR',
       const texto = ta.value;
       const sent = dlg.returnValue === 'ok' && texto.trim() && texto.length <= PROMPT_LIMIT;
       if (!text) draft = sent ? '' : texto;
-      resolve(sent ? { texto, ...v } : null);
+      resolve(editar ? { editar } : sent ? { texto, ...v } : null);
     }, { once: true });
   });
 }
@@ -319,7 +325,9 @@ const actions = {
   },
   // Escribir (instrucción o prompt directo) sobre el objetivo actual. Con algo en marcha queda como pendiente.
   async instruct(c, b) {
-    const r = await compose({ title: `Escribir · ${c.nombre}`, modo: c.modo || 'AUTO', trabajo: c.trabajo });
+    const pendientes = c.pendientes ? (await api.details(c.id))?.pendientes || [] : [];
+    const r = await compose({ title: `Escribir · ${c.nombre}`, modo: c.modo || 'AUTO', trabajo: c.trabajo, pendientes });
+    if (r?.editar) { await editPending(r.editar, c.trabajo); return; }
     // Si el PC lo rechaza, el texto vuelve al borrador: nunca se pierde lo escrito.
     if (r && !(await run('trabajo.instruccion', { trabajo: c.trabajo, texto: r.texto, tipo: r.tipo, sesion: r.sesion, modo: r.modo }, 'Enviado', b))) draft = r.texto;
   },
@@ -699,19 +707,21 @@ function writePanel(c, d) {
   return h('section', { class: 'panel write' },
     h('button', { class: 'write-btn', type: 'button', onclick: open }, hasJob ? 'Escribir…' : 'Escribir un objetivo nuevo…'),
     pend.length ? [h('p', { class: 'lbl' }, `Instrucciones pendientes (${pend.length})`),
-      h('ol', { class: 'pend' }, pend.map((p) => h('li', {},
-        h('div', { class: 'pend-tags' }, h('span', { class: `tag ${p.tipo === 'DIRECTO' ? 'direct' : ''}` }, TIPO[p.tipo] || p.tipo),
-          h('span', { class: 'tag' }, p.sesion === 'NUEVA' ? 'NUEVA SESIÓN' : 'CONTINUAR'), h('small', { class: 'muted' }, `${fmt(p.chars)} car.`)),
-        h('p', { class: 'pend-text' }, p.extracto),
-        h('div', { class: 'pend-act' }, iconBtn('edit', 'Editar pendiente', () => editPending(p)), iconBtn('trash', 'Eliminar pendiente', (e) => deletePending(p, e.currentTarget), 'danger')))))]
+      pendList(pend, (p) => [iconBtn('edit', 'Editar pendiente', () => editPending(p)), iconBtn('trash', 'Eliminar pendiente', (e) => deletePending(p, e.currentTarget), 'danger')])]
       : null);
 }
+/** Pendientes en su orden (sólo extracto); `acts(p)` = sus botones. */
+const pendList = (pend, acts) => h('ol', { class: 'pend' }, pend.map((p) => h('li', {},
+  h('div', { class: 'pend-tags' }, h('span', { class: `tag ${p.tipo === 'DIRECTO' ? 'direct' : ''}` }, TIPO[p.tipo] || p.tipo),
+    h('span', { class: 'tag' }, p.sesion === 'NUEVA' ? 'NUEVA SESIÓN' : 'CONTINUAR'), h('small', { class: 'muted' }, `${fmt(p.chars)} car.`)),
+  h('p', { class: 'pend-text' }, p.extracto),
+  h('div', { class: 'pend-act' }, ...acts(p)))));
 
-async function editPending(p) {
+async function editPending(p, trabajo = detailCache?.d?.trabajo?.trabajo) {
   const r = await api.cmd('pendiente.leer', { id: p.id });
   if (!r?.ok) { toast(r?.error || 'No se pudo leer', 'bad'); return; }
   if (r.data.consumida) { toast('Ya se entregó (CONSUMIDA): no se puede editar', 'bad'); await refresh(); return; }
-  const v = await compose({ title: 'Editar pendiente', text: r.data.texto, tipo: r.data.tipo, sesion: r.data.sesion, ok: 'Guardar', trabajo: detailCache?.d?.trabajo?.trabajo });
+  const v = await compose({ title: 'Editar pendiente', text: r.data.texto, tipo: r.data.tipo, sesion: r.data.sesion, ok: 'Guardar', trabajo });
   if (v) await run('pendiente.editar', { id: p.id, texto: v.texto, tipo: v.tipo, sesion: v.sesion }, 'Pendiente actualizado');
 }
 async function deletePending(p, b) {

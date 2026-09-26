@@ -428,6 +428,8 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); box-sh
 .icon-text svg { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
 .result-act { display: flex; align-items: center; gap: 4px 16px; flex-wrap: wrap; }
 .link.icon-text { text-decoration: none; }
+.cmp-pend { max-height: 30vh; overflow: auto; }
+.cmp-pend .lbl { margin: 0 0 6px; }
 .cmp-tools { display: flex; align-items: center; gap: 10px; }
 .cmp-tools .cmp-help { flex: 1; }
 .head-act { display: flex; gap: 8px; flex: none; }

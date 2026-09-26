@@ -2,7 +2,7 @@
 // No ejecuta nada: pinta el estado y deja órdenes. Todo el texto se inserta como texto (nunca HTML).
 import { gestText, mood, netStatus, office, pcOnline, priority, PROMPT_LIMIT, PROMPT_WARN, quotaView, zone } from './zones.js';
 import { h } from './dom.js';
-import { mapBody, mapPanel } from './map.js';
+import { mapBody, mapPanel, pendingDecisions } from './map.js';
 
 const LOCAL = ['127.0.0.1', 'localhost'].includes(location.hostname);
 const $ = (s) => document.querySelector(s);
@@ -432,7 +432,33 @@ function paintList() {
   $('#office-sum').textContent = `${o.marcha.length} en marcha · ${o.espera.length} en espera · ${o.resumen.total} ${o.resumen.total === 1 ? 'gestión' : 'gestiones'}`;
   $('#empty').hidden = data.proyectos.length > 0;
   paintQuota();
+  paintDecisions();
 }
+
+// DECISIONES PENDIENTES (vista global): las preguntas que sólo contesta Antonio, agrupadas por proyecto. Sin IA: salen
+// tal cual del canon de cada tarjeta. RESPONDER guarda la respuesta como decisión del canon; POSPONER la aparca 7 días.
+function decisionHandlers(p) {
+  return {
+    async answer(d, b) {
+      const r = await ask({ title: `Decidir · ${p.nombre}`, help: d.pregunta, ok: 'Guardar decisión',
+        fields: [{ name: 'respuesta', label: 'Tu decisión', type: 'textarea', placeholder: 'Escribe la respuesta tal como quieres que la sigan Codex y Claude' }] });
+      if (r?.respuesta) await run('decision.responder', { proyecto: p.id, id: d.id, respuesta: r.respuesta }, 'Decisión guardada', b);
+    },
+    postpone: (d, b) => run('decision.posponer', { proyecto: p.id, id: d.id, dias: 7 }, 'Pospuesta 7 días', b),
+  };
+}
+function paintDecisions() {
+  const box = $('#decisions');
+  const withDec = data.proyectos.filter((p) => p.decisiones?.length);
+  const n = withDec.reduce((a, p) => a + p.decisiones.length, 0);
+  box.hidden = !n;
+  if (!n) { box.replaceChildren(); return; }
+  box.replaceChildren(h('details', { class: 'fold dec-global', 'data-k': 'decisiones', open: decOpen ? true : null,
+    ontoggle: (e) => { decOpen = e.currentTarget.open; } },
+  h('summary', {}, `DECISIONES PENDIENTES (${n})`),
+  withDec.map((p) => h('section', { class: 'dec-proj' }, h('h3', {}, p.nombre), pendingDecisions(p.decisiones, decisionHandlers(p), false)))));
+}
+let decOpen = false;
 
 // Indicador de conexión: Operativo · PC desconectado · Sin internet. Con lo que ya hay (latido del PC y el navegador).
 let net = 'ok';
@@ -529,7 +555,7 @@ async function paintDetail(force) {
   // Canon: decidir un cambio propuesto (sólo Antonio). El mapa completo se repinta si está abierto.
   const decide = (id, que, b) => run(`canon.${que}`, { proyecto: c.id, id }, que === 'aprobar' ? 'Aprobado' : 'Rechazado', b);
   const openMap = () => { $('#map-title').textContent = `Mapa · ${c.nombre}`; paintMap(d.mapa, decide); $('#map').showModal(); };
-  body.replaceChildren(...[summaryPanel(c, d), mapPanel(d.mapa, { open: openMap, decide }), writePanel(c, d), roundsPanel(d), techPanel(c, d)].filter(Boolean));
+  body.replaceChildren(...[summaryPanel(c, d), mapPanel(d.mapa, { open: openMap, decide, ...decisionHandlers(c) }), writePanel(c, d), roundsPanel(d), techPanel(c, d)].filter(Boolean));
   if ($('#map').open) paintMap(d.mapa, decide);
   for (const x of body.querySelectorAll('details')) if (wasOpen.has(x.dataset.k)) x.open = true;
 }

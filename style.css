@@ -477,3 +477,16 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); box-sh
   .map-cols { grid-template-columns: 1fr; gap: 6px; }
   .prop-diff { grid-template-columns: 1fr; }
 }
+
+/* ---- V1.6: DECISIONES PENDIENTES (por proyecto y global) ---- */
+.decisions { margin: 4px 0 14px; }
+.dec-global { background: var(--ask-bg); border: 1.5px solid var(--ask); border-radius: var(--radius); padding: 0 14px; }
+.dec-global > summary { color: var(--ask); font-weight: 800; letter-spacing: .06em; }
+.dec-proj { border-top: 1px solid color-mix(in srgb, var(--ask) 30%, transparent); padding: 8px 0; }
+.dec-proj h3 { margin: 0 0 4px; font-size: 14px; font-weight: 800; }
+.dec-pend { display: grid; gap: 4px; margin-top: 4px; }
+.dec-item { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.dec-item p { margin: 0; flex: 1 1 260px; overflow-wrap: anywhere; }
+.dec-act { display: flex; gap: 6px; }
+.dec-act .btn.small { min-height: 34px; }
+@media (pointer: coarse) { .dec-act .btn.small { min-height: 44px; } }

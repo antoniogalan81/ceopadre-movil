@@ -30,8 +30,19 @@ export function proposals(m, decide) {
         h('button', { class: 'btn small', type: 'button', onclick: (e) => decide(p.id, 'rechazar', e.currentTarget) }, 'RECHAZAR')))));
 }
 
+/** DECISIONES PENDIENTES de un proyecto: preguntas que sólo contesta Antonio, con RESPONDER y POSPONER. */
+export function pendingDecisions(list, { answer, postpone }, title = true) {
+  if (!list?.length) return null;
+  return h('div', { class: 'dec-pend' }, title ? lbl(`DECISIONES PENDIENTES (${list.length})`) : null,
+    h('ul', { class: 'mlist' }, list.map((d) => h('li', { class: 'dec-item' },
+      h('p', {}, '• ', d.pregunta),
+      h('div', { class: 'dec-act' },
+        h('button', { class: 'btn primary small', type: 'button', onclick: (e) => answer(d, e.currentTarget) }, 'RESPONDER'),
+        h('button', { class: 'btn small', type: 'button', onclick: (e) => postpone(d, e.currentTarget) }, 'POSPONER'))))));
+}
+
 /** Vista de 20 segundos: qué queremos, dónde estamos, qué sigue y qué no se toca. */
-export function mapPanel(m, { open, decide }) {
+export function mapPanel(m, { open, decide, answer, postpone }) {
   if (!m) return null;
   if (m.error) return h('section', { class: 'panel map' }, h('h4', {}, 'MAPA DEL PROYECTO'), h('p', { class: 'note' }, m.error));
   const e = m.estado;
@@ -47,6 +58,7 @@ export function mapPanel(m, { open, decide }) {
         : h('p', { class: 'muted small' }, '—')))),
     e.bloqueado.length ? h('p', { class: 'note' }, '⛔ ', e.bloqueado[0].text) : null,
     m.reglas.length ? [lbl('REGLAS CLAVE'), h('ul', { class: 'mlist rules' }, m.reglas.slice(0, 3).map((r) => h('li', {}, '🔒 ', r)))] : null,
+    pendingDecisions(m.pendientes, { answer, postpone }),
     proposals(m, decide));
 }
 

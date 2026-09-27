@@ -12,9 +12,10 @@ export const zone = (c) => ([...NEEDS, ...WORKING, ...WAITING].includes(c.estado
 /** 0 te necesita · 1 trabajando · 2 esperando proveedor/cola · 3 resto. */
 export const priority = (c) => (NEEDS.includes(c.estado) ? 0 : WORKING.includes(c.estado) ? 1 : WAITING.includes(c.estado) ? 2 : 3);
 
-/** Qué pinta el puesto: 'need' (ámbar/rojo), 'work' (verde), 'wait' (azul), 'idle'. */
+/** Qué pinta el puesto: 'need' (ámbar/rojo), 'work' (verde), 'wait' (azul), 'idle'. ESPERANDO_CONDICION (monitorizado) es
+ * azul pero va a EN ESPERA: no ocupa el hueco ni necesita a nadie. */
 export const mood = (c) => (c.estado === 'ERROR' || c.estado === 'BLOQUEADO' ? 'bad' : NEEDS.includes(c.estado) ? 'need'
-  : WORKING.includes(c.estado) ? 'work' : WAITING.includes(c.estado) ? 'wait' : ['TERMINADO', 'LISTO'].includes(c.estado) ? 'ok' : 'idle');
+  : WORKING.includes(c.estado) ? 'work' : WAITING.includes(c.estado) || c.estado === 'ESPERANDO_CONDICION' ? 'wait' : ['TERMINADO', 'LISTO'].includes(c.estado) ? 'ok' : 'idle');
 
 const recent = (c) => String(c.ultima_actividad || c.updated_at || c.usado || '');
 const used = (c) => String(c.usado || '');

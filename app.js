@@ -92,6 +92,7 @@ const STATES = {
   LIBRE: ['⚪', 'SIN OBJETIVO', 'idle'], EN_COLA: ['⏳', 'EN COLA', 'wait'], TRABAJANDO: ['🟢', 'TRABAJANDO', 'work'],
   ESPERANDO_DECISION: ['🟡', 'ESPERANDO DECISIÓN', 'ask'], PAUSADO: ['⏸️', 'PAUSADO', 'idle'],
   ESPERANDO_CLAUDE: ['⏳', 'ESPERANDO CLAUDE', 'wait'], ESPERANDO_CEO: ['⏳', 'ESPERANDO CEO', 'wait'],
+  ESPERANDO_CONDICION: ['🔭', 'ESPERANDO CONDICIÓN · MONITORIZADO', 'wait'],
   SIN_ACTIVIDAD: ['🟠', 'SIN ACTIVIDAD', 'warn'], BLOQUEADO: ['🔴', 'BLOQUEADO', 'bad'], ERROR: ['🔴', 'ERROR', 'bad'],
   LISTO: ['✅', 'LISTO · TU TURNO', 'ok'], TERMINADO: ['✅', 'TERMINADO', 'ok'], CANCELADO: ['⚪', 'CANCELADO', 'idle'],
 };
@@ -170,6 +171,7 @@ function ask({ title, help = '', fields = [], ok = 'Aceptar', danger = false }) 
   const box = $('#dlg-fields');
   box.textContent = '';
   for (const f of fields) {
+    if (f.type === 'checkbox') { box.append(h('label', { class: 'check' }, h('input', { name: f.name, type: 'checkbox' }), ' ', f.label)); continue; }
     const input = f.type === 'textarea'
       ? h('textarea', { name: f.name, rows: 5, placeholder: f.placeholder || '', required: true })
       : h('input', { name: f.name, type: 'text', placeholder: f.placeholder || '', required: true, spellcheck: 'false' });
@@ -188,7 +190,7 @@ function ask({ title, help = '', fields = [], ok = 'Aceptar', danger = false }) 
     dlg.addEventListener('close', () => {
       if (dlg.returnValue !== 'ok') return resolve(null);
       const out = {};
-      for (const f of fields) out[f.name] = box.querySelector(`[name="${f.name}"]`).value.trim();
+      for (const f of fields) { const el = box.querySelector(`[name="${f.name}"]`); out[f.name] = f.type === 'checkbox' ? el.checked : el.value.trim(); }
       resolve(out);
     }, { once: true });
   });
@@ -201,10 +203,12 @@ const HELP = {
   INSTRUCCION: { AUTO: 'Codex decide el mejor prompt para Claude.', MANUAL: 'CEO en MANUAL: tu instrucción va tal cual a Claude.' },
   DIRECTO: 'Claude recibe exactamente este texto. Codex no lo lee.',
   CONTINUAR: 'Claude mantiene el contexto de esta conversación.', NUEVA: 'Inicia una conversación limpia con Claude.',
+  ANADIR: 'Entra en el objetivo en curso: Claude lo recibe en su sesión ahora (o al empezar su próxima ronda) y lo incorpora sin empezar de cero. No se cerrará sin incorporarlo.',
 };
 let draft = ''; // lo último escrito y cancelado sin querer (sólo en memoria de esta pestaña)
 // `pendientes`: los que esperan a salir; cada uno se edita desde aquí (se cierra SIN enviar y se abre su editor).
-function compose({ title, text = '', tipo = 'INSTRUCCION', sesion = 'CONTINUAR', modo = null, ok = 'Enviar', sesiones = true, trabajo = null, pendientes = [] }) {
+// `anadir`: AÑADIR AL OBJETIVO (sin TIPO/SESIÓN/CEO: va al mismo objetivo y a la sesión que ya trabaja).
+function compose({ title, text = '', tipo = 'INSTRUCCION', sesion = 'CONTINUAR', modo = null, ok = 'Enviar', sesiones = true, trabajo = null, pendientes = [], anadir = false }) {
   const dlg = $('#composer'), ta = $('#cmp-text'), okBtn = $('#cmp-ok');
   const v = { tipo, sesion, modo };
   $('#cmp-title').textContent = title;
@@ -217,13 +221,13 @@ function compose({ title, text = '', tipo = 'INSTRUCCION', sesion = 'CONTINUAR',
     $('#cmp-warn').textContent = over ? `Este prompt supera el límite práctico de Claude (${PROMPT_LIMIT.toLocaleString('es-ES')} caracteres). No se recorta: acórtalo o divídelo.`
       : 'Se acerca al límite práctico de Claude.';
     okBtn.disabled = over || !ta.value.trim();
-    $('#cmp-help').textContent = [v.tipo === 'DIRECTO' ? HELP.DIRECTO : v.modo ? HELP.INSTRUCCION[v.modo] : 'En AUTO la interpreta Codex; en MANUAL va tal cual a Claude.', sesiones ? HELP[v.sesion] : 'Objetivo nuevo: conversación limpia con Claude.'].join(' ');
+    $('#cmp-help').textContent = anadir ? HELP.ANADIR : [v.tipo === 'DIRECTO' ? HELP.DIRECTO : v.modo ? HELP.INSTRUCCION[v.modo] : 'En AUTO la interpreta Codex; en MANUAL va tal cual a Claude.', sesiones ? HELP[v.sesion] : 'Objetivo nuevo: conversación limpia con Claude.'].join(' ');
   };
-  $('#cmp-opts').replaceChildren(...[
+  $('#cmp-opts').replaceChildren(...(anadir ? [] : [
     seg('cmp-tipo', 'TIPO', [['INSTRUCCION', 'INSTRUCCIÓN', 'Te digo lo que quiero y Codex decide el prompt'], ['DIRECTO', 'PROMPT DIRECTO', HELP.DIRECTO]], v.tipo, (x) => { v.tipo = x; paint(); }),
     sesiones ? seg('cmp-sesion', 'SESIÓN', [['CONTINUAR', 'CONTINUAR', HELP.CONTINUAR], ['NUEVA', 'NUEVA', HELP.NUEVA]], v.sesion, (x) => { v.sesion = x; paint(); }) : null,
     modo ? seg('cmp-modo', 'CEO', [['AUTO', 'AUTO', MODO_HELP.AUTO], ['MANUAL', 'MANUAL', MODO_HELP.MANUAL]], v.modo, (x) => { v.modo = x; paint(); }) : null,
-  ].filter(Boolean));
+  ]).filter(Boolean));
   let editar = null;
   const box = $('#cmp-pend');
   box.hidden = !pendientes.length;
@@ -280,6 +284,7 @@ const ICONS = {
   gauge: 'M4 18a8 8 0 1 1 16 0M12 18l4-6',
   copy: 'M9 9h11v11H9zM5 15H4V4h11v1',
   paste: 'M8 4h8v3H8zM6 5.5H5V21h14V5.5h-1M9 12h6M9 16h6',
+  plus: 'M12 5v14M5 12h14',
 };
 function svg(name) {
   const NS = 'http://www.w3.org/2000/svg';
@@ -319,9 +324,17 @@ const actions = {
     if (r?.ok) toast(r.data?.mensaje || 'Reanudado', 'ok'); else toast(r?.error || 'No se pudo', 'bad');
     await refresh();
   },
-  async cancel(c, b) {
-    const ok = await ask({ title: `¿Cancelar ${c.nombre}?`, help: 'Se detiene este objetivo y sus procesos. No se borra ni se revierte nada del proyecto; el historial se conserva.', ok: 'Sí, cancelar', danger: true });
-    if (ok) run('trabajo.cancelar', { trabajo: c.trabajo, confirmar: true }, 'Cancelado', b);
+  // Cancelar = este objetivo termina: se para su ronda en curso. Un monitor persistente sigue vivo salvo que se marque.
+  async cancel(c, b, trabajo = c.trabajo, condicion = c.condicion) {
+    const ok = await ask({ title: `¿Cancelar ${c.nombre}?`, ok: 'Sí, cancelar', danger: true,
+      help: `Se detiene la ronda en curso de este objetivo (y sólo de este). No se borra ni se revierte nada del proyecto; el historial se conserva.${condicion ? ' Su monitor persistente sigue vivo salvo que marques detenerlo.' : ''}`,
+      fields: condicion ? [{ name: 'detener', type: 'checkbox', label: 'Detener también su monitor' }] : [] });
+    if (ok) run('trabajo.cancelar', { trabajo, confirmar: true, detener_monitores: ok.detener === true }, 'Cancelado', b);
+  },
+  // AÑADIR AL OBJETIVO: al MISMO objetivo en curso (no es objetivo nuevo, ni instrucción para después, ni prompt directo).
+  async add(c, b) {
+    const r = await compose({ title: `Añadir al objetivo · ${c.nombre}`, ok: 'Añadir', anadir: true, trabajo: c.trabajo });
+    if (r && !(await run('objetivo.anadir', { trabajo: c.trabajo, texto: r.texto }, 'Añadido', b))) draft = r.texto;
   },
   // Escribir (instrucción o prompt directo) sobre el objetivo actual. Con algo en marcha queda como pendiente.
   async instruct(c, b) {
@@ -349,15 +362,18 @@ function buttonsFor(c) {
   const e = c.estado;
   const info = I('info', `Detalles de ${c.nombre}`, 'details');
   const instr = I('message', 'Escribir instrucción o prompt', 'instruct');
+  const add = I('plus', 'Añadir al objetivo en curso', 'add', 'accent');
   const stop = I('stop', 'Cancelar objetivo', 'cancel', 'danger');
   // LISTO: Claude entregó y espera. CONTINUAR = primer pendiente o (AUTO) que el CEO retome; en MANUAL sin nada, escribir.
-  if (e === 'LISTO') return [c.modo !== 'MANUAL' || c.pendientes ? T(c.modo === 'MANUAL' ? 'ENVIAR SIGUIENTE' : 'CONTINUAR', 'resume') : null,
-    instr, I('target', 'Nuevo objetivo', 'goal', 'accent'), stop, info];
+  if (e === 'LISTO') return [c.modo !== 'MANUAL' || c.pendientes || c.anadidos ? T(c.modo === 'MANUAL' ? 'ENVIAR SIGUIENTE' : 'CONTINUAR', 'resume') : null,
+    add, instr, I('target', 'Nuevo objetivo', 'goal', 'accent'), stop, info];
+  // Esperando una condición: no ocupa el hueco; se puede empezar otro objetivo, reactivarlo ya o añadirle algo.
+  if (e === 'ESPERANDO_CONDICION') return [I('target', 'Nuevo objetivo', 'goal', 'accent'), I('play', 'Reactivar ahora', 'resume'), add, stop, info];
   if (OPEN.includes(e)) return [I('target', 'Nuevo objetivo', 'goal', 'accent'), e === 'TERMINADO' ? instr : null, info, I('unlink', 'Quitar de CEOPadre', 'unlink', 'danger')];
-  if (e === 'ESPERANDO_DECISION') return [instr, stop, info];
-  if (WAITING.includes(e)) return [T('CONTINUAR', 'resume'), I('pause', 'Pausar', 'pause'), instr, stop, info];
-  if (e === 'TRABAJANDO' || e === 'EN_COLA') return [I('pause', 'Pausar', 'pause'), e !== 'EN_COLA' ? instr : null, stop, info];
-  return [T(e === 'PAUSADO' ? 'REANUDAR' : 'REINTENTAR', 'resume'), instr, stop, info];
+  if (e === 'ESPERANDO_DECISION') return [add, instr, stop, info];
+  if (WAITING.includes(e)) return [T('CONTINUAR', 'resume'), I('pause', 'Pausar', 'pause'), add, instr, stop, info];
+  if (e === 'TRABAJANDO' || e === 'EN_COLA') return [add, I('pause', 'Pausar', 'pause'), e !== 'EN_COLA' ? instr : null, stop, info];
+  return [T(e === 'PAUSADO' ? 'REANUDAR' : 'REINTENTAR', 'resume'), add, instr, stop, info];
 }
 
 const line = (label, text, cls = '') => h('p', { class: `ln ${cls}` }, h('b', {}, label), ' ', text || '—');
@@ -367,7 +383,7 @@ const line = (label, text, cls = '') => h('p', { class: `ln ${cls}` }, h('b', {}
 // Texto del estado en los puestos (lo que Antonio lee de un vistazo).
 const MOOD_LABEL = { ESPERANDO_DECISION: 'Te necesita · decidir', ERROR: 'Error · revisar', BLOQUEADO: 'Bloqueado · revisar',
   SIN_ACTIVIDAD: 'Sin actividad', TRABAJANDO: 'Trabajando', ESPERANDO_CLAUDE: 'Esperando a Claude', ESPERANDO_CEO: 'Esperando al CEO',
-  EN_COLA: 'En cola', LIBRE: 'Sin objetivo', PAUSADO: 'Pausado', LISTO: 'Listo · tu turno', TERMINADO: 'Terminado', CANCELADO: 'Cancelado' };
+  ESPERANDO_CONDICION: 'Esperando condición · monitorizado', EN_COLA: 'En cola', LIBRE: 'Sin objetivo', PAUSADO: 'Pausado', LISTO: 'Listo · tu turno', TERMINADO: 'Terminado', CANCELADO: 'Cancelado' };
 const status = (c, text) => h('span', { class: 'status' }, h('i', { class: 'dot', 'aria-hidden': 'true' }), text || MOOD_LABEL[c.estado] || c.estado);
 
 /** Puesto de trabajo (EN MARCHA): qué hace, qué sigue y, si hay que decidir, la decisión a mano. */
@@ -388,15 +404,22 @@ function desk(c) {
     line('SIGUIENTE', siguiente, 'next'),
     c.detalle && ['BLOQUEADO', 'ERROR', 'SIN_ACTIVIDAD'].includes(c.estado) ? h('p', { class: 'note' }, c.detalle) : null,
     c.pendientes ? h('p', { class: 'ln muted' }, h('b', {}, 'PENDIENTES'), ` ${c.pendientes}`) : null,
+    c.anadidos ? h('p', { class: 'ln muted' }, h('b', {}, 'AÑADIDO'), ` ${c.anadidos} sin incorporar todavía`) : null,
+    esperandoLine(c),
     decision,
     h('div', { class: 'actions' }, buttonsFor(c)));
 }
 
-/** Azulejo (EN ESPERA): logo, nombre, estado mínimo y las acciones de siempre. */
+/** Otros objetivos del proyecto que esperan una condición (monitorizados, sin ocupar el hueco). */
+const esperandoLine = (c) => (c.esperando?.length ? h('p', { class: 'ln muted', title: c.esperando.map((x) => x.condicion).join(' · ') },
+  h('b', {}, 'MONITORIZADO'), ` ${c.esperando.length} objetivo${c.esperando.length === 1 ? '' : 's'} esperando una condición`) : null);
+
+/** Azulejo (EN ESPERA): logo, nombre, estado mínimo y las acciones de siempre (y, si espera, qué espera). */
 function tile(c) {
   return h('article', { class: `tile m-${mood(c)}`, 'data-id': c.id },
     logo(c),
-    h('div', { class: 'title' }, h('h3', { title: c.nombre }, c.nombre), status(c)),
+    h('div', { class: 'title' }, h('h3', { title: c.nombre }, c.nombre), status(c),
+      c.estado === 'ESPERANDO_CONDICION' && c.condicion ? h('small', { class: 'muted cond', title: c.condicion }, c.condicion) : null),
     h('div', { class: 'actions' }, buttonsFor(c)));
 }
 
@@ -644,7 +667,7 @@ async function paintDetail(force) {
   // Canon: decidir un cambio propuesto (sólo Antonio). El mapa completo se repinta si está abierto.
   const decide = (id, que, b) => run(`canon.${que}`, { proyecto: c.id, id }, que === 'aprobar' ? 'Aprobado' : 'Rechazado', b);
   const openMap = () => { $('#map-title').textContent = `Mapa · ${c.nombre}`; paintMap(d.mapa, decide); $('#map').showModal(); };
-  body.replaceChildren(...[summaryPanel(c, d), mapPanel(d.mapa, { open: openMap, decide, ...decisionHandlers(c) }), writePanel(c, d), roundsPanel(d), techPanel(c, d)].filter(Boolean));
+  body.replaceChildren(...[summaryPanel(c, d), esperasPanel(c, d), mapPanel(d.mapa, { open: openMap, decide, ...decisionHandlers(c) }), writePanel(c, d), roundsPanel(d), techPanel(c, d)].filter(Boolean));
   if ($('#map').open) paintMap(d.mapa, decide);
   for (const x of body.querySelectorAll('details')) if (wasOpen.has(x.dataset.k)) x.open = true;
 }
@@ -663,7 +686,8 @@ function summaryPanel(c, d) {
   const long = (c.objetivo_len || 0) > (c.objetivo || '').length;
   return h('section', { class: `panel sum m-${mood(c)}` },
     h('div', { class: 'sum-head' }, h('span', { class: `pill tone-${tone}` }, label),
-      c.pendientes ? h('span', { class: 'chip' }, `Pendientes ${c.pendientes}`) : null),
+      c.pendientes ? h('span', { class: 'chip' }, `Pendientes ${c.pendientes}`) : null,
+      c.anadidos ? h('span', { class: 'chip' }, `Añadidos sin incorporar ${c.anadidos}`) : null),
     hasJob && c.estado !== 'CANCELADO' ? h('div', { class: 'sum-ceo' },
       seg(`modo-${c.trabajo}`, 'CEO', [['AUTO', 'AUTO', MODO_HELP.AUTO], ['MANUAL', 'MANUAL', MODO_HELP.MANUAL]], modo,
         (v) => run('trabajo.modo', { trabajo: c.trabajo, modo: v }, v)),
@@ -700,12 +724,24 @@ async function openGoal(c) {
 }
 
 /** Escribir + pendientes (orden de creación; sólo un extracto de cada uno). */
+const ADD_STATE = { PENDIENTE: 'Enviado · pendiente de incorporar', ENTREGADO: 'Entregado a Claude', RECIBIDO: 'Claude lo tiene · incorporándolo',
+  INCORPORADO: 'Incorporado' };
 function writePanel(c, d) {
   const hasJob = !['LIBRE', 'CANCELADO'].includes(c.estado);
+  const canAdd = hasJob && c.estado !== 'TERMINADO';
   const open = (e) => (hasJob ? actions.instruct(c, e.currentTarget) : actions.goal(c, e.currentTarget));
   const pend = d.pendientes || [];
+  const adds = d.anadidos || [];
   return h('section', { class: 'panel write' },
-    h('button', { class: 'write-btn', type: 'button', onclick: open }, hasJob ? 'Escribir…' : 'Escribir un objetivo nuevo…'),
+    canAdd ? h('button', { class: 'write-btn add', type: 'button', onclick: (e) => actions.add(c, e.currentTarget) },
+      h('b', {}, 'Añadir al objetivo…'), h('small', { class: 'muted' }, 'Algo que olvidaste: entra en el trabajo que ya está en marcha')) : null,
+    h('button', { class: 'write-btn', type: 'button', onclick: open }, hasJob ? 'Escribir instrucción o prompt…' : 'Escribir un objetivo nuevo…'),
+    adds.length ? [h('p', { class: 'lbl' }, `Añadidos al objetivo (${adds.length})`),
+      h('ol', { class: 'pend' }, adds.map((a) => h('li', {},
+        h('div', { class: 'pend-tags' }, h('span', { class: 'tag' }, `#${a.n}`),
+          h('span', { class: `tag ${a.estado === 'INCORPORADO' ? 'done' : 'direct'}` }, `${ADD_STATE[a.estado] || a.estado}${a.estado === 'INCORPORADO' && a.ronda ? ` · ronda ${a.ronda}` : ''}`),
+          h('small', { class: 'muted' }, ago(a.creado))),
+        h('p', { class: 'pend-text' }, a.extracto, a.chars > a.extracto.length ? '…' : ''))))] : null,
     pend.length ? [h('p', { class: 'lbl' }, `Instrucciones pendientes (${pend.length})`),
       pendList(pend, (p) => [iconBtn('edit', 'Editar pendiente', () => editPending(p)), iconBtn('trash', 'Eliminar pendiente', (e) => deletePending(p, e.currentTarget), 'danger')])]
       : null);
@@ -727,6 +763,29 @@ async function editPending(p, trabajo = detailCache?.d?.trabajo?.trabajo) {
 async function deletePending(p, b) {
   const ok = await ask({ title: '¿Eliminar este pendiente?', help: `«${p.extracto.slice(0, 120)}${p.chars > 120 ? '…' : ''}» no se enviará.`, ok: 'Eliminar', danger: true });
   if (ok) await run('pendiente.eliminar', { id: p.id }, 'Pendiente eliminado', b);
+}
+
+/**
+ * ESPERANDO UNA CONDICIÓN (monitorizado): qué se espera, cómo se comprueba, si su monitor vive y cuándo se miró por última
+ * vez. Antonio puede comprobar ya, darla por cumplida, reactivar el objetivo o cancelarlo (el monitor sigue si no lo marca).
+ */
+function esperasPanel(c, d) {
+  const list = (d.esperas || []).filter((x) => x.estado === 'ESPERANDO_CONDICION' || x.esperas.some((e) => e.estado === 'ACTIVA'));
+  if (!list.length) return null;
+  const B = (label, op, params, cls = '') => h('button', { class: `btn small ${cls}`, type: 'button', onclick: (e) => run(op, params, label, e.currentTarget) }, label);
+  return h('section', { class: 'panel waits m-wait' }, h('h4', {}, `Esperando una condición (${list.length})`),
+    list.map((x) => h('div', { class: 'wait-item' },
+      h('p', { class: 'ln goal', title: x.objetivo }, x.objetivo),
+      x.esperas.filter((e) => e.estado === 'ACTIVA').map((e) => h('div', { class: 'wait-cond' },
+        line('ESPERA', e.descripcion),
+        h('p', { class: 'ln muted' }, `Comprobada ${e.comprobada ? ago(e.comprobada) : 'aún no'} · cada ${Math.round(e.cada_s / 60) || 1} min · hasta ${when(e.hasta)}`),
+        e.monitor ? h('p', { class: `ln ${e.monitor.vivo ? 'muted' : 'note'}` }, `Monitor pid ${e.monitor.pid}: ${e.monitor.vivo ? 'vivo' : `caído${e.monitor.relanzable ? ' (se relanza solo)' : ''}`}`) : null,
+        e.error ? h('p', { class: 'ln muted' }, e.error) : null,
+        h('div', { class: 'row' }, B('Comprobar ahora', 'espera.comprobar', { id: e.id }), B('Dar por cumplida', 'espera.resolver', { id: e.id, resultado: 'CUMPLIDA' })))),
+      h('div', { class: 'row' },
+        x.estado === 'ESPERANDO_CONDICION' ? B('Reactivar ahora', 'trabajo.reanudar', { trabajo: x.trabajo }) : null,
+        x.estado === 'ESPERANDO_CONDICION' ? h('button', { class: 'btn small danger', type: 'button',
+          onclick: (e) => actions.cancel(c, e.currentTarget, x.trabajo, x.esperas.some((w) => w.monitor)) }, 'Cancelar objetivo') : null))));
 }
 
 /** Historial de rondas: siempre visible, cada ronda plegada. */

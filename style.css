@@ -402,6 +402,18 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); box-sh
 .pend-tags { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .tag { font-size: 10.5px; font-weight: 800; letter-spacing: .05em; color: var(--ink-2); background: var(--idle-bg); border-radius: 6px; padding: 2px 6px; }
 .tag.direct { color: var(--wait); background: var(--wait-bg); }
+.tag.done { color: var(--ok); background: var(--ok-bg); }
+/* AÑADIR AL OBJETIVO: la acción principal sobre un objetivo en curso (borde sólido de acento, no el discontinuo de escribir). */
+.write-btn.add { display: grid; gap: 2px; cursor: pointer; color: var(--ink); border-style: solid; border-color: var(--accent); }
+.write-btn.add small { font-size: 12.5px; }
+.check { display: flex; gap: 8px; align-items: center; font-size: 14px; min-height: 44px; }
+.check input { width: 20px; height: 20px; }
+.tile .cond { font-size: 12px; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+.waits { display: grid; gap: 8px; border-left: 4px solid var(--wait); }
+.waits h4 { margin: 0; color: var(--wait); }
+.wait-item { display: grid; gap: 4px; border-top: 1px solid var(--line); padding-top: 8px; }
+.wait-item:first-of-type { border-top: 0; padding-top: 0; }
+.wait-cond { display: grid; gap: 2px; background: var(--wait-bg); border-radius: 10px; padding: 8px 10px; }
 .pend-text { margin: 0; grid-column: 1; font-size: 13.5px; overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 1; overflow: hidden; }
 .pend-act { grid-column: 2; grid-row: 1 / span 2; display: flex; }
 

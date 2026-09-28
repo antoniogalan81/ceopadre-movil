@@ -72,12 +72,16 @@ export function resetText(iso, now = Date.now()) {
  * pintar al pulsar el icono. `max` = el % usado más alto (lo único que se ve sin abrir). Sin datos → null.
  */
 export function quotaView(rows, now = Date.now()) {
-  const list = (Array.isArray(rows) ? rows : []).filter((r) => Number.isFinite(r?.used_percent));
+  const all = Array.isArray(rows) ? rows : [];
+  const list = all.filter((r) => Number.isFinite(r?.used_percent));
   if (!list.length) return null;
   const times = list.map((r) => Date.parse(r.updated_at || '')).filter(Number.isFinite);
   return {
     max: Math.max(...list.map((r) => r.used_percent)),
-    filas: list.map((r) => ({ nombre: r.provider, usado: `${r.used_percent} %`, disponible: `${r.available_percent} %`, reinicio: resetText(r.reset_at, now) })),
+    // Fila sin % (p. ej. «CODEX MES»: el proveedor no la informa) → se enseña como no disponible, sin inventar cifra.
+    filas: all.filter((r) => r?.provider).map((r) => (Number.isFinite(r.used_percent)
+      ? { nombre: r.provider, usado: `${r.used_percent} %`, disponible: `${r.available_percent} %`, reinicio: resetText(r.reset_at, now) }
+      : { nombre: r.provider, usado: '—', disponible: 'No disponible', reinicio: '—' })),
     leida: times.length ? new Date(Math.min(...times)).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }) : '',
   };
 }

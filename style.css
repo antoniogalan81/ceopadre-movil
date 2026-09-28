@@ -456,6 +456,8 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); box-sh
 }
 /* Móvil: el desplegable de cuota ocupa el ancho útil (nunca se sale de la pantalla). */
 @media (max-width: 640px) { .quota-pop { position: fixed; left: 16px; right: 16px; top: auto; width: auto; max-width: none; margin-top: 6px; } }
+/* 320 px: con las filas MES («No disponible») la tabla no cabía en el recuadro. */
+@media (max-width: 380px) { .quota-pop { left: 8px; right: 8px; } .quota-pop table { font-size: 12px; } .quota-pop th, .quota-pop td { padding-right: 6px; } .quota-pop tr > :last-child { padding-right: 0; } }
 
 /* ---- V1.4: MAPA DEL PROYECTO (canon) ---- */
 .map { display: grid; gap: 4px; border-top: 3px solid var(--accent); }

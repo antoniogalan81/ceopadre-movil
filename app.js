@@ -528,7 +528,7 @@ function paintQuota() {
     box.querySelector('.quota-pop').replaceChildren(
       h('table', {}, h('thead', {}, h('tr', {}, h('th', {}, ''), h('th', {}, 'Usado'), h('th', {}, 'Disponible'), h('th', {}, 'Reinicio'))),
         h('tbody', {}, q.filas.map((f) => h('tr', {}, h('th', {}, f.nombre), h('td', {}, f.usado), h('td', {}, f.disponible), h('td', {}, f.reinicio))))),
-      h('small', { class: 'muted' }, `Cuota de toda la cuenta (no sólo CEOPadre)${q.leida ? ` · leída ${q.leida}` : ''}`));
+      h('small', { class: 'muted' }, `Cuota de toda la cuenta (no sólo CEOPadre)${q.leida ? ` · leída ${q.leida}` : ''}${q.filas.some((f) => f.disponible === 'No disponible') ? ' · MES: el proveedor no informa cuota mensual' : ''}`));
   }
 }
 // Un clic fuera cierra el desplegable de cuota.

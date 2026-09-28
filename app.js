@@ -831,7 +831,7 @@ function roundItem(r, trabajo) {
       r.no_comprobado?.length ? h('em', {}, ` · sin comprobar: ${r.no_comprobado.length}`) : null, h('small', {}, ` ${ago(r.fin)}`)),
     h('pre', { class: 'prompt' }, `${r.origen === 'ANTONIO' ? 'Antonio envió (literal)' : 'El CEO pidió'}:\n${r.codex_pidio}`),
     h('pre', {}, body),
-    failed || !trabajo ? null : h('button', { class: 'link', type: 'button', onclick: () => viewReport(trabajo, r.ronda) }, 'Ver informe completo'));
+    failed || String(r.estado).startsWith('INTERRUMPIDA') || !trabajo ? null : h('button', { class: 'link', type: 'button', onclick: () => viewReport(trabajo, r.ronda) }, 'Ver informe completo'));
 }
 
 function lessonItem(l) {

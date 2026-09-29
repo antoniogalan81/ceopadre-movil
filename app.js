@@ -1,8 +1,8 @@
 // CEOPadre en el navegador. En el PC habla con la API local; en el móvil, con Supabase.
 // No ejecuta nada: pinta el estado y deja órdenes. Todo el texto se inserta como texto (nunca HTML).
-import { gestText, mood, netStatus, office, pcOnline, priority, PROMPT_LIMIT, PROMPT_WARN, quotaView, zone } from './zones.js';
+import { decisionCount, gestText, mood, needsDecision, netStatus, office, pcOnline, priority, PROMPT_LIMIT, PROMPT_WARN, quotaView, zone } from './zones.js';
 import { h } from './dom.js';
-import { mapBody, mapPanel, pendingDecisions } from './map.js';
+import { mapBody, mapPanel, pendingDecisions, proposals } from './map.js';
 
 const LOCAL = ['127.0.0.1', 'localhost'].includes(location.hostname);
 const $ = (s) => document.querySelector(s);
@@ -384,7 +384,20 @@ const line = (label, text, cls = '') => h('p', { class: `ln ${cls}` }, h('b', {}
 const MOOD_LABEL = { ESPERANDO_DECISION: 'Te necesita · decidir', ERROR: 'Error · revisar', BLOQUEADO: 'Bloqueado · revisar',
   SIN_ACTIVIDAD: 'Sin actividad', TRABAJANDO: 'Trabajando', ESPERANDO_CLAUDE: 'Esperando a Claude', ESPERANDO_CEO: 'Esperando al CEO',
   ESPERANDO_CONDICION: 'Esperando condición · monitorizado', EN_COLA: 'En cola', LIBRE: 'Sin objetivo', PAUSADO: 'Pausado', LISTO: 'Listo · tu turno', TERMINADO: 'Terminado', CANCELADO: 'Cancelado' };
-const status = (c, text) => h('span', { class: 'status' }, h('i', { class: 'dot', 'aria-hidden': 'true' }), text || MOOD_LABEL[c.estado] || c.estado);
+// Una decisión pendiente de Antonio (del objetivo o del canon) manda sobre cualquier otro estado.
+const decisionLabel = (c) => { const n = decisionCount(c); return n > 1 ? `ESPERANDO TU DECISIÓN · ${n}` : 'ESPERANDO TU DECISIÓN'; };
+const status = (c, text) => h('span', { class: 'status' }, h('i', { class: 'dot', 'aria-hidden': 'true' }),
+  text || (needsDecision(c) ? decisionLabel(c) : MOOD_LABEL[c.estado] || c.estado));
+
+/** Decisiones del canon (preguntas y cambios protegidos) en el puesto: cuántas, estado real del objetivo y a decidirlas. */
+function canonDecisionLine(c) {
+  const n = (c.decisiones?.length || 0) + (c.propuestas?.length || 0);
+  if (!n) return null;
+  return h('div', { class: 'decision' },
+    h('p', { class: 'ln' }, h('b', {}, 'TE NECESITA'), ` ${n} ${n === 1 ? 'decisión pendiente' : 'decisiones pendientes'}`,
+      c.estado !== 'ESPERANDO_DECISION' && c.estado !== 'LIBRE' ? ` · el objetivo sigue: ${MOOD_LABEL[c.estado] || c.estado}` : ''),
+    h('div', { class: 'row' }, h('button', { class: 'btn primary small', type: 'button', onclick: () => openDecisions(c.id) }, 'DECIDIR')));
+}
 
 /** Puesto de trabajo (EN MARCHA): qué hace, qué sigue y, si hay que decidir, la decisión a mano. */
 function desk(c) {
@@ -407,6 +420,7 @@ function desk(c) {
     c.anadidos ? h('p', { class: 'ln muted' }, h('b', {}, 'AÑADIDO'), ` ${c.anadidos} sin incorporar todavía`) : null,
     esperandoLine(c),
     decision,
+    canonDecisionLine(c),
     h('div', { class: 'actions' }, buttonsFor(c)));
 }
 
@@ -499,14 +513,29 @@ function decisionHandlers(p) {
 }
 function paintDecisions() {
   const box = $('#decisions');
-  const withDec = data.proyectos.filter((p) => p.decisiones?.length);
-  const n = withDec.reduce((a, p) => a + p.decisiones.length, 0);
+  const withDec = data.proyectos.filter(needsDecision);
+  const n = withDec.reduce((a, p) => a + decisionCount(p), 0);
   box.hidden = !n;
+  // El número también en la pestaña/app: se ve sin abrir CEOPadre.
+  document.title = n ? `(${n}) CEOPadre` : 'CEOPadre';
   if (!n) { box.replaceChildren(); return; }
   box.replaceChildren(h('details', { class: 'fold dec-global', 'data-k': 'decisiones', open: decOpen ? true : null,
     ontoggle: (e) => { decOpen = e.currentTarget.open; } },
-  h('summary', {}, `DECISIONES PENDIENTES (${n})`),
-  withDec.map((p) => h('section', { class: 'dec-proj' }, h('h3', {}, p.nombre), pendingDecisions(p.decisiones, decisionHandlers(p), false)))));
+  h('summary', {}, `⚠ ${n} ${n === 1 ? 'DECISIÓN PENDIENTE' : 'DECISIONES PENDIENTES'} · te ${n === 1 ? 'necesita' : 'necesitan'}`),
+  withDec.map((p) => h('section', { class: 'dec-proj', 'data-dec': p.id }, h('h3', {}, p.nombre),
+    p.estado === 'ESPERANDO_DECISION' ? h('div', { class: 'decision' }, line('PROPUESTA', p.propuesta), line('RECOMIENDA', p.recomendacion),
+      h('div', { class: 'row' },
+        h('button', { class: 'btn primary small', type: 'button', onclick: (e) => actions.approve(p, e.currentTarget) }, 'APROBAR'),
+        h('button', { class: 'btn small', type: 'button', onclick: (e) => actions.reject(p, e.currentTarget) }, 'RECHAZAR'))) : null,
+    proposals(p, (id, que, b) => run(`canon.${que}`, { proyecto: p.id, id }, que === 'aprobar' ? 'Aprobado' : 'Rechazado', b)),
+    pendingDecisions(p.decisiones, decisionHandlers(p), false)))));
+}
+/** DECIDIR en un puesto: abre el aviso global y lleva al proyecto. */
+function openDecisions(id) {
+  decOpen = true;
+  const d = $('#decisions details');
+  if (d) d.open = true;
+  ($(`#decisions [data-dec="${CSS.escape(id)}"]`) || $('#decisions'))?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 let decOpen = false;
 
@@ -685,7 +714,7 @@ function summaryPanel(c, d) {
   const r = d.resultado;
   const long = (c.objetivo_len || 0) > (c.objetivo || '').length;
   return h('section', { class: `panel sum m-${mood(c)}` },
-    h('div', { class: 'sum-head' }, h('span', { class: `pill tone-${tone}` }, label),
+    h('div', { class: 'sum-head' }, h('span', { class: `pill tone-${needsDecision(c) ? 'ask' : tone}` }, needsDecision(c) ? decisionLabel(c) : label),
       c.pendientes ? h('span', { class: 'chip' }, `Pendientes ${c.pendientes}`) : null,
       c.anadidos ? h('span', { class: 'chip' }, `Añadidos sin incorporar ${c.anadidos}`) : null),
     hasJob && c.estado !== 'CANCELADO' ? h('div', { class: 'sum-ceo' },

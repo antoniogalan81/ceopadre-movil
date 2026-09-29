@@ -6,15 +6,24 @@ const NEEDS = ['ESPERANDO_DECISION', 'BLOQUEADO', 'ERROR', 'SIN_ACTIVIDAD'];
 const WORKING = ['TRABAJANDO'];
 const WAITING = ['ESPERANDO_CLAUDE', 'ESPERANDO_CEO', 'EN_COLA'];
 
+/**
+ * DECISIONES DE ANTONIO de una tarjeta: la del objetivo (ESPERANDO_DECISION), las preguntas del canon y los cambios
+ * protegidos propuestos (APROBAR/RECHAZAR). Cualquiera de ellas manda sobre el estado del objetivo: la tarjeta dice
+ * «ESPERANDO TU DECISIÓN» aunque el objetivo esté trabajando o esperando una condición.
+ */
+export const decisionCount = (c) => (c.estado === 'ESPERANDO_DECISION' ? 1 : 0) + (c.decisiones?.length || 0) + (c.propuestas?.length || 0);
+export const needsDecision = (c) => decisionCount(c) > 0;
+const needs = (c) => needsDecision(c) || NEEDS.includes(c.estado);
+
 /** 'marcha' | 'espera'. SIN OBJETIVO, PAUSADO, LISTO (tu turno), TERMINADO y CANCELADO esperan; el resto está en marcha. */
-export const zone = (c) => ([...NEEDS, ...WORKING, ...WAITING].includes(c.estado) ? 'marcha' : 'espera');
+export const zone = (c) => (needs(c) || [...WORKING, ...WAITING].includes(c.estado) ? 'marcha' : 'espera');
 
 /** 0 te necesita · 1 trabajando · 2 esperando proveedor/cola · 3 resto. */
-export const priority = (c) => (NEEDS.includes(c.estado) ? 0 : WORKING.includes(c.estado) ? 1 : WAITING.includes(c.estado) ? 2 : 3);
+export const priority = (c) => (needs(c) ? 0 : WORKING.includes(c.estado) ? 1 : WAITING.includes(c.estado) ? 2 : 3);
 
 /** Qué pinta el puesto: 'need' (ámbar/rojo), 'work' (verde), 'wait' (azul), 'idle'. ESPERANDO_CONDICION (monitorizado) es
- * azul pero va a EN ESPERA: no ocupa el hueco ni necesita a nadie. */
-export const mood = (c) => (c.estado === 'ERROR' || c.estado === 'BLOQUEADO' ? 'bad' : NEEDS.includes(c.estado) ? 'need'
+ * azul pero va a EN ESPERA: no ocupa el hueco ni necesita a nadie. Una decisión pendiente siempre es 'need'. */
+export const mood = (c) => (needsDecision(c) ? 'need' : c.estado === 'ERROR' || c.estado === 'BLOQUEADO' ? 'bad' : NEEDS.includes(c.estado) ? 'need'
   : WORKING.includes(c.estado) ? 'work' : WAITING.includes(c.estado) || c.estado === 'ESPERANDO_CONDICION' ? 'wait' : ['TERMINADO', 'LISTO'].includes(c.estado) ? 'ok' : 'idle');
 
 const recent = (c) => String(c.ultima_actividad || c.updated_at || c.usado || '');
@@ -35,9 +44,10 @@ export function office(cards) {
     gestiones,
     resumen: {
       total: gestiones.length,
-      trabajando: gestiones.filter((c) => WORKING.includes(c.estado)).length,
-      necesita: gestiones.filter((c) => NEEDS.includes(c.estado)).length,
-      esperando: gestiones.filter((c) => WAITING.includes(c.estado)).length,
+      trabajando: gestiones.filter((c) => !needs(c) && WORKING.includes(c.estado)).length,
+      necesita: gestiones.filter(needs).length,
+      esperando: gestiones.filter((c) => !needs(c) && WAITING.includes(c.estado)).length,
+      decisiones: cards.reduce((a, c) => a + decisionCount(c), 0), // aviso global: todas, proyectos y gestiones
     },
   };
 }

@@ -373,6 +373,8 @@ function buttonsFor(c) {
   if (e === 'ESPERANDO_DECISION') return [add, instr, stop, info];
   if (WAITING.includes(e)) return [T('CONTINUAR', 'resume'), I('pause', 'Pausar', 'pause'), add, instr, stop, info];
   if (e === 'TRABAJANDO' || e === 'EN_COLA') return [add, I('pause', 'Pausar', 'pause'), e !== 'EN_COLA' ? instr : null, stop, info];
+  // Sin señales: sigue siendo trabajo en curso (CEOPadre lo corta y reintenta solo); relanzarlo ya es una emergencia.
+  if (e === 'SIN_ACTIVIDAD') return [add, I('pause', 'Pausar', 'pause'), I('play', 'Reintentar ahora', 'resume'), instr, stop, info];
   return [T(e === 'PAUSADO' ? 'REANUDAR' : 'REINTENTAR', 'resume'), add, instr, stop, info];
 }
 

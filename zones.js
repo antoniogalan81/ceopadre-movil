@@ -2,8 +2,9 @@
 // ya existen (no cambia ningún estado interno ni se envía a ningún CEO). Sin DOM: se prueba en Node.
 
 // Te necesita (decisión o algo que arreglar) · trabajando · esperando a un proveedor o en cola.
-const NEEDS = ['ESPERANDO_DECISION', 'BLOQUEADO', 'ERROR', 'SIN_ACTIVIDAD'];
-const WORKING = ['TRABAJANDO'];
+// SIN_ACTIVIDAD es trabajo en curso: si el proceso sigue callado, CEOPadre lo corta y lo reintenta solo.
+const NEEDS = ['ESPERANDO_DECISION', 'BLOQUEADO', 'ERROR'];
+const WORKING = ['TRABAJANDO', 'SIN_ACTIVIDAD'];
 const WAITING = ['ESPERANDO_CLAUDE', 'ESPERANDO_CEO', 'EN_COLA'];
 
 /**

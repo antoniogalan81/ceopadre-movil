@@ -111,3 +111,18 @@ export function pcOnline(vistoEn, now = Date.now(), tolerancia = PC_ONLINE_MS) {
   const age = now - t;
   return age < tolerancia && age > -5 * 60_000;
 }
+
+/**
+ * CONDICIONES EN ESPERA de todas las tarjetas (proyectos y gestiones), de la misma fuente que la tarjeta: `condicion`
+ * del objetivo mostrado (esperas ACTIVAS en SQLite, texto completo) y `esperando[]` (otros objetivos monitorizados).
+ * Sin copia propia: si la espera se resuelve o cambia en el PC, la próxima tarjeta ya no la trae o la trae cambiada.
+ */
+export function waitingConditions(cards) {
+  return (cards || []).flatMap((c) => [
+    ...(c.estado === 'ESPERANDO_CONDICION' && c.condicion ? [{ trabajo: c.trabajo, principal: true, condicion: c.condicion }] : []),
+    ...(c.esperando || []).filter((x) => x.condicion).map((x) => ({ trabajo: x.trabajo, principal: false, condicion: x.condicion, objetivo: x.objetivo })),
+  ].map((x) => ({ ...x, id: c.id, proyecto: c.nombre, estado: c.estado, decide: needsDecision(c) })));
+}
+
+/** COPIAR TODAS: «NOMBRE\n<condición>» separadas por una línea en blanco. */
+export const conditionsText = (list) => list.map((x) => `${String(x.proyecto).toUpperCase()}\n${x.condicion}`).join('\n\n');

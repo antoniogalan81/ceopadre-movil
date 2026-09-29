@@ -521,3 +521,18 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); box-sh
 .dec-act { display: flex; gap: 6px; }
 .dec-act .btn.small { min-height: 34px; }
 @media (pointer: coarse) { .dec-act .btn.small { min-height: 44px; } }
+
+/* ---- V2.4: CONDICIONES EN ESPERA (vista global, plegada; no ocupa la pantalla) ---- */
+.conds { margin: 0 0 12px; }
+.cond-global { background: var(--wait-bg); border: 1.5px solid var(--wait); border-radius: var(--radius); padding: 0 14px; }
+.cond-global > summary { color: var(--wait); font-weight: 800; letter-spacing: .06em; min-height: 24px; }
+/* Abierta: altura acotada con su propio desplazamiento y COPIAR TODAS siempre a la vista arriba. */
+.cond-body { max-height: min(65vh, 560px); overflow-y: auto; overscroll-behavior: contain; margin: 0 -14px; padding: 0 14px; }
+.cond-top { position: sticky; top: 0; z-index: 1; display: flex; justify-content: flex-end; padding: 6px 0; background: var(--wait-bg); }
+.cond-item { border-top: 1px solid color-mix(in srgb, var(--wait) 30%, transparent); padding: 8px 0; display: grid; gap: 4px; justify-items: start; }
+.cond-item h3 { margin: 0; font-size: 14px; font-weight: 800; }
+.cond-text { margin: 0; font-size: 14px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; }
+.cond-meta { margin: 0; font-size: 12px; overflow-wrap: anywhere; }
+.cond-empty { margin: 0 0 10px; }
+@media (pointer: coarse) { .cond-global .btn.small { min-height: 44px; min-width: 88px; } }
+.cond-goal { justify-self: stretch; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

@@ -1,6 +1,6 @@
 // CEOPadre en el navegador. En el PC habla con la API local; en el móvil, con Supabase.
 // No ejecuta nada: pinta el estado y deja órdenes. Todo el texto se inserta como texto (nunca HTML).
-import { decisionCount, gestText, mood, needsDecision, netStatus, office, pcOnline, priority, PROMPT_LIMIT, PROMPT_WARN, quotaView, zone } from './zones.js';
+import { conditionsText, decisionCount, gestText, mood, needsDecision, netStatus, office, pcOnline, priority, PROMPT_LIMIT, PROMPT_WARN, quotaView, waitingConditions, zone } from './zones.js';
 import { h } from './dom.js';
 import { mapBody, mapPanel, pendingDecisions, proposals } from './map.js';
 
@@ -499,6 +499,39 @@ function paintList() {
   $('#empty').hidden = data.proyectos.length > 0;
   paintQuota();
   paintDecisions();
+  paintConditions();
+}
+
+// CONDICIONES EN ESPERA (vista global, plegada por defecto): cada condición completa con su COPIAR, y COPIAR TODAS.
+// Sale de las mismas tarjetas que se acaban de pintar; sólo se repinta si cambia algo (no rompe una selección ni el foco).
+let condOpen = false, condSig = null;
+async function copyCond(text, b) {
+  b.disabled = true;
+  try {
+    const ok = await copyText(text);
+    toast(ok ? 'Copiado' : 'CEOPadre no pudo copiar.', ok ? 'ok' : 'bad');
+  } finally { b.disabled = false; }
+}
+function paintConditions() {
+  const list = waitingConditions(data.proyectos);
+  const sig = JSON.stringify(list);
+  if (sig === condSig) return;
+  condSig = sig;
+  const n = list.length;
+  const estado = (x) => [x.principal ? 'Monitorizado' : `Otro objetivo del proyecto · el proyecto: ${MOOD_LABEL[x.estado] || x.estado}`,
+    x.decide ? 'además te necesita (decisión pendiente)' : ''].filter(Boolean).join(' · ');
+  $('#conds').replaceChildren(h('details', { class: 'fold cond-global', open: condOpen ? true : null,
+    ontoggle: (e) => { condOpen = e.currentTarget.open; } },
+  h('summary', {}, `🔭 CONDICIONES EN ESPERA · ${n}`),
+  n ? h('div', { class: 'cond-body' },
+    h('div', { class: 'cond-top' }, h('button', { class: 'btn primary small', type: 'button', onclick: (e) => copyCond(conditionsText(list), e.currentTarget) }, 'COPIAR TODAS')),
+    list.map((x) => h('section', { class: 'cond-item', 'data-cond': `${x.id}:${x.trabajo}` },
+      h('h3', {}, x.proyecto),
+      h('p', { class: 'cond-text' }, x.condicion),
+      h('p', { class: 'cond-meta muted' }, estado(x)),
+      x.principal ? null : h('p', { class: 'cond-meta cond-goal muted', title: x.objetivo }, h('b', {}, 'OBJETIVO'), ` ${x.objetivo}`),
+      h('button', { class: 'btn small', type: 'button', 'aria-label': `Copiar la condición de ${x.proyecto}`, onclick: (e) => copyCond(x.condicion, e.currentTarget) }, 'COPIAR'))))
+    : h('p', { class: 'muted cond-empty' }, 'Ningún proyecto está esperando una condición ahora mismo.')));
 }
 
 // DECISIONES PENDIENTES (vista global): las preguntas que sólo contesta Antonio, agrupadas por proyecto. Sin IA: salen

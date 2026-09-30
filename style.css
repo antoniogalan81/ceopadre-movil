@@ -109,6 +109,7 @@ body {
 
 .decision { background: var(--ask-bg); border-radius: 10px; padding: 6px 8px; margin: 2px 0; display: grid; gap: 2px; }
 .decision .row { margin-top: 4px; }
+.decision .ln { white-space: pre-line; } /* RECOMIENDO + OPCIONES en líneas (formato corto de decisión) */
 
 /* Acciones: iconos (con aria-label y title) y, sólo si hay que decidir, un botón con texto. */
 .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: 4px; }

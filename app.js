@@ -406,7 +406,7 @@ function desk(c) {
   const running = ['TRABAJANDO', 'SIN_ACTIVIDAD'].includes(c.estado);
   const [ahora, siguiente] = WAITING.includes(c.estado) ? waitLines(c) : [running && c.actividad ? `${c.actividad} · ${c.ahora || ''}` : c.ahora, c.siguiente];
   const decision = c.estado === 'ESPERANDO_DECISION' ? h('div', { class: 'decision' },
-    line('PROPUESTA', c.propuesta), line('RECOMIENDA', c.recomendacion),
+    line('DECISIÓN', c.propuesta), line('RECOMIENDO', c.recomendacion),
     h('div', { class: 'row' },
       h('button', { class: 'btn primary small', type: 'button', onclick: (e) => actions.approve(c, e.currentTarget) }, 'APROBAR'),
       h('button', { class: 'btn small', type: 'button', onclick: (e) => actions.reject(c, e.currentTarget) }, 'RECHAZAR'))) : null;
@@ -558,7 +558,7 @@ function paintDecisions() {
     ontoggle: (e) => { decOpen = e.currentTarget.open; } },
   h('summary', {}, `⚠ ${n} ${n === 1 ? 'DECISIÓN PENDIENTE' : 'DECISIONES PENDIENTES'} · te ${n === 1 ? 'necesita' : 'necesitan'}`),
   withDec.map((p) => h('section', { class: 'dec-proj', 'data-dec': p.id }, h('h3', {}, p.nombre),
-    p.estado === 'ESPERANDO_DECISION' ? h('div', { class: 'decision' }, line('PROPUESTA', p.propuesta), line('RECOMIENDA', p.recomendacion),
+    p.estado === 'ESPERANDO_DECISION' ? h('div', { class: 'decision' }, line('DECISIÓN', p.propuesta), line('RECOMIENDO', p.recomendacion),
       h('div', { class: 'row' },
         h('button', { class: 'btn primary small', type: 'button', onclick: (e) => actions.approve(p, e.currentTarget) }, 'APROBAR'),
         h('button', { class: 'btn small', type: 'button', onclick: (e) => actions.reject(p, e.currentTarget) }, 'RECHAZAR'))) : null,
@@ -768,7 +768,7 @@ function summaryPanel(c, d) {
       line('AHORA', ahora), line('SIGUIENTE', siguiente, 'next'),
       c.detalle && (!running || c.estado === 'SIN_ACTIVIDAD') ? h('p', { class: 'note' }, c.detalle) : null,
     ] : h('p', { class: 'muted' }, 'Sin objetivo todavía.'),
-    c.estado === 'ESPERANDO_DECISION' ? h('div', { class: 'decision' }, line('PROPUESTA', c.propuesta), line('RECOMIENDA', c.recomendacion),
+    c.estado === 'ESPERANDO_DECISION' ? h('div', { class: 'decision' }, line('DECISIÓN', c.propuesta), line('RECOMIENDO', c.recomendacion),
       h('div', { class: 'row' },
         h('button', { class: 'btn primary small', type: 'button', onclick: (e) => actions.approve(c, e.currentTarget) }, 'APROBAR'),
         h('button', { class: 'btn small', type: 'button', onclick: (e) => actions.reject(c, e.currentTarget) }, 'RECHAZAR'))) : null,

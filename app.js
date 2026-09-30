@@ -841,7 +841,7 @@ function esperasPanel(c, d) {
     list.map((x) => h('div', { class: 'wait-item' },
       h('p', { class: 'ln goal', title: x.objetivo }, x.objetivo),
       x.esperas.filter((e) => e.estado === 'ACTIVA').map((e) => h('div', { class: 'wait-cond' },
-        line('ESPERA', e.descripcion),
+        line(e.interna ? 'SIGUE SOLO (interna)' : 'ESPERA', e.descripcion),
         h('p', { class: 'ln muted' }, `Comprobada ${e.comprobada ? ago(e.comprobada) : 'aún no'} · cada ${Math.round(e.cada_s / 60) || 1} min · hasta ${when(e.hasta)}`),
         e.monitor ? h('p', { class: `ln ${e.monitor.vivo ? 'muted' : 'note'}` }, `Monitor pid ${e.monitor.pid}: ${e.monitor.vivo ? 'vivo' : `caído${e.monitor.relanzable ? ' (se relanza solo)' : ''}`}`) : null,
         e.error ? h('p', { class: 'ln muted' }, e.error) : null,

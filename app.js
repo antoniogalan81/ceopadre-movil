@@ -379,6 +379,11 @@ function buttonsFor(c) {
 }
 
 const line = (label, text, cls = '') => h('p', { class: `ln ${cls}` }, h('b', {}, label), ' ', text || '—');
+// Regla 0 €: una autorización de gasto se enseña con el bloque literal (qué, cuánto, para qué, alternativa gratis) y con
+// botones que dicen que se autoriza GASTAR DINERO; el resto de decisiones, como siempre.
+const esGasto = (x) => (x.propuesta || '').startsWith('⚠️ AUTORIZACIÓN DE GASTO');
+const decisionLines = (x) => (esGasto(x) ? [h('p', { class: 'ln gasto' }, x.recomendacion || x.propuesta)]
+  : [line('DECISIÓN', x.propuesta), line('RECOMIENDO', x.recomendacion)]);
 
 // ------------------------------------------------------------------ la oficina
 
@@ -406,10 +411,10 @@ function desk(c) {
   const running = ['TRABAJANDO', 'SIN_ACTIVIDAD'].includes(c.estado);
   const [ahora, siguiente] = WAITING.includes(c.estado) ? waitLines(c) : [running && c.actividad ? `${c.actividad} · ${c.ahora || ''}` : c.ahora, c.siguiente];
   const decision = c.estado === 'ESPERANDO_DECISION' ? h('div', { class: 'decision' },
-    line('DECISIÓN', c.propuesta), line('RECOMIENDO', c.recomendacion),
+    ...decisionLines(c),
     h('div', { class: 'row' },
-      h('button', { class: 'btn primary small', type: 'button', onclick: (e) => actions.approve(c, e.currentTarget) }, 'APROBAR'),
-      h('button', { class: 'btn small', type: 'button', onclick: (e) => actions.reject(c, e.currentTarget) }, 'RECHAZAR'))) : null;
+      h('button', { class: 'btn primary small', type: 'button', onclick: (e) => actions.approve(c, e.currentTarget) }, esGasto(c) ? 'SÍ, AUTORIZO ESTE GASTO' : 'APROBAR'),
+      h('button', { class: 'btn small', type: 'button', onclick: (e) => actions.reject(c, e.currentTarget) }, esGasto(c) ? 'NO AUTORIZO' : 'RECHAZAR'))) : null;
   return h('article', { class: `desk m-${mood(c)}`, 'data-id': c.id },
     h('header', { class: 'unit-head' }, logo(c),
       h('div', { class: 'title' }, h('h3', { title: c.nombre }, c.nombre), status(c)),
@@ -558,10 +563,10 @@ function paintDecisions() {
     ontoggle: (e) => { decOpen = e.currentTarget.open; } },
   h('summary', {}, `⚠ ${n} ${n === 1 ? 'DECISIÓN PENDIENTE' : 'DECISIONES PENDIENTES'} · te ${n === 1 ? 'necesita' : 'necesitan'}`),
   withDec.map((p) => h('section', { class: 'dec-proj', 'data-dec': p.id }, h('h3', {}, p.nombre),
-    p.estado === 'ESPERANDO_DECISION' ? h('div', { class: 'decision' }, line('DECISIÓN', p.propuesta), line('RECOMIENDO', p.recomendacion),
+    p.estado === 'ESPERANDO_DECISION' ? h('div', { class: 'decision' }, ...decisionLines(p),
       h('div', { class: 'row' },
-        h('button', { class: 'btn primary small', type: 'button', onclick: (e) => actions.approve(p, e.currentTarget) }, 'APROBAR'),
-        h('button', { class: 'btn small', type: 'button', onclick: (e) => actions.reject(p, e.currentTarget) }, 'RECHAZAR'))) : null,
+        h('button', { class: 'btn primary small', type: 'button', onclick: (e) => actions.approve(p, e.currentTarget) }, esGasto(p) ? 'SÍ, AUTORIZO ESTE GASTO' : 'APROBAR'),
+        h('button', { class: 'btn small', type: 'button', onclick: (e) => actions.reject(p, e.currentTarget) }, esGasto(p) ? 'NO AUTORIZO' : 'RECHAZAR'))) : null,
     proposals(p, (id, que, b) => run(`canon.${que}`, { proyecto: p.id, id }, que === 'aprobar' ? 'Aprobado' : 'Rechazado', b)),
     pendingDecisions(p.decisiones, decisionHandlers(p), false)))));
 }
@@ -768,10 +773,10 @@ function summaryPanel(c, d) {
       line('AHORA', ahora), line('SIGUIENTE', siguiente, 'next'),
       c.detalle && (!running || c.estado === 'SIN_ACTIVIDAD') ? h('p', { class: 'note' }, c.detalle) : null,
     ] : h('p', { class: 'muted' }, 'Sin objetivo todavía.'),
-    c.estado === 'ESPERANDO_DECISION' ? h('div', { class: 'decision' }, line('DECISIÓN', c.propuesta), line('RECOMIENDO', c.recomendacion),
+    c.estado === 'ESPERANDO_DECISION' ? h('div', { class: 'decision' }, ...decisionLines(c),
       h('div', { class: 'row' },
-        h('button', { class: 'btn primary small', type: 'button', onclick: (e) => actions.approve(c, e.currentTarget) }, 'APROBAR'),
-        h('button', { class: 'btn small', type: 'button', onclick: (e) => actions.reject(c, e.currentTarget) }, 'RECHAZAR'))) : null,
+        h('button', { class: 'btn primary small', type: 'button', onclick: (e) => actions.approve(c, e.currentTarget) }, esGasto(c) ? 'SÍ, AUTORIZO ESTE GASTO' : 'APROBAR'),
+        h('button', { class: 'btn small', type: 'button', onclick: (e) => actions.reject(c, e.currentTarget) }, esGasto(c) ? 'NO AUTORIZO' : 'RECHAZAR'))) : null,
     r ? h('div', { class: 'result' }, h('p', { class: 'lbl' }, `ÚLTIMO RESULTADO · ronda ${r.ronda} · ${r.estado}`),
       h('ul', {}, r.puntos.map((x) => h('li', { class: `r-${x.tipo}` }, h('i', { 'aria-hidden': 'true' }, MARK[x.tipo] || '·'), ' ', x.texto))),
       h('div', { class: 'result-act' },

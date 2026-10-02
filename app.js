@@ -766,6 +766,7 @@ function summaryPanel(c, d) {
         ceo.motivo ? h('li', {}, `Motivo: ${ceo.motivo}`) : null,
         ceo.vuelve ? h('li', {}, `Codex vuelve a probarse: ${when(ceo.vuelve)}`) : null,
         (ceo.proveedores || []).map((x) => h('li', {}, `${x.nombre}: ${future(x.hasta) ? `limitado (${x.motivo}) hasta aprox. ${hhmm(x.hasta)}` : 'disponible'}`)))) : null,
+    autonomiaFold(d.autonomia),
     hasJob ? [
       h('p', { class: 'lbl' }, 'OBJETIVO ACTUAL'),
       h('p', { class: 'sum-goal' }, c.objetivo),
@@ -784,6 +785,20 @@ function summaryPanel(c, d) {
         h('button', { class: 'link icon-text', type: 'button', 'aria-label': 'Copiar informe completo', title: 'Copiar informe completo',
           onclick: (e) => copiarInformeCompleto(c.trabajo, null, e.currentTarget) }, svg('copy'), 'Copiar'))) : null,
     h('div', { class: 'actions' }, buttonsFor(c).filter((b) => b && b.getAttribute('aria-label') !== `Detalles de ${c.nombre}`)));
+}
+
+// Métricas de autonomía de CEOPadre (todas las carpetas; las recalcula el servidor solo). Antes/después de V2.7.
+function autonomiaFold(a) {
+  if (!a?.despues) return null;
+  const x = a.despues, b = a.antes || {};
+  const pct = (v) => (v == null ? '—' : `${v} %`);
+  const fila = (k, t) => h('li', {}, `${t}: ${k === 'pct_terminados_sin_antonio' ? pct(x[k]) : x[k] ?? '—'} (antes ${k === 'pct_terminados_sin_antonio' ? pct(b[k]) : b[k] ?? '—'})`);
+  return fold('autonomia', `Autonomía desde V2.7: ${x.dudas_resueltas_ceo ?? '—'} dudas resueltas por el CEO · ${x.dudas_escaladas_antonio ?? '—'} escaladas a ti · ${x.intervenciones_por_objetivo ?? '—'} intervenciones/objetivo`,
+    h('ul', { class: 'kv' },
+      fila('objetivos', 'Objetivos'), fila('terminados', 'Terminados'), fila('dudas_resueltas_ceo', 'Dudas resueltas por el CEO'),
+      fila('dudas_escaladas_antonio', 'Dudas escaladas a ti'), fila('pct_terminados_sin_antonio', 'Terminados sin intervenir tú'),
+      fila('intervenciones_por_objetivo', 'Intervenciones tuyas por objetivo'),
+      h('li', { class: 'muted' }, a.muestra_suficiente ? `Actualizado ${when(a.generado)}` : `Muestra insuficiente (${x.terminados}/${a.muestra_minima} terminados): aún no se compara · actualizado ${when(a.generado)}`)));
 }
 
 async function openGoal(c) {

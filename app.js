@@ -796,6 +796,7 @@ function summaryPanel(c, d) {
         ceo.vuelve ? h('li', {}, `Codex vuelve a probarse: ${when(ceo.vuelve)}`) : null,
         (ceo.proveedores || []).map((x) => h('li', {}, `${x.nombre}: ${future(x.hasta) ? `limitado (${x.motivo}) hasta aprox. ${hhmm(x.hasta)}` : 'disponible'}`)))) : null,
     autonomiaFold(d.autonomia),
+    hasJob ? diagnosticoFold(d.diagnostico) : null,
     hasJob ? [
       h('p', { class: 'lbl' }, 'OBJETIVO ACTUAL'),
       h('p', { class: 'sum-goal' }, c.objetivo),
@@ -811,6 +812,19 @@ function summaryPanel(c, d) {
         h('button', { class: 'link icon-text', type: 'button', 'aria-label': 'Copiar informe completo', title: 'Copiar informe completo',
           onclick: (e) => copiarInformeCompleto(c.trabajo, null, e.currentTarget) }, svg('copy'), 'Copiar'))) : null,
     h('div', { class: 'actions' }, buttonsFor(c).filter((b) => b && b.getAttribute('aria-label') !== `Detalles de ${c.nombre}`)));
+}
+
+// Diagnóstico del objetivo (plegado): por qué está como está, sin abrir logs.
+function diagnosticoFold(g) {
+  if (!g) return null;
+  const p = g.proceso, u = g.ultima_transicion;
+  return fold('diagnostico', `Diagnóstico: ${g.estado} · bloquea: ${g.bloquea} · ${g.autorecuperable ? 'se recupera solo' : 'necesita a Antonio'}`,
+    h('ul', { class: 'kv' },
+      h('li', {}, `Proceso: ${p ? `${p.tipo} pid ${p.pid} (${p.vivo ? 'vivo' : 'muerto'}) desde ${when(p.desde)}${p.tareas_fondo ? ` · ${p.tareas_fondo} tarea(s) en segundo plano` : ''}` : 'ninguno'} · bucle ${g.bucle ? 'activo' : 'parado'} · paso ${g.paso}`),
+      h('li', {}, `Última actividad: ${g.ultima_actividad ? when(g.ultima_actividad) : '—'}${g.actividad ? ` (${g.actividad})` : ''}`),
+      u ? h('li', {}, `Última transición: ${u.estado}/${u.step} ${when(u.at)}${u.detalle ? ` — ${u.detalle}` : ''}`) : null,
+      h('li', {}, `Reintentos: ${g.reintentos}`),
+      (g.esperas || []).map((e) => h('li', {}, `Espera #${e.id}: ${e.descripcion} · próxima comprobación ${e.proxima ? when(e.proxima) : 'ya'}${e.error ? ` · error: ${e.error}` : ''}`))));
 }
 
 // Métricas de autonomía de CEOPadre (todas las carpetas; las recalcula el servidor solo). Antes/después de V2.7.

@@ -538,3 +538,52 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); box-sh
 .cond-empty { margin: 0 0 10px; }
 @media (pointer: coarse) { .cond-global .btn.small { min-height: 44px; min-width: 88px; } }
 .cond-goal { justify-self: stretch; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* ---- V2.8 · ↻ actualizar todo, ⧉ copiar decisiones, ✓ ✕ ? y la recomendación de Codex (mismos tonos y radios) ---- */
+.sync-btn { min-width: 44px; padding: 0 10px; font-size: 20px; line-height: 1; }
+.sync-btn .sync-ico { display: inline-block; }
+.sync-btn.busy .sync-ico { animation: sync-spin .9s linear infinite; }
+.sync-btn.busy { opacity: 1; }
+@keyframes sync-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .sync-btn.busy .sync-ico { animation: none; } .sync-btn.busy { opacity: .6; } }
+
+.decisions { position: relative; }
+.dec-global > summary { padding-right: 48px; }
+.dec-copy { position: absolute; top: 4px; right: 6px; z-index: 1; color: var(--ask); font-size: 20px; line-height: 1; }
+.dec-copy:hover { background: color-mix(in oklch, var(--ask) 14%, transparent); color: var(--ask); }
+
+.dec-btns { display: flex; gap: 8px; margin-top: 4px; }
+.dbtn {
+  appearance: none; display: inline-grid; place-items: center; width: 44px; height: 40px; border-radius: 12px; cursor: pointer;
+  font: 800 19px/1 var(--sans); border: 1.5px solid var(--ink); background: var(--paper); color: var(--ink);
+  transition: background .15s, color .15s, transform .1s;
+}
+.dbtn:hover { background: var(--idle-bg); }
+.dbtn:active { transform: translateY(1px) scale(.97); }
+.dbtn:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.dbtn:disabled { opacity: .5; cursor: progress; }
+.dbtn.yes { background: var(--ink); color: var(--paper); }
+.dbtn.yes:hover { background: var(--ok); border-color: var(--ok); color: #fff; }
+.dbtn.no:hover { color: var(--bad); border-color: var(--bad); background: var(--bad-bg); }
+.dbtn.ask { border-color: color-mix(in srgb, var(--accent) 55%, transparent); color: var(--accent); }
+.dbtn.ask:hover { background: color-mix(in srgb, var(--accent) 12%, var(--paper)); }
+@media (pointer: coarse) { .dbtn { width: 52px; height: 46px; } }
+.dec-item .dec-btns { flex: 0 0 auto; }
+.dec-item .advice { flex: 1 1 100%; }
+
+.prop .ln.what { white-space: normal; }
+.prop-more > summary { cursor: pointer; font-size: 12.5px; font-weight: 700; color: var(--ink-2); }
+.prop-more[open] { display: grid; gap: 6px; }
+
+.advice { margin: 4px 0 0; padding: 6px 10px; border-radius: 10px; font-size: 13px; line-height: 1.35; background: var(--paper);
+  border-left: 3px solid var(--accent); display: grid; gap: 2px; overflow-wrap: anywhere; }
+.advice p { margin: 0; }
+.advice b { font-size: 10.5px; letter-spacing: .1em; color: var(--ink-3); }
+.advice-head { font-weight: 800; }
+.advice.v-yes { border-left-color: var(--ok); } .advice.v-yes .advice-head { color: var(--ok); }
+.advice.v-no { border-left-color: var(--bad); } .advice.v-no .advice-head { color: var(--bad); }
+.advice.v-ans .advice-head { color: var(--accent); }
+.advice-ans { font-weight: 600; }
+.advice-risk { color: var(--warn); }
+.advice.v-wait { color: var(--ink-2); font-style: italic; }
+.advice.v-err { color: var(--bad); border-left-color: var(--bad); }

@@ -14,35 +14,69 @@ function statusItem(kind, it, full) {
   return h('li', { class: `st-${kind}` }, h('i', { 'aria-hidden': 'true' }, MARK[kind]), ' ', it.text, ev);
 }
 
-/** CAMBIOS PROPUESTOS a lo protegido: antes → después, motivo, impacto y la decisión de Antonio. */
-export function proposals(m, decide) {
-  if (!m.propuestas?.length) return null;
-  return h('div', { class: 'props' }, lbl(`CAMBIOS PROPUESTOS (${m.propuestas.length})`),
-    m.propuestas.map((p) => h('article', { class: 'prop' },
-      h('p', { class: 'prop-field' }, '🔒 ', p.campo),
-      h('div', { class: 'prop-diff' },
-        h('div', {}, h('small', {}, 'AHORA'), h('p', {}, p.antes)),
-        h('div', {}, h('small', {}, 'PROPUESTO'), h('p', {}, p.despues))),
-      p.motivo ? h('p', { class: 'ln' }, h('b', {}, 'MOTIVO'), ' ', p.motivo) : null,
-      p.impacto ? h('p', { class: 'ln' }, h('b', {}, 'IMPACTO'), ' ', p.impacto) : null,
-      h('div', { class: 'row' },
-        h('button', { class: 'btn primary small', type: 'button', onclick: (e) => decide(p.id, 'aprobar', e.currentTarget) }, 'APROBAR'),
-        h('button', { class: 'btn small', type: 'button', onclick: (e) => decide(p.id, 'rechazar', e.currentTarget) }, 'RECHAZAR')))));
+const short = (t, n) => { const s = String(t || '').replace(/\s+/g, ' ').trim(); return s.length > n ? `${s.slice(0, n - 1)}…` : s; };
+
+/** Botón de decisión con un solo símbolo (✓ ✕ ? ✎ ⏱): SIEMPRE con nombre accesible y ayuda al pasar el ratón. */
+const dbtn = (glyph, label, onclick, cls) => h('button', { class: `dbtn ${cls}`, type: 'button', 'aria-label': label, title: label, onclick },
+  h('span', { 'aria-hidden': 'true' }, glyph));
+
+/** ✓ ✕ ? de una decisión. `ask` (Preguntar a Codex) es consultivo: nunca aprueba ni rechaza. */
+export function decideRow({ yes, no, ask, yesLabel = 'Aprobar', noLabel = 'Rechazar' }) {
+  return h('div', { class: 'dec-btns', role: 'group', 'aria-label': 'Decidir' },
+    dbtn('✓', yesLabel, yes, 'yes'), dbtn('✕', noLabel, no, 'no'), ask ? dbtn('?', 'Preguntar a Codex', ask, 'ask') : null);
 }
 
-/** DECISIONES PENDIENTES de un proyecto: preguntas que sólo contesta Antonio, con RESPONDER y POSPONER. */
-export function pendingDecisions(list, { answer, postpone }, title = true) {
+const VEREDICTO = { APROBAR: ['✓', 'APROBAR', 'yes'], RECHAZAR: ['✕', 'RECHAZAR', 'no'], RESPONDER: ['✎', 'RESPONDER', 'ans'] };
+/** Recomendación de Codex en la propia tarjeta: «CODEX · ✓ APROBAR» + una frase (+ riesgo sólo si lo hay). Antonio decide. */
+export function advice(c) {
+  if (!c) return null;
+  if (c.estado === 'PENDIENTE') return h('p', { class: 'advice v-wait', role: 'status' }, h('b', {}, 'CODEX'), ' · analizando…');
+  if (c.estado === 'ERROR') return h('p', { class: 'advice v-err', role: 'status' }, h('b', {}, 'CODEX'), ` · no se pudo consultar: ${c.error || 'error'}`);
+  const [g, t, k] = VEREDICTO[c.veredicto] || ['?', c.veredicto || '', 'ans'];
+  return h('div', { class: `advice v-${k}`, role: 'status' },
+    h('p', { class: 'advice-head' }, h('b', {}, 'CODEX'), ` · ${g} ${t}`),
+    c.respuesta ? h('p', { class: 'advice-ans' }, c.respuesta) : null,
+    c.motivo ? h('p', {}, c.motivo) : null,
+    c.riesgo ? h('p', { class: 'advice-risk' }, h('b', {}, 'RIESGO'), ' ', c.riesgo) : null);
+}
+
+/**
+ * CAMBIOS PROPUESTOS a lo protegido. Primero QUÉ CAMBIA (y el impacto si lo hay) y ✓ ✕ ?; el antes/después completo y el
+ * motivo, plegados en «Detalles» (se entiende desde el móvil en segundos). `consult(ref, btn)` = Preguntar a Codex.
+ */
+export function proposals(m, decide, consult = null) {
+  if (!m.propuestas?.length) return null;
+  return h('div', { class: 'props' }, lbl(`CAMBIOS PROPUESTOS (${m.propuestas.length})`),
+    m.propuestas.map((p) => h('article', { class: 'prop', 'data-ref': p.ref || null },
+      h('p', { class: 'prop-field' }, '🔒 ', p.campo),
+      h('p', { class: 'ln what' }, h('b', {}, 'QUÉ CAMBIA'), ' ', short(p.despues, 260)),
+      p.impacto ? h('p', { class: 'ln' }, h('b', {}, 'IMPACTO'), ' ', short(p.impacto, 200)) : null,
+      h('details', { class: 'prop-more', 'data-k': `prop-${p.id}` }, h('summary', {}, 'Detalles'),
+        h('div', { class: 'prop-diff' },
+          h('div', {}, h('small', {}, 'AHORA'), h('p', {}, p.antes)),
+          h('div', {}, h('small', {}, 'PROPUESTO'), h('p', {}, p.despues))),
+        p.motivo ? h('p', { class: 'ln' }, h('b', {}, 'MOTIVO'), ' ', p.motivo) : null,
+        p.impacto && p.impacto.length > 200 ? h('p', { class: 'ln' }, h('b', {}, 'IMPACTO'), ' ', p.impacto) : null),
+      advice(p.consejo),
+      decideRow({ yes: (e) => decide(p.id, 'aprobar', e.currentTarget), no: (e) => decide(p.id, 'rechazar', e.currentTarget),
+        ask: consult && p.ref ? (e) => consult(p.ref, e.currentTarget) : null }))));
+}
+
+/** DECISIONES PENDIENTES de un proyecto: preguntas que sólo contesta Antonio: ✎ responder, ⏱ posponer, ? preguntar a Codex. */
+export function pendingDecisions(list, { answer, postpone, consult = null }, title = true) {
   if (!list?.length) return null;
   return h('div', { class: 'dec-pend' }, title ? lbl(`DECISIONES PENDIENTES (${list.length})`) : null,
-    h('ul', { class: 'mlist' }, list.map((d) => h('li', { class: 'dec-item' },
+    h('ul', { class: 'mlist' }, list.map((d) => h('li', { class: 'dec-item', 'data-ref': d.ref || null },
       h('p', {}, '• ', d.pregunta),
-      h('div', { class: 'dec-act' },
-        h('button', { class: 'btn primary small', type: 'button', onclick: (e) => answer(d, e.currentTarget) }, 'RESPONDER'),
-        h('button', { class: 'btn small', type: 'button', onclick: (e) => postpone(d, e.currentTarget) }, 'POSPONER'))))));
+      advice(d.consejo),
+      h('div', { class: 'dec-btns', role: 'group', 'aria-label': 'Decidir' },
+        dbtn('✎', 'Responder', (e) => answer(d, e.currentTarget), 'yes'),
+        dbtn('⏱', 'Posponer 7 días', (e) => postpone(d, e.currentTarget), 'no'),
+        consult && d.ref ? dbtn('?', 'Preguntar a Codex', (e) => consult(d.ref, e.currentTarget), 'ask') : null)))));
 }
 
 /** Vista de 20 segundos: qué queremos, dónde estamos, qué sigue y qué no se toca. */
-export function mapPanel(m, { open, decide, answer, postpone }) {
+export function mapPanel(m, { open, decide, answer, postpone, consult }) {
   if (!m) return null;
   if (m.error) return h('section', { class: 'panel map' }, h('h4', {}, 'MAPA DEL PROYECTO'), h('p', { class: 'note' }, m.error));
   const e = m.estado;
@@ -59,8 +93,8 @@ export function mapPanel(m, { open, decide, answer, postpone }) {
         : h('p', { class: 'muted small' }, '—')))),
     e.bloqueado.length ? h('p', { class: 'note' }, '⛔ ', e.bloqueado[0].text) : null,
     m.reglas.length ? [lbl('REGLAS CLAVE'), h('ul', { class: 'mlist rules' }, m.reglas.slice(0, 3).map((r) => h('li', {}, '🔒 ', r)))] : null,
-    pendingDecisions(m.pendientes, { answer, postpone }),
-    proposals(m, decide));
+    pendingDecisions(m.pendientes, { answer, postpone, consult }),
+    proposals(m, decide, consult));
 }
 
 /** Flujo del sistema: cajas en vertical con flechas; las bifurcaciones, debajo de su paso. Sin librerías. */
@@ -88,12 +122,12 @@ function definition(d) {
 }
 
 /** Mapa completo (dentro del diálogo): todo el canon legible, en el orden de prioridad de Antonio. */
-export function mapBody(m, decide) {
+export function mapBody(m, decide, consult = null) {
   if (!m || m.error) return [h('p', { class: 'note' }, m?.error || 'Sin canon.')];
   const e = m.estado;
   const stat = (k, t) => sec(`${t} (${e[k].length})`, e[k].length ? h('ul', { class: 'mlist st' }, e[k].map((it) => statusItem(k, it, true))) : h('p', { class: 'muted' }, '—'));
   return [
-    proposals(m, decide),
+    proposals(m, decide, consult),
     ...(definition(m.definicion) || []),
     sec('MISIÓN', m.mision ? h('p', { class: 'mission' }, m.mision) : h('p', { class: 'muted' }, 'Necesita revisión.'),
       m.criterios.length ? [lbl('CRITERIOS DE ÉXITO'), list(m.criterios)] : null),

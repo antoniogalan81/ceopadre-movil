@@ -126,3 +126,32 @@ export function waitingConditions(cards) {
 
 /** COPIAR TODAS: «NOMBRE\n<condición>» separadas por una línea en blanco. */
 export const conditionsText = (list) => list.map((x) => `${String(x.proyecto).toUpperCase()}\n${x.condicion}`).join('\n\n');
+
+/**
+ * ⧉ COPIAR TODAS LAS DECISIONES: las que de verdad esperan a Antonio (las mismas que cuenta decisionCount), en texto
+ * compacto para pegar en ChatGPT: proyecto, decisión, contexto mínimo y opciones. Sin ids, rutas ni estados internos.
+ * Devuelve { n, texto }.
+ */
+const one = (t, n) => { const s = String(t || '').replace(/\s+/g, ' ').trim(); return s.length > n ? `${s.slice(0, n - 1)}…` : s; };
+const VER = { APROBAR: '✓ aprobar', RECHAZAR: '✕ rechazar', RESPONDER: 'responder' };
+const codex = (c) => (c?.estado === 'OK' && c.motivo ? `Recomendación de Codex: ${VER[c.veredicto] || c.veredicto}${c.respuesta ? ` («${one(c.respuesta, 200)}»)` : ''} — ${one(c.motivo, 240)}` : '');
+export function decisionsText(cards, fecha = new Date()) {
+  const items = [];
+  for (const c of cards || []) {
+    const goal = c.objetivo ? `Objetivo actual: ${one(String(c.objetivo).split('\n')[0], 140)}` : '';
+    if (c.estado === 'ESPERANDO_DECISION') {
+      const [rec, opts] = String(c.recomendacion || '').split(/\n?OPCIONES:\n?/);
+      items.push([c.nombre, `Decisión: ${one(c.propuesta, 300)}`, [goal, rec && `Recomendación del CEO: ${one(rec, 300)}`,
+        opts ? `Opciones: ${opts.split('\n').map((x) => one(x, 160)).filter(Boolean).join(' | ')}` : 'Opciones: aprobar | rechazar', codex(c.consejo)]]);
+    }
+    for (const p of c.propuestas || []) {
+      items.push([c.nombre, `Cambio de un campo protegido (${p.campo})`, [`Ahora: ${one(p.antes, 300)}`, `Propuesto: ${one(p.despues, 400)}`,
+        p.motivo && `Motivo: ${one(p.motivo, 300)}`, p.impacto && `Impacto: ${one(p.impacto, 300)}`, 'Opciones: aprobar | rechazar', codex(p.consejo)]]);
+    }
+    for (const d of c.decisiones || []) items.push([c.nombre, `Pregunta: ${one(d.pregunta, 400)}`, [goal, codex(d.consejo)]]);
+  }
+  const day = fecha.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  const texto = [`DECISIONES PENDIENTES DE ANTONIO (${items.length}) · CEOPadre · ${day}`,
+    ...items.map(([p, t, ctx], i) => [`${i + 1}. [${p}] ${t}`, ...ctx.filter(Boolean).map((x) => `   ${x}`)].join('\n'))].join('\n\n');
+  return { n: items.length, texto };
+}

@@ -1,8 +1,8 @@
 // CEOPadre en el navegador. En el PC habla con la API local; en el móvil, con Supabase.
 // No ejecuta nada: pinta el estado y deja órdenes. Todo el texto se inserta como texto (nunca HTML).
-import { conditionsText, decisionCount, gestText, mood, needsDecision, netStatus, office, pcOnline, priority, PROMPT_LIMIT, PROMPT_WARN, quotaView, waitingConditions, zone } from './zones.js';
+import { conditionsText, decisionCount, decisionsText, gestText, mood, needsDecision, netStatus, office, pcOnline, priority, PROMPT_LIMIT, PROMPT_WARN, quotaView, waitingConditions, zone } from './zones.js';
 import { h } from './dom.js';
-import { mapBody, mapPanel, pendingDecisions, proposals } from './map.js';
+import { advice, decideRow, mapBody, mapPanel, pendingDecisions, proposals } from './map.js';
 
 const LOCAL = ['127.0.0.1', 'localhost'].includes(location.hostname);
 const $ = (s) => document.querySelector(s);
@@ -344,8 +344,14 @@ const actions = {
     // Si el PC lo rechaza, el texto vuelve al borrador: nunca se pierde lo escrito.
     if (r && !(await run('trabajo.instruccion', { trabajo: c.trabajo, texto: r.texto, tipo: r.tipo, sesion: r.sesion, modo: r.modo }, 'Enviado', b))) draft = r.texto;
   },
-  approve: (c, b) => run('trabajo.aprobar', { trabajo: c.trabajo }, 'Aprobado', b),
+  // ✓ en una autorización de GASTO (regla 0 €) sigue pidiendo un SÍ explícito: es dinero.
+  async approve(c, b) {
+    if (esGasto(c) && !(await ask({ title: '¿Autorizas este gasto?', help: c.recomendacion || c.propuesta, ok: 'SÍ, AUTORIZO ESTE GASTO', danger: true }))) return;
+    await run('trabajo.aprobar', { trabajo: c.trabajo }, 'Aprobado', b);
+  },
   reject: (c, b) => run('trabajo.rechazar', { trabajo: c.trabajo }, 'Rechazado', b),
+  // ? PREGUNTAR A CODEX: sólo una recomendación (llega a la tarjeta en segundos). No aprueba ni rechaza nada.
+  consult: (c, ref, b) => run('decision.consultar', { proyecto: c.id, ref }, 'Codex lo está analizando…', b),
   // Objetivo nuevo = sesión de Claude nueva y CEO AUTO por defecto.
   async goal(c, b) {
     const r = await compose({ title: `Nuevo objetivo · ${c.nombre}`, modo: 'AUTO', sesiones: false, ok: 'Iniciar', trabajo: c.trabajo });
@@ -382,8 +388,17 @@ const line = (label, text, cls = '') => h('p', { class: `ln ${cls}` }, h('b', {}
 // Regla 0 €: una autorización de gasto se enseña con el bloque literal (qué, cuánto, para qué, alternativa gratis) y con
 // botones que dicen que se autoriza GASTAR DINERO; el resto de decisiones, como siempre.
 const esGasto = (x) => (x.propuesta || '').startsWith('⚠️ AUTORIZACIÓN DE GASTO');
-const decisionLines = (x) => (esGasto(x) ? [h('p', { class: 'ln gasto' }, x.recomendacion || x.propuesta)]
-  : [line('DECISIÓN', x.propuesta), line('RECOMIENDO', x.recomendacion)]);
+const decisionLines = (x) => {
+  if (esGasto(x)) return [h('p', { class: 'ln gasto' }, x.recomendacion || x.propuesta)];
+  const [rec, opts] = String(x.recomendacion || '').split(/\n?OPCIONES:\n?/);
+  return [line('QUÉ CAMBIA', x.propuesta), rec ? line('RECOMIENDO', rec) : null,
+    opts ? h('details', { class: 'prop-more', 'data-k': `opts-${x.trabajo}` }, h('summary', {}, 'Opciones'), h('p', { class: 'ln' }, opts)) : null];
+};
+/** La decisión del objetivo (ESPERANDO_DECISION): qué cambia, recomendación de Codex si la hay y ✓ ✕ ?. Igual en todas partes. */
+const jobDecision = (c) => (c.estado === 'ESPERANDO_DECISION' ? h('div', { class: 'decision' }, ...decisionLines(c), advice(c.consejo),
+  decideRow({ yes: (e) => actions.approve(c, e.currentTarget), no: (e) => actions.reject(c, e.currentTarget),
+    ask: c.ref ? (e) => actions.consult(c, c.ref, e.currentTarget) : null,
+    yesLabel: esGasto(c) ? 'Sí, autorizo este gasto' : 'Aprobar', noLabel: esGasto(c) ? 'No autorizo este gasto' : 'Rechazar' })) : null);
 
 // ------------------------------------------------------------------ la oficina
 
@@ -410,11 +425,7 @@ function canonDecisionLine(c) {
 function desk(c) {
   const running = ['TRABAJANDO', 'SIN_ACTIVIDAD'].includes(c.estado);
   const [ahora, siguiente] = WAITING.includes(c.estado) ? waitLines(c) : [running && c.actividad ? `${c.actividad} · ${c.ahora || ''}` : c.ahora, c.siguiente];
-  const decision = c.estado === 'ESPERANDO_DECISION' ? h('div', { class: 'decision' },
-    ...decisionLines(c),
-    h('div', { class: 'row' },
-      h('button', { class: 'btn primary small', type: 'button', onclick: (e) => actions.approve(c, e.currentTarget) }, esGasto(c) ? 'SÍ, AUTORIZO ESTE GASTO' : 'APROBAR'),
-      h('button', { class: 'btn small', type: 'button', onclick: (e) => actions.reject(c, e.currentTarget) }, esGasto(c) ? 'NO AUTORIZO' : 'RECHAZAR'))) : null;
+  const decision = jobDecision(c);
   return h('article', { class: `desk m-${mood(c)}`, 'data-id': c.id },
     h('header', { class: 'unit-head' }, logo(c),
       h('div', { class: 'title' }, h('h3', { title: c.nombre }, c.nombre), status(c)),
@@ -545,12 +556,24 @@ function decisionHandlers(p) {
   return {
     async answer(d, b) {
       const r = await ask({ title: `Decidir · ${p.nombre}`, help: d.pregunta, ok: 'Guardar decisión',
-        fields: [{ name: 'respuesta', label: 'Tu decisión', type: 'textarea', placeholder: 'Escribe la respuesta tal como quieres que la sigan Codex y Claude' }] });
+        fields: [{ name: 'respuesta', label: 'Tu decisión', type: 'textarea', value: d.consejo?.respuesta || '', placeholder: 'Escribe la respuesta tal como quieres que la sigan Codex y Claude' }] });
       if (r?.respuesta) await run('decision.responder', { proyecto: p.id, id: d.id, respuesta: r.respuesta }, 'Decisión guardada', b);
     },
     postpone: (d, b) => run('decision.posponer', { proyecto: p.id, id: d.id, dias: 7 }, 'Pospuesta 7 días', b),
+    consult: (ref, b) => actions.consult(p, ref, b),
   };
 }
+// ⧉ Todas las decisiones que de verdad esperan a Antonio, en texto compacto para pegarlas en ChatGPT.
+async function copyDecisions(b) {
+  const { n, texto } = decisionsText(data.proyectos.filter(needsDecision));
+  b.disabled = true;
+  try {
+    const ok = n && await copyText(texto);
+    toast(ok ? `✓ Copiadas ${n} ${n === 1 ? 'decisión' : 'decisiones'}` : 'CEOPadre no pudo copiar las decisiones.', ok ? 'ok' : 'bad');
+  } finally { b.disabled = false; }
+}
+// Sólo se repinta si cambia algo de lo que enseña (un repintado cada 2,5 s cerraba los «Detalles» abiertos y movía el foco).
+let decSig = null;
 function paintDecisions() {
   const box = $('#decisions');
   const withDec = data.proyectos.filter(needsDecision);
@@ -558,18 +581,23 @@ function paintDecisions() {
   box.hidden = !n;
   // El número también en la pestaña/app: se ve sin abrir CEOPadre.
   document.title = n ? `(${n}) CEOPadre` : 'CEOPadre';
+  const sig = JSON.stringify(withDec.map((p) => [p.id, p.nombre, p.estado, p.trabajo, p.propuesta, p.recomendacion, p.consejo, p.propuestas, p.decisiones]));
+  if (sig === decSig) return;
+  decSig = sig;
   if (!n) { box.replaceChildren(); return; }
-  box.replaceChildren(h('details', { class: 'fold dec-global', 'data-k': 'decisiones', open: decOpen ? true : null,
-    ontoggle: (e) => { decOpen = e.currentTarget.open; } },
-  h('summary', {}, `⚠ ${n} ${n === 1 ? 'DECISIÓN PENDIENTE' : 'DECISIONES PENDIENTES'} · te ${n === 1 ? 'necesita' : 'necesitan'}`),
-  withDec.map((p) => h('section', { class: 'dec-proj', 'data-dec': p.id }, h('h3', {}, p.nombre),
-    p.estado === 'ESPERANDO_DECISION' ? h('div', { class: 'decision' }, ...decisionLines(p),
-      h('div', { class: 'row' },
-        h('button', { class: 'btn primary small', type: 'button', onclick: (e) => actions.approve(p, e.currentTarget) }, esGasto(p) ? 'SÍ, AUTORIZO ESTE GASTO' : 'APROBAR'),
-        h('button', { class: 'btn small', type: 'button', onclick: (e) => actions.reject(p, e.currentTarget) }, esGasto(p) ? 'NO AUTORIZO' : 'RECHAZAR'))) : null,
-    proposals(p, (id, que, b) => run(`canon.${que}`, { proyecto: p.id, id }, que === 'aprobar' ? 'Aprobado' : 'Rechazado', b)),
-    pendingDecisions(p.decisiones, decisionHandlers(p), false)))));
+  const wasOpen = new Set([...box.querySelectorAll('details[open]')].map((x) => x.dataset.k));
+  box.replaceChildren(
+    h('button', { class: 'icon-btn dec-copy', type: 'button', 'aria-label': `Copiar las ${n} decisiones pendientes`, title: 'Copiar todas las decisiones (para pegarlas en ChatGPT)',
+      onclick: (e) => copyDecisions(e.currentTarget) }, h('span', { 'aria-hidden': 'true' }, '⧉')),
+    h('details', { class: 'fold dec-global', 'data-k': 'decisiones', open: decOpen ? true : null, ontoggle: (e) => { decOpen = e.currentTarget.open; } },
+      h('summary', {}, `⚠ ${n} ${n === 1 ? 'DECISIÓN PENDIENTE' : 'DECISIONES PENDIENTES'} · te ${n === 1 ? 'necesita' : 'necesitan'}`),
+      withDec.map((p) => h('section', { class: 'dec-proj', 'data-dec': p.id }, h('h3', {}, p.nombre),
+        jobDecision(p),
+        proposals(p, (id, que, b) => run(`canon.${que}`, { proyecto: p.id, id }, que === 'aprobar' ? 'Aprobado' : 'Rechazado', b), (ref, b) => actions.consult(p, ref, b)),
+        pendingDecisions(p.decisiones, decisionHandlers(p), false)))));
+  for (const x of box.querySelectorAll('details')) if (wasOpen.has(x.dataset.k)) x.open = true;
 }
+
 /** DECIDIR en un puesto: abre el aviso global y lleva al proyecto. */
 function openDecisions(id) {
   decOpen = true;
@@ -647,9 +675,9 @@ function seg(name, legend, options, value, onchange) {
 
 // Visor de texto largo (objetivo o informe completo): texto plano, nunca HTML.
 // Mapa completo: mismo diálogo grande que el editor; conserva el scroll al repintarse.
-function paintMap(m, decide) {
+function paintMap(m, decide, consult) {
   const box = $('#map-body'), y = box.scrollTop;
-  box.replaceChildren(...mapBody(m, decide).filter(Boolean));
+  box.replaceChildren(...mapBody(m, decide, consult).filter(Boolean));
   box.scrollTop = y;
 }
 
@@ -735,9 +763,10 @@ async function paintDetail(force) {
   // replaceChildren() pintaría «null» como texto: sólo nodos.
   // Canon: decidir un cambio propuesto (sólo Antonio). El mapa completo se repinta si está abierto.
   const decide = (id, que, b) => run(`canon.${que}`, { proyecto: c.id, id }, que === 'aprobar' ? 'Aprobado' : 'Rechazado', b);
-  const openMap = () => { $('#map-title').textContent = `Mapa · ${c.nombre}`; paintMap(d.mapa, decide); $('#map').showModal(); };
+  const consult = (ref, b) => actions.consult(c, ref, b);
+  const openMap = () => { $('#map-title').textContent = `Mapa · ${c.nombre}`; paintMap(d.mapa, decide, consult); $('#map').showModal(); };
   body.replaceChildren(...[summaryPanel(c, d), esperasPanel(c, d), mapPanel(d.mapa, { open: openMap, decide, ...decisionHandlers(c) }), writePanel(c, d), roundsPanel(d), techPanel(c, d)].filter(Boolean));
-  if ($('#map').open) paintMap(d.mapa, decide);
+  if ($('#map').open) paintMap(d.mapa, decide, consult);
   for (const x of body.querySelectorAll('details')) if (wasOpen.has(x.dataset.k)) x.open = true;
 }
 
@@ -774,10 +803,7 @@ function summaryPanel(c, d) {
       line('AHORA', ahora), line('SIGUIENTE', siguiente, 'next'),
       c.detalle && (!running || c.estado === 'SIN_ACTIVIDAD') ? h('p', { class: 'note' }, c.detalle) : null,
     ] : h('p', { class: 'muted' }, 'Sin objetivo todavía.'),
-    c.estado === 'ESPERANDO_DECISION' ? h('div', { class: 'decision' }, ...decisionLines(c),
-      h('div', { class: 'row' },
-        h('button', { class: 'btn primary small', type: 'button', onclick: (e) => actions.approve(c, e.currentTarget) }, esGasto(c) ? 'SÍ, AUTORIZO ESTE GASTO' : 'APROBAR'),
-        h('button', { class: 'btn small', type: 'button', onclick: (e) => actions.reject(c, e.currentTarget) }, esGasto(c) ? 'NO AUTORIZO' : 'RECHAZAR'))) : null,
+    jobDecision(c),
     r ? h('div', { class: 'result' }, h('p', { class: 'lbl' }, `ÚLTIMO RESULTADO · ronda ${r.ronda} · ${r.estado}`),
       h('ul', {}, r.puntos.map((x) => h('li', { class: `r-${x.tipo}` }, h('i', { 'aria-hidden': 'true' }, MARK[x.tipo] || '·'), ' ', x.texto))),
       h('div', { class: 'result-act' },
@@ -1036,6 +1062,34 @@ async function start() {
   show('p-list');
   await refresh();
   api.watch(() => void refresh());
+  $('#b-sync').onclick = () => void syncAll(true);
+  void syncAll(false); // al abrir CEOPadre: estado real de todos los proyectos (local, sin modelos)
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && Date.now() - lastSync > AUTO_SYNC_MS) void syncAll(false); });
+}
+
+// ↻ ACTUALIZAR TODO: reconcilia todos los proyectos en el PC (sin IA) y refresca. Manual: siempre dice cómo fue. Automática
+// (al abrir y al volver a primer plano, como mucho una cada AUTO_SYNC_MS): sólo avisa si algún proyecto no se pudo actualizar.
+const AUTO_SYNC_MS = 60_000;
+let syncing = null, lastSync = 0;
+function syncAll(manual) {
+  if (syncing) return syncing;
+  const b = $('#b-sync');
+  b.classList.add('busy'); b.disabled = true; b.setAttribute('aria-busy', 'true'); b.title = 'Actualizando…';
+  if (manual) toast('Actualizando todos los proyectos…');
+  syncing = (async () => {
+    try {
+      const r = await api.cmd('estado.sincronizar', {});
+      lastSync = Date.now();
+      const fallos = r?.ok ? r.data.errores.length : 1;
+      if (manual || (r?.ok && fallos)) toast(r?.ok ? r.data.mensaje : `No se pudo actualizar: ${r?.error || 'sin respuesta'}`, fallos ? 'bad' : 'ok');
+      detailCache = null;
+      await refresh();
+    } catch (e) { if (manual) toast(`No se pudo actualizar: ${e.message}`, 'bad'); } finally {
+      b.classList.remove('busy'); b.disabled = false; b.removeAttribute('aria-busy'); b.title = 'Actualizar todos los proyectos ahora';
+      syncing = null;
+    }
+  })();
+  return syncing;
 }
 
 // ------------------------------------------------------------------ PWA (sólo en el móvil publicado)

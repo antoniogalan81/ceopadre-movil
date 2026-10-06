@@ -625,7 +625,7 @@ function paintQuota() {
     box.querySelector('.quota-pop').replaceChildren(
       h('table', {}, h('thead', {}, h('tr', {}, h('th', {}, ''), h('th', {}, 'Usado'), h('th', {}, 'Disponible'), h('th', {}, 'Reinicio'))),
         h('tbody', {}, q.filas.map((f) => h('tr', {}, h('th', {}, f.nombre), h('td', {}, f.usado), h('td', {}, f.disponible), h('td', {}, f.reinicio))))),
-      h('small', { class: 'muted' }, `Cuota de toda la cuenta (no sólo CEOPadre)${q.leida ? ` · leída ${q.leida}` : ''}${q.filas.some((f) => f.disponible === 'No disponible') ? ' · MES: el proveedor no informa cuota mensual' : ''}`));
+      h('small', { class: 'muted' }, `Cuota de toda la cuenta (no sólo CEOPadre)${q.leida ? ` · leída ${q.leida}` : ''}${q.avisos.map((a) => ` · ${a}`).join('')}${q.filas.some((f) => f.disponible === 'No disponible') ? ' · MES: el proveedor no informa cuota mensual' : ''}`));
   }
 }
 // Un clic fuera cierra el desplegable de cuota.
@@ -1095,7 +1095,8 @@ function syncAll(manual) {
       const r = await api.cmd('estado.sincronizar', {});
       lastSync = Date.now();
       const fallos = r?.ok ? r.data.errores.length : 1;
-      if (manual || (r?.ok && fallos)) toast(r?.ok ? r.data.mensaje : `No se pudo actualizar: ${r?.error || 'sin respuesta'}`, fallos ? 'bad' : 'ok');
+      const cuotaMal = Object.values(r?.data?.cuotas || {}).some((c) => !c.ok); // cuota sin releer: se avisa, no se disimula
+      if (manual || (r?.ok && fallos)) toast(r?.ok ? r.data.mensaje : `No se pudo actualizar: ${r?.error || 'sin respuesta'}`, fallos || cuotaMal ? 'bad' : 'ok');
       detailCache = null;
       await refresh();
     } catch (e) { if (manual) toast(`No se pudo actualizar: ${e.message}`, 'bad'); } finally {

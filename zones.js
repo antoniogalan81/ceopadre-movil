@@ -79,21 +79,28 @@ export function resetText(iso, now = Date.now()) {
 }
 
 /**
- * Cuota (filas de src/usage.js quotaRows: provider, used_percent, available_percent, reset_at, updated_at) lista para
+ * Cuota (filas de src/usage.js quotaRows: provider, used_percent, available_percent, reset_at, updated_at, error) lista para
  * pintar al pulsar el icono. `max` = el % usado más alto (lo único que se ve sin abrir). Sin datos → null.
  */
 export function quotaView(rows, now = Date.now()) {
   const all = Array.isArray(rows) ? rows : [];
   const list = all.filter((r) => Number.isFinite(r?.used_percent));
   if (!list.length) return null;
-  const times = list.map((r) => Date.parse(r.updated_at || '')).filter(Number.isFinite);
+  // Hora de lectura POR proveedor (cada uno se lee por separado; «lun 21:39» si no es de hoy) y, si su último intento en
+  // vivo falló, el aviso: ese dato es el anterior, nunca uno re-sellado.
+  const prov = new Map();
+  for (const r of list) {
+    const k = r.provider.split(' ')[0], name = k[0] + k.slice(1).toLowerCase();
+    if (!prov.has(k)) prov.set(k, { hora: `${name} ${resetText(r.updated_at, now)}`, aviso: r.error ? `${name} sin actualizar: ${r.error}` : '' });
+  }
   return {
     max: Math.max(...list.map((r) => r.used_percent)),
     // Fila sin % (p. ej. «CODEX MES»: el proveedor no la informa) → se enseña como no disponible, sin inventar cifra.
     filas: all.filter((r) => r?.provider).map((r) => (Number.isFinite(r.used_percent)
       ? { nombre: r.provider, usado: `${r.used_percent} %`, disponible: `${r.available_percent} %`, reinicio: resetText(r.reset_at, now) }
       : { nombre: r.provider, usado: '—', disponible: 'No disponible', reinicio: '—' })),
-    leida: times.length ? new Date(Math.min(...times)).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }) : '',
+    leida: [...prov.values()].map((p) => p.hora).join(' · '),
+    avisos: [...prov.values()].map((p) => p.aviso).filter(Boolean),
   };
 }
 

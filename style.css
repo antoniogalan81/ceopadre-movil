@@ -649,3 +649,4 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); box-sh
   background: linear-gradient(to bottom, transparent, var(--bg) 30%); }
 .r-actions .btn { flex: 1 1 140px; min-height: 48px; }
 .r-actions p { flex-basis: 100%; margin: 0; }
+.remote-card .r-filter { display: inline-block; font-weight: 700; color: var(--ask); background: var(--ask-bg); border-radius: 999px; padding: 1px 8px; margin: 2px 6px 2px 0; }

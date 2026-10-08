@@ -49,7 +49,13 @@ async function remoteApi() {
         const d = await sb.from('ceo_remoto').select('id,datos').in('id', changed);
         for (const x of d.data || []) remotes.set(x.id, { datos: x.datos });
       }
-      const remotos = (rm.data || []).filter((x) => remotes.has(x.id)).map((x) => { const v = { ...remotes.get(x.id), ...x }; remotes.set(x.id, v); return v; });
+      // «Foto hace…» = cuándo la comprobó el PC por última vez (el latido lo dice aunque no haya cambiado nada), no cuándo cambió.
+      const beat = p.data?.datos?.remoto || {};
+      const remotos = (rm.data || []).filter((x) => remotes.has(x.id)).map((x) => {
+        const v = { ...remotes.get(x.id), ...x, ...(beat[x.id]?.hash === x.hash && beat[x.id].at > x.at ? { at: beat[x.id].at } : {}) };
+        remotes.set(x.id, v);
+        return v;
+      });
       pc = p.data;
       const proyectos = c.data.map((r) => r.datos);
       // Logos: sólo los que faltan o cambiaron de huella, una vez (tabla ceo_logo, sin Realtime).

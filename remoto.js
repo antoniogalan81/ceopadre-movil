@@ -52,8 +52,12 @@ export function remoteUi({ api, ask, toast, show, data, ago }) {
     const need = (c.attention || 0) + (c.approved || 0);
     const line = r.datos.groups ? [need ? `${need} te necesita${need === 1 ? '' : 'n'}` : 'Nada te necesita', c.producing ? `${c.producing} produciéndose` : null,
       c.ready ? `${c.ready} listo${c.ready === 1 ? '' : 's'} para publicar` : null].filter(Boolean).join(' · ') : 'Esperando la primera foto del PC…';
+    // Con un filtro puesto la tarjeta lo dice: «nada te necesita» sólo vale para lo que se está mirando.
+    const sel = r.datos.filters ? selection(r) : [];
+    const names = (r.datos.filters?.options || []).filter((o) => sel.includes(o.id)).map((o) => o.name);
     return h('article', { class: `remote-card m-${need ? 'need' : 'idle'}`, 'data-id': `remoto-${r.id}` },
       h('div', { class: 'title' }, h('h3', {}, r.nombre || r.datos.title || 'Proyecto'), h('p', { class: 'muted' }, line),
+        names.length ? h('small', { class: 'r-filter' }, `Solo: ${names.join(' + ')}`) : null,
         h('small', { class: 'muted' }, r.error ? `⚠ ${r.error}` : `Foto ${ago(r.at)}`)),
       h('button', { class: 'btn primary small', type: 'button', onclick: () => open(r.id) }, 'Abrir'));
   }

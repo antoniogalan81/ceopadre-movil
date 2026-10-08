@@ -1,6 +1,6 @@
 // CEOPadre en el navegador. En el PC habla con la API local; en el móvil, con Supabase.
 // No ejecuta nada: pinta el estado y deja órdenes. Todo el texto se inserta como texto (nunca HTML).
-import { conditionsText, decisionCount, decisionsText, gestText, mood, needsDecision, netStatus, office, pcOnline, priority, PROMPT_LIMIT, PROMPT_WARN, quotaView, waitingConditions, zone } from './zones.js';
+import { conditionsText, decisionCount, decisionsText, gestText, HIGH_RISK, mood, needsDecision, netStatus, office, passwordAt, pcOnline, priority, PROMPT_LIMIT, PROMPT_WARN, quotaView, REAUTH_MS, waitingConditions, zone } from './zones.js';
 import { h } from './dom.js';
 import { advice, decideRow, mapBody, mapPanel, pendingDecisions, proposals } from './map.js';
 import { remoteUi } from './remoto.js';
@@ -79,6 +79,11 @@ async function remoteApi() {
     async details(id) { const r = await sb.from('ceo_card').select('detalle').eq('id', id).maybeSingle(); return r.data?.detalle; },
     async cmd(op, params) {
       if (!online()) return { ok: false, error: 'El PC no está conectado ahora mismo: la orden no se envía.' };
+      if (HIGH_RISK.has(op)) {
+        const extra = await strongConfirm(sb, op, params);
+        if (!extra?.ok) return { ok: false, error: extra?.error || 'Cancelado: no se ha enviado nada.' };
+        params = { ...params, confirmado: true, _auth: extra.token };
+      }
       const id = crypto.randomUUID();
       const usuario = (await sb.auth.getUser()).data.user?.id;
       const ins = await sb.from('ceo_orden').insert({ id, usuario, operacion: op, parametros: params });
@@ -100,6 +105,23 @@ async function remoteApi() {
       setInterval(cb, 30_000);
     },
   };
+}
+
+// MODO SEGURO (sólo móvil): una orden potente (texto libre a Claude) se confirma siempre y, si la contraseña se escribió hace
+// más de 30 min, se vuelve a pedir. El PC lo comprueba sobre el token firmado: una sesión robada no basta.
+async function strongConfirm(sb, op, params) {
+  const s = (await sb.auth.getSession()).data.session;
+  if (!s) return { ok: false, error: 'Sesión caducada: vuelve a entrar' };
+  const where = data.proyectos.find((c) => c.id === params?.proyecto || (params?.trabajo && c.trabajo === params.trabajo))?.nombre || 'el proyecto';
+  const fresh = Date.now() - passwordAt(s.access_token) < REAUTH_MS - 60_000;
+  const r = await ask({ title: 'Confirmar orden a Claude', ok: 'Enviar al PC',
+    help: `Vas a enviar texto libre a Claude en «${where}». Claude puede ejecutar código en tu PC.${fresh ? '' : ' Por seguridad, escribe tu contraseña (como mucho una vez cada 30 min).'}`,
+    fields: fresh ? [] : [{ name: 'password', type: 'password', label: 'Contraseña de CEOPadre' }] });
+  if (!r) return null;
+  if (fresh) return { ok: true, token: s.access_token };
+  const { data: d, error } = await sb.auth.signInWithPassword({ email: s.user.email, password: r.password });
+  if (error) return { ok: false, error: `Contraseña no válida: no se ha enviado nada (${error.message})` };
+  return { ok: true, token: d.session.access_token };
 }
 
 // ------------------------------------------------------------------ vocabulario
@@ -199,6 +221,7 @@ function ask({ title, help = '', fields = [], ok = 'Aceptar', danger = false }) 
     }
     const input = f.type === 'textarea'
       ? h('textarea', { name: f.name, rows: 5, placeholder: f.placeholder || '', required })
+      : f.type === 'password' ? h('input', { name: f.name, type: 'password', autocomplete: 'current-password', required })
       : h('input', { name: f.name, type: f.type === 'url' ? 'url' : 'text', inputmode: f.type === 'url' ? 'url' : null, placeholder: f.placeholder || '', required, spellcheck: 'false' });
     input.value = f.value || '';
     // Intro en un campo de una línea = Aceptar (si no, el formulario enviaría el primer botón: «Volver»).
@@ -215,7 +238,8 @@ function ask({ title, help = '', fields = [], ok = 'Aceptar', danger = false }) 
     dlg.addEventListener('close', () => {
       if (dlg.returnValue !== 'ok') return resolve(null);
       const out = {};
-      for (const f of fields) { const el = box.querySelector(`[name="${f.name}"]`); out[f.name] = f.type === 'checkbox' ? el.checked : el.value.trim(); }
+      for (const f of fields) { const el = box.querySelector(`[name="${f.name}"]`); out[f.name] = f.type === 'checkbox' ? el.checked : f.type === 'password' ? el.value : el.value.trim(); }
+      for (const el of box.querySelectorAll('input[type=password]')) el.value = ''; // la contraseña no se queda en el formulario
       resolve(out);
     }, { once: true });
   });
@@ -1104,8 +1128,19 @@ async function start() {
   await refresh();
   api.watch(() => void refresh());
   $('#b-sync').onclick = () => void syncAll(true);
+  if (!LOCAL) { $('#b-logout').hidden = false; $('#b-logout').onclick = logout; }
   void syncAll(false); // al abrir CEOPadre: estado real de todos los proyectos (local, sin modelos)
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && Date.now() - lastSync > AUTO_SYNC_MS) void syncAll(false); });
+}
+
+// SALIR: cierra la sesión de este móvil y, si se marca, TODAS las demás (móvil perdido o sospecha). El PC vuelve a entrar
+// solo con su credencial local en menos de un minuto; quien tuviera una sesión robada se queda fuera.
+async function logout() {
+  const r = await ask({ title: 'Salir de CEOPadre', ok: 'Salir', help: 'Este móvil tendrá que volver a entrar con tu contraseña.',
+    fields: [{ name: 'todas', type: 'checkbox', label: 'Cerrar también TODAS las demás sesiones (si perdiste un móvil o sospechas de un acceso)' }] });
+  if (!r) return;
+  await api.sb.auth.signOut({ scope: r.todas ? 'global' : 'local' }).catch(() => {});
+  location.reload();
 }
 
 // ↻ ACTUALIZAR TODO: reconcilia todos los proyectos en el PC (sin IA) y refresca. Manual: siempre dice cómo fue. Automática

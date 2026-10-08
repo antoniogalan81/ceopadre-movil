@@ -162,3 +162,18 @@ export function decisionsText(cards, fecha = new Date()) {
     ...items.map(([p, t, ctx], i) => [`${i + 1}. [${p}] ${t}`, ...ctx.filter(Boolean).map((x) => `   ${x}`)].join('\n'))].join('\n\n');
   return { n: items.length, texto };
 }
+
+// ÓRDENES POTENTES: texto libre que llega a Claude (que puede ejecutar código en el PC). Desde el móvil exigen, además de
+// ser el dueño (RLS), confirmación expresa y una contraseña escrita hace menos de REAUTH_MS (modo seguro): una sesión
+// robada no basta. El resto de órdenes (aprobar, pausar, mando remoto cerrado…) siguen como siempre. Lista única: la usan
+// el PC (src/sync.js, src/commands.js) y el móvil (web/app.js).
+export const HIGH_RISK = new Set(['objetivo.iniciar', 'objetivo.anadir', 'trabajo.instruccion', 'pendiente.editar']);
+export const REAUTH_MS = 30 * 60_000;
+/** Hora (ms) de la última vez que esta sesión se abrió CON CONTRASEÑA, leída del token (amr). 0 si no consta. */
+export function passwordAt(accessToken) {
+  try {
+    const b64 = String(accessToken).split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+    const c = JSON.parse(typeof atob === 'function' ? decodeURIComponent(escape(atob(b64))) : Buffer.from(b64, 'base64').toString('utf8'));
+    return Math.max(0, ...(c.amr || []).filter((a) => a.method === 'password').map((a) => Number(a.timestamp) * 1000));
+  } catch { return 0; }
+}

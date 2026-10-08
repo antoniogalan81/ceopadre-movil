@@ -5,6 +5,9 @@ import { h } from './dom.js';
 
 const FILTER_KEY = (id) => `ceo-remote-filter:${id}`;
 const TONES = { you: 'ask', ready: 'ok', busy: 'work', done: 'idle', bad: 'bad' };
+// Lo que llega en la foto es dato, no código: sólo enlaces https, colores #hex y números acotados.
+const httpsUrl = (u) => (typeof u === 'string' && /^https:\/\/[^\s]+$/i.test(u) ? u : null);
+const hexColor = (c) => (typeof c === 'string' && /^#[0-9a-f]{3,8}$/i.test(c) ? c : 'var(--idle)');
 const MB = (b) => `${(b / 1048576).toFixed(b > 10485760 ? 0 : 1)} MB`;
 
 export function remoteUi({ api, ask, toast, show, data, ago }) {
@@ -91,7 +94,7 @@ export function remoteUi({ api, ask, toast, show, data, ago }) {
     return h('div', { class: 'r-chips', role: 'group', 'aria-label': r.datos.filters.label || 'Filtro' },
       chip('Todos', !sel.length, () => set([])),
       opts.map((o) => chip(`${o.name} · ${o.count ?? ''}`.replace(/ · $/, ''), sel.includes(o.id),
-        () => set(sel.includes(o.id) ? sel.filter((x) => x !== o.id) : [...sel, o.id]), o.color)));
+        () => set(sel.includes(o.id) ? sel.filter((x) => x !== o.id) : [...sel, o.id]), hexColor(o.color))));
   }
 
   function row(r, it) {
@@ -115,10 +118,13 @@ export function remoteUi({ api, ask, toast, show, data, ago }) {
     pre: (r, b) => h('section', { class: 'r-block' }, h('h3', {}, b.title), h('pre', { class: 'viewer-text' }, b.text)),
     list: (r, b) => h('section', { class: 'r-block' }, h('h3', {}, b.title), h('ul', {}, b.items.map((x) => h('li', {}, x)))),
     kv: (r, b) => h('section', { class: 'r-block' }, h('h3', {}, b.title), h('dl', { class: 'r-kv' }, b.rows.map(([k, v]) => [h('dt', {}, k),
-      h('dd', {}, /^https?:\/\//.test(v) ? h('a', { href: v, target: '_blank', rel: 'noopener noreferrer' }, v) : v)]))),
-    progress: (r, b) => h('section', { class: 'r-block' }, h('h3', {}, `Paso ${b.step} de ${b.of} · ${b.label}`),
-      h('div', { class: 'r-track', role: 'progressbar', 'aria-valuemin': '0', 'aria-valuemax': String(b.of), 'aria-valuenow': String(b.step) },
-        h('div', { style: `width:${Math.round((b.step / b.of) * 100)}%` })), b.warn ? h('p', { class: 'pcline' }, b.warn) : null),
+      h('dd', {}, httpsUrl(v) ? h('a', { href: httpsUrl(v), target: '_blank', rel: 'noopener noreferrer' }, v) : v)]))),
+    progress: (r, b) => {
+      const of = Math.max(1, Math.min(99, Number(b.of) || 1)), step = Math.max(0, Math.min(of, Number(b.step) || 0));
+      return h('section', { class: 'r-block' }, h('h3', {}, `Paso ${step} de ${of} · ${b.label}`),
+        h('div', { class: 'r-track', role: 'progressbar', 'aria-valuemin': '0', 'aria-valuemax': String(of), 'aria-valuenow': String(step) },
+          h('div', { style: `width:${Math.round((step / of) * 100)}%` })), b.warn ? h('p', { class: 'pcline' }, b.warn) : null);
+    },
     storyboard: (r, b) => h('section', { class: 'r-block' }, h('h3', {}, `${b.title} · ${b.scenes.length} escenas`), h('ol', { class: 'r-scenes' },
       b.scenes.map((s) => h('li', {}, h('b', {}, [s.n != null ? `Escena ${s.n}` : 'Escena', s.time ? ` · ${s.time}` : ''].join('')),
         s.visual ? h('p', {}, s.visual) : null, s.action ? h('p', { class: 'muted' }, s.action) : null,
@@ -130,7 +136,7 @@ export function remoteUi({ api, ask, toast, show, data, ago }) {
       return h('section', { class: 'r-block' }, h('h3', {}, b.title), v, m ? h('small', { class: 'muted' }, MB(m.bytes)) : null);
     },
     copy: (r, b) => h('section', { class: 'r-block r-copy' }, h('h3', {}, b.title),
-      b.done ? h('p', { class: 'r-done' }, '✓ Publicado: ', h('a', { href: b.done, target: '_blank', rel: 'noopener noreferrer' }, b.done)) : null,
+      b.done ? h('p', { class: 'r-done' }, '✓ Publicado: ', httpsUrl(b.done) ? h('a', { href: httpsUrl(b.done), target: '_blank', rel: 'noopener noreferrer' }, b.done) : b.done) : null,
       b.items.map((x) => h('div', { class: 'r-copy-item' }, h('div', { class: 'r-copy-head' }, h('b', {}, x.label),
         h('button', { class: 'btn ghost small', type: 'button', onclick: (e) => copy(x.text, e.currentTarget, x.label) }, 'Copiar')),
       h('p', { class: 'r-text' }, x.text)))),

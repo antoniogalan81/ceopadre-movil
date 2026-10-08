@@ -155,7 +155,10 @@ export function remoteUi({ api, ask, toast, show, data, ago, local = false }) {
     const tabsEl = tabs(r);
     const groups = (r.datos.groups || []).filter((g) => (g.tab || TAB_MAIN) === tab)
       .map((g) => [g, g.items.map((id) => r.datos.items[id]).filter((it) => it && visible(r, it))]).filter(([, xs]) => xs.length);
-    return [tabsEl, filters(r), groups.length ? groups.map(([g, xs]) => h('section', { class: 'r-group' },
+    // Accesos del PC (p. ej. el panel de VideoFactory): sólo en el PC y sólo a 127.0.0.1; en el móvil no existen.
+    const links = local ? (r.datos.links || []).filter((l) => /^http:\/\/127\.0\.0\.1:\d+\//.test(l.url || '')) : [];
+    const linkBar = links.length ? h('p', { class: 'r-links' }, links.map((l) => h('a', { class: 'btn ghost small', href: l.url, target: '_blank', rel: 'noopener' }, `${l.label} ↗`))) : null;
+    return [linkBar, tabsEl, filters(r), groups.length ? groups.map(([g, xs]) => h('section', { class: 'r-group' },
       h('div', { class: 'zone-head' }, h('h2', {}, g.title), h('span', { class: 'count' }, String(xs.length))), xs.map((it) => row(r, it))))
       : h('p', { class: 'empty' }, 'Nada con este filtro.')];
   }

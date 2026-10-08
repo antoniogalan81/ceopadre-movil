@@ -189,6 +189,22 @@ export function remoteUi({ api, ask, toast, show, data, ago, local = false }) {
       b.items.map((x) => h('div', { class: 'r-copy-item' }, h('div', { class: 'r-copy-head' }, h('b', {}, x.label),
         h('button', { class: 'btn ghost small', type: 'button', onclick: (e) => copy(x.text, e.currentTarget, x.label) }, 'Copiar')),
       h('p', { class: 'r-text' }, x.text)))),
+    // Galería (p. ej. PORTADAS de VideoFactory): cada imagen con SUS botones; cada botón es una acción CERRADA del contenido
+    // (oculta en la lista general) con el parámetro de la imagen ya puesto. Tocar la imagen la amplía.
+    gallery: (r, b, it) => h('section', { class: 'r-block r-gallery' }, h('h3', {}, b.title), b.help ? h('p', { class: 'muted' }, b.help) : null,
+      local && /^http:\/\/127\.0\.0\.1:\d+\//.test(b.pc_url || '') ? h('a', { class: 'btn ghost small', href: b.pc_url, target: '_blank', rel: 'noopener' }, 'Abrir en el panel de VideoFactory ↗') : null,
+      h('div', { class: 'r-gal' }, (b.items || []).map((x) => {
+        const pic = img(r, x.media, 'r-gal-img');
+        pic.addEventListener('click', () => pic.closest('figure').classList.toggle('big'));
+        return h('figure', { class: 'r-gal-item' }, h('div', { class: 'r-gal-pic' }, pic, x.badge ? h('span', { class: 'r-gal-badge' }, x.badge) : null),
+          h('figcaption', {}, h('b', {}, x.caption || ''), x.sub ? h('small', { class: 'muted' }, x.sub) : null),
+          h('div', { class: 'r-gal-acts' }, (x.actions || []).map((g) => {
+            const def = (it.actions || []).find((a) => a.id === g.action);
+            if (!def) return null;
+            return h('button', { type: 'button', class: `btn small ${g.style === 'primary' ? 'primary' : g.style === 'danger' ? 'ghost-danger' : 'ghost'}`,
+              disabled: !online(), onclick: (e) => doAction(r, it, { ...def, fixed: g.fixed || {} }, e.currentTarget) }, g.label);
+          })));
+      }))),
     download: (r, b) => {
       const m = media(r, b.media);
       if (!m) return null;
@@ -245,12 +261,14 @@ export function remoteUi({ api, ask, toast, show, data, ago, local = false }) {
 
   async function doAction(r, it, a, btn) {
     if (!online()) { toast('El PC no está conectado: la orden no se envía.', 'bad'); return; }
-    let params = {};
-    if (a.params?.length) {
-      const got = await ask({ title: a.label, help: it.title, ok: a.label, fields: a.params.map((p) => ({ name: p.name, label: p.label, type: p.type,
+    const fixed = a.fixed || {};
+    let params = { ...fixed };
+    const fields = (a.params || []).filter((p) => !(p.name in fixed));
+    if (fields.length) {
+      const got = await ask({ title: a.label, help: it.title, ok: a.label, fields: fields.map((p) => ({ name: p.name, label: p.label, type: p.type,
         required: p.required, options: p.options, placeholder: p.type === 'url' ? 'https://…' : '' })) });
       if (!got) return;
-      params = got;
+      params = { ...got, ...fixed };
     }
     if (a.confirm && !(await ask({ title: a.confirm.title, help: a.confirm.text, ok: a.confirm.ok || a.label }))) return;
     btn.disabled = true;
@@ -263,11 +281,11 @@ export function remoteUi({ api, ask, toast, show, data, ago, local = false }) {
   }
 
   function item(r, it) {
-    const acts = it.actions || [];
+    const acts = (it.actions || []).filter((a) => !a.hidden); // las ocultas viven en su bloque (galería), no en la lista
     return [h('header', { class: 'r-item-head' }, img(r, it.thumb, 'r-thumb big'),
       h('div', {}, h('h2', {}, it.title), h('p', { class: 'muted' }, [it.meta, fecha(it.when)].filter(Boolean).join(' · ')), h('span', { class: `r-state t-${TONES[it.tone] || 'idle'}` }, it.state_label),
         it.note ? h('p', { class: 'r-note' }, it.note) : null)),
-    (it.blocks || []).map((b) => BLOCKS[b.type]?.(r, b) || null),
+    (it.blocks || []).map((b) => BLOCKS[b.type]?.(r, b, it) || null),
     acts.length ? h('div', { class: 'r-actions' }, !online() ? h('p', { class: 'muted small' }, 'PC desconectado: las acciones se activan cuando vuelva.') : null,
       acts.map((a) => h('button', { type: 'button', class: `btn ${a.style === 'danger' ? 'ghost-danger' : a.style === 'primary' ? 'primary' : 'ghost'}`,
         disabled: !online(), onclick: (e) => doAction(r, it, a, e.currentTarget) }, a.label))) : null];

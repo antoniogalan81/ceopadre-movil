@@ -664,3 +664,15 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); box-sh
 .r-tabs { display: flex; gap: 8px; margin: 4px 0 6px; }
 .r-tabs .r-chip { font-weight: 750; }
 .r-copy > .r-copy-head h3 { margin: 0; }
+/* Un enlace con aspecto de botón (Abrir TikTok, Descargar vídeo final en el PC) se ve y mide como un botón. */
+a.btn { display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }
+/* Galería de un contenido (PORTADAS de VideoFactory): dos columnas en el móvil; tocar una imagen la amplía a todo el ancho. */
+.r-gal { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 14px; margin-top: 10px; }
+.r-gal-item { margin: 0; display: grid; gap: 8px; align-content: start; }
+.r-gal-item.big { grid-column: 1 / -1; }
+.r-gal-pic { position: relative; }
+.r-gal-img { width: 100%; aspect-ratio: 9 / 16; object-fit: cover; border-radius: 10px; display: block; cursor: zoom-in; background: var(--line, #333); }
+.r-gal-item.big .r-gal-img { cursor: zoom-out; max-height: 85vh; object-fit: contain; }
+.r-gal-badge { position: absolute; left: 6px; top: 6px; font-size: 11px; font-weight: 800; padding: 3px 8px; border-radius: 999px; background: #2f9e57; color: #fff; }
+.r-gal-item figcaption { display: grid; gap: 2px; font-size: 14px; line-height: 1.3; }
+.r-gal-acts { display: flex; flex-wrap: wrap; gap: 6px; }

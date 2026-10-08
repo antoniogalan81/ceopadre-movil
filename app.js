@@ -3,6 +3,7 @@
 import { conditionsText, decisionCount, decisionsText, gestText, mood, needsDecision, netStatus, office, pcOnline, priority, PROMPT_LIMIT, PROMPT_WARN, quotaView, waitingConditions, zone } from './zones.js';
 import { h } from './dom.js';
 import { advice, decideRow, mapBody, mapPanel, pendingDecisions, proposals } from './map.js';
+import { remoteUi } from './remoto.js';
 
 const LOCAL = ['127.0.0.1', 'localhost'].includes(location.hostname);
 const $ = (s) => document.querySelector(s);
@@ -19,7 +20,8 @@ function localApi() {
       const r = await call('/api/state');
       // En el PC el logo lo sirve el propio CEOPadre (la huella en la URL evita cachés viejas).
       for (const c of r.data.proyectos) c._logo = c.logo ? `/logo/${encodeURIComponent(c.id)}?h=${c.logo}` : null;
-      return { proyectos: r.data.proyectos, pc: { online: true }, remoto: r.data.remoto, cuenta: r.data.remoto?.cuenta || '', cuotas: r.data.cuotas };
+      // MANDO REMOTO: sólo en el móvil. En el PC está el propio panel de cada proyecto (no se duplica aquí).
+      return { proyectos: r.data.proyectos, pc: { online: true }, remoto: r.data.remoto, cuenta: r.data.remoto?.cuenta || '', cuotas: r.data.cuotas, remotos: [] };
     },
     async details(id) { return (await call(`/api/details?proyecto=${encodeURIComponent(id)}`)).data; },
     cmd: (op, params) => call('/api/cmd', { method: 'POST', body: JSON.stringify({ op, params }) }),
@@ -34,12 +36,20 @@ async function remoteApi() {
 
   let pc = null, cuenta = null;
   const logos = new Map(); // id → { hash, data }
+  const remotes = new Map(); // MANDO REMOTO: id → fila de ceo_remoto; la foto (datos) sólo se relee si cambia su huella
   const online = () => pcOnline(pc?.visto_en); // tiempo real contra el sello del servidor; nunca un valor guardado
   return {
     sb,
     async state() {
-      const [c, p] = await Promise.all([sb.from('ceo_card').select('datos,posicion').order('posicion'), sb.from('ceo_pc').select('*').maybeSingle()]);
+      const [c, p, rm] = await Promise.all([sb.from('ceo_card').select('datos,posicion').order('posicion'), sb.from('ceo_pc').select('*').maybeSingle(),
+        sb.from('ceo_remoto').select('id,nombre,hash,error,at').order('nombre')]);
       if (c.error) throw new Error(c.error.message);
+      const changed = (rm.data || []).filter((x) => remotes.get(x.id)?.hash !== x.hash).map((x) => x.id);
+      if (changed.length) {
+        const d = await sb.from('ceo_remoto').select('id,datos').in('id', changed);
+        for (const x of d.data || []) remotes.set(x.id, { datos: x.datos });
+      }
+      const remotos = (rm.data || []).filter((x) => remotes.has(x.id)).map((x) => { const v = { ...remotes.get(x.id), ...x }; remotes.set(x.id, v); return v; });
       pc = p.data;
       const proyectos = c.data.map((r) => r.datos);
       // Logos: sólo los que faltan o cambiaron de huella, una vez (tabla ceo_logo, sin Realtime).
@@ -58,7 +68,7 @@ async function remoteApi() {
       }
       for (const x of proyectos) x._logo = x.logo && logos.get(x.id)?.hash === x.logo ? logos.get(x.id).data : null;
       cuenta ??= (await sb.auth.getUser()).data.user?.email || '';
-      return { proyectos, pc: { online: online(), visto: pc?.visto_en }, cuenta, cuotas: pc?.datos?.cuotas };
+      return { proyectos, pc: { online: online(), visto: pc?.visto_en }, cuenta, cuotas: pc?.datos?.cuotas, remotos };
     },
     async details(id) { const r = await sb.from('ceo_card').select('detalle').eq('id', id).maybeSingle(); return r.data?.detalle; },
     async cmd(op, params) {
@@ -134,7 +144,8 @@ function toast(msg, kind = '') {
   clearTimeout(toastT); toastT = setTimeout(() => { t.className = 'toast'; }, 3500);
 }
 
-const show = (id) => { for (const s of ['p-login', 'p-list', 'p-detail']) $('#' + s).hidden = s !== id; };
+const show = (id) => { for (const s of ['p-login', 'p-list', 'p-detail', 'p-remote']) $('#' + s).hidden = s !== id; };
+let rui = null; // MANDO REMOTO (web/remoto.js)
 
 async function refresh() {
   try {
@@ -149,6 +160,7 @@ async function refresh() {
   }
   paintList();
   if (openId) paintDetail();
+  rui?.paint();
 }
 
 async function run(op, params, okMsg, btn) {
@@ -172,9 +184,16 @@ function ask({ title, help = '', fields = [], ok = 'Aceptar', danger = false }) 
   box.textContent = '';
   for (const f of fields) {
     if (f.type === 'checkbox') { box.append(h('label', { class: 'check' }, h('input', { name: f.name, type: 'checkbox' }), ' ', f.label)); continue; }
+    const required = f.required !== false;
+    // choice: una opción de una lista cerrada (p. ej. TikTok / Instagram), ya elegida si sólo hay una.
+    if (f.type === 'choice') {
+      box.append(h('label', { class: 'field' }, f.label, h('select', { name: f.name, required },
+        (f.options || []).length > 1 ? h('option', { value: '' }, 'Elige…') : null, (f.options || []).map((o) => h('option', { value: o.value }, o.label)))));
+      continue;
+    }
     const input = f.type === 'textarea'
-      ? h('textarea', { name: f.name, rows: 5, placeholder: f.placeholder || '', required: true })
-      : h('input', { name: f.name, type: 'text', placeholder: f.placeholder || '', required: true, spellcheck: 'false' });
+      ? h('textarea', { name: f.name, rows: 5, placeholder: f.placeholder || '', required })
+      : h('input', { name: f.name, type: f.type === 'url' ? 'url' : 'text', inputmode: f.type === 'url' ? 'url' : null, placeholder: f.placeholder || '', required, spellcheck: 'false' });
     input.value = f.value || '';
     // Intro en un campo de una línea = Aceptar (si no, el formulario enviaría el primer botón: «Volver»).
     if (f.type !== 'textarea') input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); $('#dlg-ok').click(); } });
@@ -185,7 +204,7 @@ function ask({ title, help = '', fields = [], ok = 'Aceptar', danger = false }) 
   okBtn.className = `btn ${danger ? 'danger' : 'primary'}`;
   dlg.returnValue = '';
   dlg.showModal();
-  box.querySelector('textarea,input')?.focus();
+  box.querySelector('textarea,input,select')?.focus();
   return new Promise((resolve) => {
     dlg.addEventListener('close', () => {
       if (dlg.returnValue !== 'ok') return resolve(null);
@@ -516,6 +535,7 @@ function paintList() {
   paintQuota();
   paintDecisions();
   paintConditions();
+  rui?.paintCards($('#remotes'));
 }
 
 // CONDICIONES EN ESPERA (vista global, plegada por defecto): cada condición completa con su COPIAR, y COPIAR TODAS.
@@ -1073,6 +1093,7 @@ async function start() {
       return;
     }
   }
+  rui ??= LOCAL ? null : remoteUi({ api, ask, toast, show, data: () => data, ago });
   show('p-list');
   await refresh();
   api.watch(() => void refresh());

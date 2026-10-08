@@ -12,7 +12,7 @@
 <meta name="format-detection" content="telephone=no">
 <!-- La misma página sirve en el PC (API local) y en el móvil (Supabase). Scripts sólo propios:
      el cliente de Supabase viaja en vendor/, no desde una CDN (lección de Batuta). -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:; manifest-src 'self'; connect-src 'self' https://pzlotrzphjpnqixrtvin.supabase.co wss://pzlotrzphjpnqixrtvin.supabase.co; form-action 'none'; base-uri 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data: blob: https://pzlotrzphjpnqixrtvin.supabase.co; media-src blob: https://pzlotrzphjpnqixrtvin.supabase.co; manifest-src 'self'; connect-src 'self' https://pzlotrzphjpnqixrtvin.supabase.co wss://pzlotrzphjpnqixrtvin.supabase.co; form-action 'none'; base-uri 'none'">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="favicon.ico" sizes="any">
 <link rel="icon" href="icono-v2-192.png" type="image/png">
@@ -62,6 +62,8 @@
     </div>
   </header>
   <p class="pcline" id="pc-line" hidden></p>
+  <!-- MANDO REMOTO: proyectos que se gestionan desde aquí (VideoFactory…). La verdad vive en el proyecto, en el PC. -->
+  <section class="zone remotes" id="remotes" aria-label="Mando remoto" hidden></section>
   <!-- DECISIONES PENDIENTES: todo lo que sólo decide Antonio (objetivo, cambios protegidos del canon y preguntas), de todos los proyectos. -->
   <section class="decisions" id="decisions" aria-label="Decisiones pendientes" hidden></section>
 
@@ -90,6 +92,15 @@
       </details>
   </header>
   <main id="d-body" class="detail"></main>
+</section>
+
+<!-- MANDO REMOTO de un proyecto: su lista (filtrable por canal) y la ficha de cada contenido con sus acciones. -->
+<section id="p-remote" class="screen" hidden>
+  <header class="top">
+    <button class="btn ghost" id="r-back" aria-label="Volver">‹ Volver</button>
+    <div class="r-title"><h1 class="detail-name" id="r-name"></h1><p class="muted small" id="r-sub"></p></div>
+  </header>
+  <main id="r-body" class="detail remote"></main>
 </section>
 
 <dialog id="dlg" class="sheet">

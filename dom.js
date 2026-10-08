@@ -4,6 +4,8 @@ export function h(tag, attrs = {}, ...kids) {
   for (const [k, v] of Object.entries(attrs)) {
     if (v === false || v == null) continue;
     if (k === 'class') el.className = v;
+    // Estilo por CSSOM (la CSP sin 'unsafe-inline' bloquea el atributo style, no esto): sólo variables y medidas propias.
+    else if (k === 'style') el.style.cssText = v;
     else if (k.startsWith('on')) el.addEventListener(k.slice(2), v);
     else el.setAttribute(k, v === true ? '' : v);
   }

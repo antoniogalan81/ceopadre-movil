@@ -12,7 +12,7 @@
 <meta name="format-detection" content="telephone=no">
 <!-- La misma página sirve en el PC (API local) y en el móvil (Supabase). Scripts sólo propios:
      el cliente de Supabase viaja en vendor/, no desde una CDN (lección de Batuta). -->
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data: blob: https://pzlotrzphjpnqixrtvin.supabase.co; media-src blob: https://pzlotrzphjpnqixrtvin.supabase.co; manifest-src 'self'; connect-src 'self' https://pzlotrzphjpnqixrtvin.supabase.co wss://pzlotrzphjpnqixrtvin.supabase.co; form-action 'none'; base-uri 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data: blob: https://pzlotrzphjpnqixrtvin.supabase.co; media-src 'self' blob: https://pzlotrzphjpnqixrtvin.supabase.co; manifest-src 'self'; connect-src 'self' https://pzlotrzphjpnqixrtvin.supabase.co wss://pzlotrzphjpnqixrtvin.supabase.co; form-action 'none'; base-uri 'none'">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="favicon.ico" sizes="any">
 <link rel="icon" href="icono-v2-192.png" type="image/png">
@@ -54,6 +54,8 @@
       </details>
       </div>
       <div class="top-actions">
+        <!-- Paneles de los proyectos con mando remoto (hoy VIDEOFACTORY): abren su panel, nunca un objetivo. -->
+        <span class="top-remotes" id="top-remotes"></span>
         <button class="btn light small sync-btn" id="b-sync" type="button" aria-label="Actualizar todos los proyectos ahora" title="Actualizar todos los proyectos ahora"><span class="sync-ico" aria-hidden="true">↻</span></button>
         <button class="btn light small" id="b-install" type="button" hidden>Instalar CEOPadre</button>
         <button class="btn light small" id="b-logout" type="button" hidden>Salir</button>

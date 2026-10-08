@@ -1,4 +1,4 @@
-// MANDO REMOTO en el móvil (contrato ceopadre-remote/1): pinta la foto que el PC sube de cada proyecto (VideoFactory…)
+// MANDO REMOTO en el móvil y en el PC (contrato ceopadre-remote/1): pinta la foto que el PC sube de cada proyecto (VideoFactory…)
 // y deja órdenes de SU lista cerrada. No conoce VideoFactory: dibuja bloques tipados (texto, storyboard, vídeo, textos
 // para copiar, descarga…) y acciones con sus parámetros y su confirmación. Todo el texto entra como texto (nunca HTML).
 import { h } from './dom.js';
@@ -9,9 +9,15 @@ const TONES = { you: 'ask', ready: 'ok', busy: 'work', done: 'idle', bad: 'bad' 
 const httpsUrl = (u) => (typeof u === 'string' && /^https:\/\/[^\s]+$/i.test(u) ? u : null);
 const hexColor = (c) => (typeof c === 'string' && /^#[0-9a-f]{3,8}$/i.test(c) ? c : 'var(--idle)');
 const MB = (b) => `${(b / 1048576).toFixed(b > 10485760 ? 0 : 1)} MB`;
+// Fecha del contenido (hora local del PC, tal cual la escribe el proyecto: «2026-10-07T21:16:22»).
+const fecha = (iso) => { const d = new Date(String(iso || '')); return Number.isNaN(d.getTime()) ? '' : d.toLocaleString('es-ES', { dateStyle: 'medium', timeStyle: 'short' }); };
+// Dirección directa (favoritos): #videofactory y #videofactory/<contenido>. El nombre del proyecto, sin acentos ni signos.
+export const slug = (s) => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+const TAB_MAIN = 'Pendientes';
 
-export function remoteUi({ api, ask, toast, show, data, ago }) {
+export function remoteUi({ api, ask, toast, show, data, ago, local = false }) {
   let openId = null, openItem = null, urls = new Map(); // objeto del bucket → { url, hasta }
+  let tab = TAB_MAIN, pendingRoute = location.hash; // una dirección directa espera a la primera foto
   const remotos = () => data().remotos || [];
   const cur = () => remotos().find((r) => r.id === openId);
   const online = () => data().pc.online;
@@ -36,11 +42,15 @@ export function remoteUi({ api, ask, toast, show, data, ago }) {
     }
     return objects.map((o) => urls.get(o)?.url || null);
   }
-  const media = (r, key) => (key && r.datos.media?.[key]) || null;
+  // Un archivo `local_only` (sólo el panel del PC) no está en el bucket: en el móvil, como si no existiera.
+  const media = (r, key) => { const m = key && r.datos.media?.[key]; return m && (local || m.objects?.length) ? m : null; };
+  // En el PC, el propio CEOPadre sirve el archivo por su clave; en el móvil, un enlace firmado del bucket privado.
+  const localUrl = (r, key) => `/media/${encodeURIComponent(r.id)}/${encodeURIComponent(key)}`;
+  const urlOf = async (r, key) => (local ? localUrl(r, key) : (await signed([media(r, key).objects[0]]))[0]);
   function img(r, key, cls) {
     const m = media(r, key);
     const el = h('img', { class: cls, alt: '', loading: 'lazy', decoding: 'async' });
-    if (m) signed([m.objects[0]]).then(([u]) => { if (u) el.src = u; }).catch(() => {});
+    if (m) urlOf(r, key).then((u) => { if (u) el.src = u; }).catch(() => {});
     else el.classList.add('blank');
     return el;
   }
@@ -66,6 +76,16 @@ export function remoteUi({ api, ask, toast, show, data, ago }) {
   }
   function paintCards(box) {
     const rs = remotos();
+    // Barra superior: un botón por proyecto con mando remoto (hoy VIDEOFACTORY), junto a los controles principales.
+    // Sólo se rehace si cambian los proyectos: el repintado periódico no se come un clic ni el foco del teclado.
+    const top = document.getElementById('top-remotes');
+    const sig = rs.map((r) => `${r.id}|${r.nombre}`).join();
+    if (top && top.dataset.sig !== sig) {
+      top.dataset.sig = sig;
+      top.replaceChildren(...rs.map((r) => h('button', { class: 'btn small remote-top', type: 'button', 'data-remote': slug(r.nombre),
+        title: `Abrir el panel de ${r.nombre}`, onclick: () => open(r.id) }, String(r.nombre || r.datos.title || 'Proyecto').toUpperCase())));
+    }
+    if (pendingRoute) route();
     box.hidden = !rs.length;
     box.replaceChildren(...(rs.length ? [h('div', { class: 'zone-head' }, h('h2', {}, 'Mando remoto')), h('div', { class: 'remote-cards' }, rs.map(card))] : []));
   }
@@ -74,8 +94,26 @@ export function remoteUi({ api, ask, toast, show, data, ago }) {
   function open(id, item = null) { openId = id; openItem = item; paint(true); show('p-remote'); window.scrollTo(0, 0); }
   function back() {
     if (openItem) { openItem = null; paint(true); return; }
-    openId = null; show('p-list');
+    openId = null; setHash(); show('p-list');
   }
+  // La barra de direcciones dice dónde estás (se puede guardar en favoritos) sin añadir pasos al historial.
+  function setHash() {
+    const r = openId && cur();
+    const want = r ? `#${slug(r.nombre || r.datos.title)}${openItem ? `/${encodeURIComponent(openItem)}` : ''}` : '';
+    if (location.hash !== want) history.replaceState(null, '', want || location.pathname + location.search);
+  }
+  /** #videofactory[/contenido] → abre ese panel en cuanto su foto está (si aún no, lo intenta en el siguiente repintado). */
+  function route() {
+    const m = /^#([a-z0-9]+)(?:\/(.+))?$/.exec(pendingRoute || '');
+    if (!m) { pendingRoute = null; return; }
+    const r = remotos().find((x) => slug(x.nombre || x.datos?.title) === m[1]);
+    if (!r) { if (remotos().length) pendingRoute = null; return; } // ya hay fotos y ninguna es esa: no se queda armada
+    pendingRoute = null;
+    let item = null;
+    try { item = m[2] ? decodeURIComponent(m[2]) : null; } catch { /* dirección mal escrita: la lista */ }
+    open(r.id, item && r.datos.items?.[item] ? item : null);
+  }
+  window.addEventListener('hashchange', () => { if (location.hash.length > 1) { pendingRoute = location.hash; route(); } });
 
   function banner(r) {
     const out = [];
@@ -100,14 +138,24 @@ export function remoteUi({ api, ask, toast, show, data, ago }) {
   function row(r, it) {
     return h('button', { type: 'button', class: `r-row t-${TONES[it.tone] || 'idle'}`, onclick: () => { openItem = it.id; paint(true); window.scrollTo(0, 0); } },
       img(r, it.thumb, 'r-thumb'),
-      h('span', { class: 'r-what' }, h('b', {}, it.title), h('small', { class: 'muted' }, it.meta || ''),
+      h('span', { class: 'r-what' }, h('b', {}, it.title), h('small', { class: 'muted' }, [it.meta, fecha(it.when)].filter(Boolean).join(' · ')),
         h('span', { class: 'r-state' }, it.state_label), it.note ? h('small', { class: 'r-note' }, it.note) : null),
       it.actions?.length ? h('span', { class: 'r-go', 'aria-hidden': 'true' }, '›') : null);
   }
 
+  function tabs(r) {
+    const names = [...new Set((r.datos.groups || []).map((g) => g.tab || TAB_MAIN))];
+    if (!names.includes(tab)) tab = TAB_MAIN;
+    if (names.length < 2) return null;
+    return h('div', { class: 'r-tabs', role: 'group', 'aria-label': 'Vista' }, names.map((n) => h('button', { type: 'button', class: 'r-chip',
+      'aria-pressed': String(n === tab), onclick: () => { tab = n; paint(true); } }, n)));
+  }
+
   function list(r) {
-    const groups = (r.datos.groups || []).map((g) => [g, g.items.map((id) => r.datos.items[id]).filter((it) => it && visible(r, it))]).filter(([, xs]) => xs.length);
-    return [filters(r), groups.length ? groups.map(([g, xs]) => h('section', { class: 'r-group' },
+    const tabsEl = tabs(r);
+    const groups = (r.datos.groups || []).filter((g) => (g.tab || TAB_MAIN) === tab)
+      .map((g) => [g, g.items.map((id) => r.datos.items[id]).filter((it) => it && visible(r, it))]).filter(([, xs]) => xs.length);
+    return [tabsEl, filters(r), groups.length ? groups.map(([g, xs]) => h('section', { class: 'r-group' },
       h('div', { class: 'zone-head' }, h('h2', {}, g.title), h('span', { class: 'count' }, String(xs.length))), xs.map((it) => row(r, it))))
       : h('p', { class: 'empty' }, 'Nada con este filtro.')];
   }
@@ -132,10 +180,11 @@ export function remoteUi({ api, ask, toast, show, data, ago }) {
     video: (r, b) => {
       const m = media(r, b.media);
       const v = h('video', { class: 'r-video', controls: true, playsinline: true, preload: 'metadata' });
-      if (m) signed([m.objects[0], ...(media(r, b.poster) ? [media(r, b.poster).objects[0]] : [])]).then(([u, p]) => { if (u) v.src = u; if (p) v.poster = p; }).catch(() => {});
+      if (m) Promise.all([urlOf(r, b.media), media(r, b.poster) ? urlOf(r, b.poster) : null]).then(([u, p]) => { if (u) v.src = u; if (p) v.poster = p; }).catch(() => {});
       return h('section', { class: 'r-block' }, h('h3', {}, b.title), v, m ? h('small', { class: 'muted' }, MB(m.bytes)) : null);
     },
-    copy: (r, b) => h('section', { class: 'r-block r-copy' }, h('h3', {}, b.title),
+    copy: (r, b) => h('section', { class: 'r-block r-copy' }, h('div', { class: 'r-copy-head' }, h('h3', {}, b.title),
+      httpsUrl(b.open?.url) ? h('a', { class: 'btn ghost small', href: httpsUrl(b.open.url), target: '_blank', rel: 'noopener noreferrer' }, `${b.open.label || 'Abrir'} ↗`) : null),
       b.done ? h('p', { class: 'r-done' }, '✓ Publicado: ', httpsUrl(b.done) ? h('a', { href: httpsUrl(b.done), target: '_blank', rel: 'noopener noreferrer' }, b.done) : b.done) : null,
       b.items.map((x) => h('div', { class: 'r-copy-item' }, h('div', { class: 'r-copy-head' }, h('b', {}, x.label),
         h('button', { class: 'btn ghost small', type: 'button', onclick: (e) => copy(x.text, e.currentTarget, x.label) }, 'Copiar')),
@@ -144,6 +193,9 @@ export function remoteUi({ api, ask, toast, show, data, ago }) {
       const m = media(r, b.media);
       if (!m) return null;
       const status = h('small', { class: 'muted', 'aria-live': 'polite' }, `${m.filename} · ${MB(m.bytes)}`);
+      // En el PC es el archivo aprobado tal cual, servido por CEOPadre (sin pasar por internet).
+      if (local) return h('section', { class: 'r-block' }, h('h3', {}, b.title), b.help ? h('p', { class: 'muted' }, b.help) : null,
+        h('a', { class: 'btn primary', href: `${localUrl(r, b.media)}?dl=1`, download: m.filename }, 'Descargar vídeo final'), ' ', status);
       const btn = h('button', { class: 'btn primary', type: 'button', onclick: (e) => download(m, e.currentTarget, status) }, 'Descargar vídeo final');
       return h('section', { class: 'r-block' }, h('h3', {}, b.title), b.help ? h('p', { class: 'muted' }, b.help) : null, btn, status);
     },
@@ -213,7 +265,7 @@ export function remoteUi({ api, ask, toast, show, data, ago }) {
   function item(r, it) {
     const acts = it.actions || [];
     return [h('header', { class: 'r-item-head' }, img(r, it.thumb, 'r-thumb big'),
-      h('div', {}, h('h2', {}, it.title), h('p', { class: 'muted' }, it.meta || ''), h('span', { class: `r-state t-${TONES[it.tone] || 'idle'}` }, it.state_label),
+      h('div', {}, h('h2', {}, it.title), h('p', { class: 'muted' }, [it.meta, fecha(it.when)].filter(Boolean).join(' · ')), h('span', { class: `r-state t-${TONES[it.tone] || 'idle'}` }, it.state_label),
         it.note ? h('p', { class: 'r-note' }, it.note) : null)),
     (it.blocks || []).map((b) => BLOCKS[b.type]?.(r, b) || null),
     acts.length ? h('div', { class: 'r-actions' }, !online() ? h('p', { class: 'muted small' }, 'PC desconectado: las acciones se activan cuando vuelva.') : null,
@@ -231,7 +283,8 @@ export function remoteUi({ api, ask, toast, show, data, ago }) {
     document.getElementById('r-sub').textContent = `Foto ${ago(r.at)} · ${online() ? 'PC conectado' : 'PC desconectado'}`;
     // Sólo se repinta si cambia la foto, el PC o lo que se mira: el latido (cada 20 s) no corta un vídeo que se está
     // viendo, una descarga en curso ni el botón de guardar de una descarga ya comprobada.
-    const sig = `${r.hash}|${r.error}|${online()}|${openItem}|${JSON.stringify(selection(r))}`;
+    setHash();
+    const sig = `${r.hash}|${r.error}|${online()}|${openItem}|${tab}|${JSON.stringify(selection(r))}`;
     if (!force && sig === painted) return;
     const body = document.getElementById('r-body');
     if (!force && ([...body.querySelectorAll('video')].some((v) => !v.paused) || /Descargando|Comprobando/.test(body.textContent))) return;

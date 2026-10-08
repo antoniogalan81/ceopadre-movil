@@ -15,13 +15,16 @@ function localApi() {
     const r = await fetch(path, { ...opts, headers: { 'x-ceo': '1', 'content-type': 'application/json' } });
     return r.json();
   };
+  let remotos = [], remSig = null;
   return {
     async state() {
       const r = await call('/api/state');
       // En el PC el logo lo sirve el propio CEOPadre (la huella en la URL evita cachés viejas).
       for (const c of r.data.proyectos) c._logo = c.logo ? `/logo/${encodeURIComponent(c.id)}?h=${c.logo}` : null;
-      // MANDO REMOTO: sólo en el móvil. En el PC está el propio panel de cada proyecto (no se duplica aquí).
-      return { proyectos: r.data.proyectos, pc: { online: true }, remoto: r.data.remoto, cuenta: r.data.remoto?.cuenta || '', cuotas: r.data.cuotas, remotos: [] };
+      // MANDO REMOTO: el mismo panel que en el móvil; la foto sólo se relee cuando cambia su huella.
+      const sig = JSON.stringify(Object.entries(r.data.remotos || {}).map(([id, b]) => [id, b.hash, b.at, b.error]));
+      if (sig !== remSig) { const x = await call('/api/remoto'); if (x.ok) { remotos = x.data; remSig = sig; } }
+      return { proyectos: r.data.proyectos, pc: { online: true }, remoto: r.data.remoto, cuenta: r.data.remoto?.cuenta || '', cuotas: r.data.cuotas, remotos };
     },
     async details(id) { return (await call(`/api/details?proyecto=${encodeURIComponent(id)}`)).data; },
     cmd: (op, params) => call('/api/cmd', { method: 'POST', body: JSON.stringify({ op, params }) }),
@@ -1123,7 +1126,7 @@ async function start() {
       return;
     }
   }
-  rui ??= LOCAL ? null : remoteUi({ api, ask, toast, show, data: () => data, ago });
+  rui ??= remoteUi({ api, ask, toast, show, data: () => data, ago, local: LOCAL });
   show('p-list');
   await refresh();
   api.watch(() => void refresh());

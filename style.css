@@ -650,3 +650,17 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); box-sh
 .r-actions .btn { flex: 1 1 140px; min-height: 48px; }
 .r-actions p { flex-basis: 100%; margin: 0; }
 .remote-card .r-filter { display: inline-block; font-weight: 700; color: var(--ask); background: var(--ask-bg); border-radius: 999px; padding: 1px 8px; margin: 2px 6px 2px 0; }
+
+/* VIDEOFACTORY (y cualquier proyecto con mando remoto) en la barra superior: su panel, a un toque. Ámbar de VideoFactory /
+   Tras el cierre sobre la barra azul, para distinguirlo de las acciones de CEOPadre. */
+.top-remotes { display: contents; }
+.btn.remote-top { background: oklch(0.82 0.13 80); border-color: oklch(0.82 0.13 80); color: oklch(0.22 0.04 60); font-weight: 800; letter-spacing: .06em; }
+.btn.remote-top:hover { background: oklch(0.88 0.11 82); border-color: oklch(0.88 0.11 82); }
+@media (max-width: 620px) {
+  .bar .top-actions { flex-wrap: wrap; }
+  .top-remotes { display: flex; flex: 1 1 100%; gap: 6px; }
+  .top-remotes:empty { display: none; }
+}
+.r-tabs { display: flex; gap: 8px; margin: 4px 0 6px; }
+.r-tabs .r-chip { font-weight: 750; }
+.r-copy > .r-copy-head h3 { margin: 0; }

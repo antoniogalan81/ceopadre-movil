@@ -9,7 +9,7 @@ const load = (k) => { try { return localStorage.getItem(k) || ''; } catch { retu
 
 export function aiEditor({ api, toast, onApplied }) {
   const dlg = document.getElementById('redactor');
-  let ses = null, chosen = null, timer = null, busy = false;
+  let ses = null, chosen = null, timer = null, busy = false, scope = ''; // scope: lo elegido sobrevive a cada repintado
   const $ = (id) => document.getElementById(id);
 
   async function cmd(op, params) {
@@ -30,6 +30,7 @@ export function aiEditor({ api, toast, onApplied }) {
     if (!v) { dlg.close(); return; }
     ses = v;
     chosen = null;
+    scope = '';
     $('red-cancel').disabled = false;
     if (!$('red-input').value.trim()) $('red-input').value = load(DRAFT(v.id)); // lo ya escrito no se pisa
     dlg.dataset.ready = '1';
@@ -62,7 +63,12 @@ export function aiEditor({ api, toast, onApplied }) {
       turns.length ? h('div', { class: 'red-chat', 'aria-live': 'polite' }, turns)
         : h('p', { class: 'muted' }, 'Escribe abajo qué quieres cambiar («más cercano», «no me gusta cómo empieza», «añade que…») o pega tu propia versión y pide que la mejore.'),
       h('label', { class: 'field' }, cur ? 'Texto que se aplicará (puedes retocarlo a mano)' : 'Texto actual', work),
+      // VideoFactory: el campo es común a Instagram y TikTok salvo que elijas sólo esta red (queda como excepción documentada).
+      v.destino?.tipo === 'remoto' ? h('label', { class: 'field' }, 'Aplicar a', h('select', { id: 'red-scope', onchange: (ev) => { scope = ev.target.value; } },
+        h('option', { value: '' }, 'Lo de siempre (las dos redes, o solo esta si ya era una excepción)'),
+        h('option', { value: 'both' }, 'Instagram y TikTok'), h('option', { value: v.destino.plataforma }, `Solo ${v.destino.plataforma === 'tiktok' ? 'TikTok' : 'Instagram'}`))) : null,
     ].filter(Boolean));
+    if ($('red-scope')) $('red-scope').value = scope;
     $('red-send').disabled = pending() || busy;
     $('red-apply').disabled = pending() || busy || v.conflicto;
     $('red-send').textContent = pending() ? 'Escribiendo…' : 'SEGUIR MEJORANDO';
@@ -98,7 +104,7 @@ export function aiEditor({ api, toast, onApplied }) {
     if (!texto) { toast('El texto no puede quedar vacío', 'bad'); return; }
     busy = true; paint();
     try {
-      const v = await cmd('redactor.aplicar', { sesion: ses.id, texto });
+      const v = await cmd('redactor.aplicar', { sesion: ses.id, texto, alcance: $('red-scope')?.value || undefined });
       if (!v) return;
       toast(v.mensaje || 'Texto aplicado', 'ok');
       const learn = $('red-learn').checked;

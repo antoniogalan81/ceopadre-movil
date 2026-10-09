@@ -751,3 +751,20 @@ a.btn { display: inline-flex; align-items: center; justify-content: center; text
 .red-body textarea, #red-input { font: inherit; font-size: 15px; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 9px 11px; width: 100%; resize: vertical; }
 .red-acts { flex-wrap: wrap; justify-content: flex-end; }
 @media (max-width: 560px) { .red-acts .btn { flex: 1 1 auto; } }
+
+/* TEXTOS de publicación (VideoFactory vf.pack_copy): editor por campo, versiones, diferencias, lo aprendido y descargas */
+.r-fields { margin-top: 12px; }
+.r-field { border-top: 1px solid var(--line); padding: 10px 0 0; margin: 10px 0 0; }
+.r-fbtns { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.r-fpanel:empty { display: none; }
+.r-fpanel { margin-top: 8px; padding: 10px; border: 1px solid var(--line); border-radius: 10px; }
+.r-diff ins { color: var(--ok); background: var(--ok-bg); text-decoration: underline; }
+.r-diff del { color: var(--bad); background: var(--bad-bg); }
+.r-versions, .r-rules { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; }
+.r-versions li, .r-rules li { border-top: 1px solid var(--line); padding-top: 8px; }
+.r-rules li p { margin: 0 0 4px; }
+.r-qa { margin: 6px 0; padding-left: 18px; font-size: .85rem; color: var(--ink-3); }
+.r-qa .bad { color: var(--bad); font-weight: 600; }
+.r-gal-dl { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 6px 0; }
+.r-dlbar { display: flex; flex-wrap: wrap; gap: 8px; }
+.check.small { font-size: .85rem; display: inline-flex; gap: 4px; align-items: center; }

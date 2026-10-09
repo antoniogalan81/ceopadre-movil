@@ -2,6 +2,7 @@
 // y deja órdenes de SU lista cerrada. No conoce VideoFactory: dibuja bloques tipados (texto, storyboard, vídeo, textos
 // para copiar, descarga…) y acciones con sus parámetros y su confirmación. Todo el texto entra como texto (nunca HTML).
 import { h } from './dom.js';
+import { zip } from './zip.js';
 
 const FILTER_KEY = (id) => `ceo-remote-filter:${id}`;
 const TONES = { you: 'ask', ready: 'ok', busy: 'work', done: 'idle', bad: 'bad' };
@@ -194,6 +195,146 @@ export function remoteUi({ api, ask, toast, show, data, ago, local = false, ai =
       : h('p', { class: 'empty' }, 'Nada con este filtro.')];
   }
 
+  // ------------------------------------------------------------ TEXTOS de publicación (VideoFactory vf.pack_copy)
+  // Cada campo se edita a mano o con IA; la orden lleva la huella de lo que se vio en cada red (si cambió entre medias, el
+  // proyecto lo rechaza: nada se pisa en silencio). Editar nunca aprueba ni publica; aprobar es otro botón.
+  const SCOPES = [{ value: 'both', label: 'Instagram y TikTok' }, { value: 'instagram', label: 'Solo Instagram' }, { value: 'tiktok', label: 'Solo TikTok' }];
+  const baseFor = (e, k, scope) => JSON.stringify(Object.fromEntries(Object.entries(e.all_hashes || {})
+    .filter(([p, hs]) => k in hs && (scope === 'both' || p === scope)).map(([p, hs]) => [p, hs[k]])));
+  const multi = (e, k) => Object.values(e.all_hashes || {}).filter((hs) => k in hs).length > 1;
+
+  async function send(r, it, accion, params, btn) {
+    if (!online()) { toast('El PC no está conectado: la orden no se envía.', 'bad'); return null; }
+    const label = btn?.textContent;
+    if (btn) { btn.disabled = true; btn.textContent = 'Enviando…'; }
+    try {
+      const res = await api.cmd('remoto.accion', { proyecto: r.id, item: it.id, accion, params, confirmado: true });
+      if (res?.ok) toast(res.data?.mensaje || 'Hecho', 'ok'); else toast(res?.error || 'No se pudo', 'bad');
+      return res?.ok ? res.data : null;
+    } finally { if (btn) { btn.disabled = false; btn.textContent = label; } }
+  }
+
+  /** Diferencias por palabras como nodos (nunca HTML): tachado lo que se fue, subrayado lo que llegó. */
+  function wordDiff(a, b) {
+    const x = String(a || '').split(/(\s+)/), y = String(b || '').split(/(\s+)/);
+    if (x.length * y.length > 250000) return [h('del', {}, a), ' ', h('ins', {}, b)];
+    const m = Array.from({ length: x.length + 1 }, () => new Array(y.length + 1).fill(0));
+    for (let i = x.length - 1; i >= 0; i--) for (let j = y.length - 1; j >= 0; j--) m[i][j] = x[i] === y[j] ? m[i + 1][j + 1] + 1 : Math.max(m[i + 1][j], m[i][j + 1]);
+    const out = [];
+    let i = 0, j = 0;
+    while (i < x.length || j < y.length) {
+      if (i < x.length && j < y.length && x[i] === y[j]) { out.push(x[i]); i++; j++; } else if (j < y.length && (i >= x.length || m[i][j + 1] >= m[i + 1][j])) { out.push(h('ins', {}, y[j])); j++; } else { out.push(h('del', {}, x[i])); i++; }
+    }
+    return out;
+  }
+
+  function fieldRow(r, it, e, k) {
+    const label = e.labels?.[k] || k, panel = h('div', { class: 'r-fpanel' });
+    const exc = e.exceptions?.[k];
+    const vers = e.versions?.[k] || [];
+    const approvable = (k === 'pinned_comment' || k === 'story') && e.fields[k];
+    const toggle = (fill) => { if (panel.childNodes.length) { panel.replaceChildren(); return; } panel.replaceChildren(...fill()); };
+    return h('div', { class: 'r-field' }, h('div', { class: 'r-copy-head' }, h('b', {}, label),
+      approvable ? h('span', { class: `r-state t-${e.approved?.[k] ? 'ok' : 'ask'}` }, e.approved?.[k] ? 'Aprobado' : 'Sin aprobar') : null),
+    exc ? h('p', { class: 'muted small' }, `Excepción solo en esta red: ${exc.why}`) : null,
+    h('p', { class: 'r-text' }, e.fields[k] || '(vacío)'),
+    h('div', { class: 'r-fbtns' },
+      h('button', { class: 'btn ghost small', type: 'button', disabled: !online(), onclick: () => editField(r, it, e, k) }, 'Editar'),
+      ai ? h('button', { class: 'btn accent small', type: 'button', disabled: !online(),
+        onclick: () => ai.open({ tipo: 'remoto', proyecto: r.id, item: it.id, plataforma: e.platform, campo: k }) }, 'Editar con IA') : null,
+      vers.length > 1 ? h('button', { class: 'btn ghost small', type: 'button', onclick: () => toggle(() => versionList(r, it, e, k)) }, `Versiones (${vers.length})`) : null,
+      h('button', { class: 'btn ghost small', type: 'button', onclick: () => toggle(() => {
+        const o = e.original?.[k] || '';
+        return [h('p', { class: 'muted small' }, o === e.fields[k] ? 'Original (sin cambios):' : 'Original comparado con el vigente:'), h('p', { class: 'r-text r-diff' }, ...(o === e.fields[k] ? [o] : wordDiff(o, e.fields[k])))];
+      }) }, 'Original'),
+      approvable && !e.approved?.[k] ? h('button', { class: 'btn ghost small', type: 'button', disabled: !online(), onclick: (ev) => approveText(r, it, e, k, ev.currentTarget) }, 'Aprobar') : null),
+    panel);
+  }
+
+  function versionList(r, it, e, k) {
+    const vers = e.versions[k];
+    return [h('ol', { class: 'r-versions' }, vers.map((v, i) => h('li', {},
+      h('small', { class: 'muted' }, `${v.n ? `Versión ${v.n}` : 'Original'} · ${fecha(v.at)} · ${v.by}${i === 0 ? ' · la vigente' : ''}`),
+      h('p', { class: 'r-text r-diff' }, ...(i === 0 ? [v.text] : wordDiff(v.text, e.fields[k]))),
+      i ? h('button', { class: 'btn ghost small', type: 'button', disabled: !online(), onclick: async (ev) => {
+        const scope = e.exceptions?.[k] ? e.platform : 'both';
+        if (!(await ask({ title: 'Recuperar esta versión', help: `${v.text}\n\nSe aplica a ${scope === 'both' ? 'Instagram y TikTok' : 'esta red'}. Si estaba aprobado, habrá que volver a aprobarlo. No se publica nada.`, ok: 'Recuperar' }))) return;
+        await send(r, it, 'restore_text', { platform: e.platform, field: k, scope, n: String(v.n), base: baseFor(e, k, scope) }, ev.currentTarget);
+      } }, 'Recuperar esta versión') : null))),
+    h('p', { class: 'muted small' }, 'Tachado: lo que tenía esa versión y ya no está. Subrayado: lo que tiene ahora el texto vigente.')];
+  }
+
+  async function editField(r, it, e, k) {
+    const both = multi(e, k);
+    const got = await ask({ title: `Editar ${e.labels?.[k] || k}`, help: 'Guardar no aprueba ni publica: si el texto estaba aprobado, habrá que volver a aprobarlo.', ok: 'Guardar',
+      fields: [{ name: 'value', label: e.labels?.[k] || k, type: 'textarea', value: e.fields[k], required: k === 'description' },
+        ...(both ? [{ name: 'scope', label: 'Aplicar a', type: 'choice', options: SCOPES.filter((s) => s.value === 'both' || s.value in e.all_hashes), value: e.exceptions?.[k] ? e.platform : 'both' },
+          { name: 'note', label: 'Si es solo para una red: por qué (queda documentado)', type: 'text', required: false }] : []),
+        { name: 'why', label: 'Por qué lo cambias (opcional; solo esto cuenta como motivo tuyo)', type: 'text', required: false },
+        { name: 'learn', label: 'Aprende esto (Claude analiza la corrección; lo puntual no se convierte en regla)', type: 'checkbox' }] });
+    if (!got) return;
+    const scope = both ? got.scope || 'both' : e.platform;
+    const done = await send(r, it, 'edit_text', { field: k, scope, value: got.value, base: baseFor(e, k, scope), note: got.note || '' });
+    if (done && got.learn && got.value.trim() !== String(e.fields[k] || '').trim()) {
+      toast('Claude está analizando la corrección (≈1 min)…', 'ok');
+      await send(r, it, 'learn_copy', { platform: e.platform, field: k, original: e.fields[k] || '', approved: got.value, instructions: got.why || '' });
+    }
+  }
+
+  async function approveText(r, it, e, what, btn) {
+    const text = what === 'caption' ? e.text : e.fields[what];
+    if (!(await ask({ title: what === 'caption' ? 'Aprobar el texto completo' : `Aprobar ${e.labels?.[what] || what}`, help: `${text}\n\nAprobar no publica nada.`, ok: 'Aprobar' }))) return;
+    await send(r, it, 'approve_text', { platform: e.platform, what, hash: what === 'caption' ? e.caption_hash : e.hash[what] }, btn);
+  }
+
+  // ------------------------------------------------------------ DESCARGAR portadas (el archivo original, comprobado)
+  /** Bytes del archivo tal cual: en el PC lo sirve CEOPadre desde el disco; en el móvil, por enlaces firmados del bucket
+   *  privado (caducan en 1 h). Si hay huella, se comprueba antes de entregar nada. */
+  async function fetchVerified(r, key) {
+    const m = media(r, key);
+    if (!m) throw new Error('archivo no disponible');
+    const bufs = [];
+    if (local) {
+      const res = await fetch(localUrl(r, key));
+      if (!res.ok) throw new Error(`descarga ${res.status}`);
+      bufs.push(await res.arrayBuffer());
+    } else {
+      for (const u of await signed(m.objects)) {
+        if (!u) throw new Error('enlace no disponible');
+        const res = await fetch(u);
+        if (!res.ok) throw new Error(`descarga ${res.status}`);
+        bufs.push(await res.arrayBuffer());
+      }
+    }
+    const data = new Uint8Array(await new Blob(bufs).arrayBuffer());
+    if (m.sha256) {
+      const sha = [...new Uint8Array(await crypto.subtle.digest('SHA-256', data))].map((x) => x.toString(16).padStart(2, '0')).join('');
+      if (sha !== m.sha256 || data.length !== m.bytes) throw new Error('el archivo descargado no coincide con el original; no se guarda');
+    }
+    return { name: m.filename, data, mime: m.mime || 'application/octet-stream' };
+  }
+
+  function deliver(file) {
+    const f = new File([file.data], file.name, { type: file.mime });
+    if (!local && navigator.canShare?.({ files: [f] })) return navigator.share({ files: [f], title: file.name }).catch(() => {});
+    const a = h('a', { href: URL.createObjectURL(f), download: file.name });
+    document.body.append(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 60_000);
+    return null;
+  }
+
+  async function downloadCovers(r, keys, btn, zipName) {
+    const label = btn.textContent;
+    btn.disabled = true; btn.textContent = 'Descargando…';
+    try {
+      const files = [];
+      for (const k of keys) files.push(await fetchVerified(r, k));
+      if (files.length === 1) deliver(files[0]);
+      else deliver({ name: zipName, data: new Uint8Array(await zip(files).arrayBuffer()), mime: 'application/zip' });
+      toast(files.length === 1 ? `${files[0].name}: original comprobado ✓` : `${files.length} portadas originales comprobadas ✓ (ZIP)`, 'ok');
+    } catch (e) { toast(`No se pudo descargar: ${e.message}`, 'bad'); } finally { btn.disabled = false; btn.textContent = label; }
+  }
+
   // ------------------------------------------------------------ un contenido: bloques y acciones
   const BLOCKS = {
     text: (r, b) => h('section', { class: 'r-block' }, b.title ? h('h3', {}, b.title) : null, h('p', { class: 'r-text' }, b.text)),
@@ -217,31 +358,68 @@ export function remoteUi({ api, ask, toast, show, data, ago, local = false, ai =
       if (m) Promise.all([urlOf(r, b.media), media(r, b.poster) ? urlOf(r, b.poster) : null]).then(([u, p]) => { if (u) v.src = u; if (p) v.poster = p; }).catch(() => {});
       return h('section', { class: 'r-block' }, h('h3', {}, b.title), v, m ? h('small', { class: 'muted' }, MB(m.bytes)) : null);
     },
-    copy: (r, b, it) => h('section', { class: 'r-block r-copy' }, h('div', { class: 'r-copy-head' }, h('h3', {}, b.title),
-      // EDITAR CON IA el texto de publicación de una red aún sin publicar (si el proyecto ofrece cambiarlo).
-      ai && b.edit && !b.done && (it?.actions || []).some((a) => a.id === 'edit_caption')
-        ? h('button', { class: 'btn accent small', type: 'button', disabled: !online(), onclick: () => ai.open({ tipo: 'remoto', proyecto: r.id, item: it.id, plataforma: b.edit.platform }) }, 'EDITAR CON IA') : null,
-      httpsUrl(b.open?.url) ? h('a', { class: 'btn ghost small', href: httpsUrl(b.open.url), target: '_blank', rel: 'noopener noreferrer' }, `${b.open.label || 'Abrir'} ↗`) : null),
+    copy: (r, b, it) => {
+      const e = b.edit, has = (id) => (it?.actions || []).some((a) => a.id === id);
+      const editable = !!(e?.fields && !b.done && has('edit_text'));
+      const pf = e?.platform;
+      return h('section', { class: 'r-block r-copy' }, h('div', { class: 'r-copy-head' }, h('h3', {}, b.title),
+        e?.state_label ? h('span', { class: `r-state t-${e.approved?.caption ? 'ok' : 'ask'}` }, e.state_label) : null,
+        httpsUrl(b.open?.url) ? h('a', { class: 'btn ghost small', href: httpsUrl(b.open.url), target: '_blank', rel: 'noopener noreferrer' }, `${b.open.label || 'Abrir'} ↗`) : null),
       b.done ? h('p', { class: 'r-done' }, '✓ Publicado: ', httpsUrl(b.done) ? h('a', { href: httpsUrl(b.done), target: '_blank', rel: 'noopener noreferrer' }, b.done) : b.done) : null,
-      b.items.map((x) => h('div', { class: 'r-copy-item' }, h('div', { class: 'r-copy-head' }, h('b', {}, x.label),
-        h('button', { class: 'btn ghost small', type: 'button', onclick: (e) => copy(x.text, e.currentTarget, x.label) }, 'Copiar')),
-      h('p', { class: 'r-text' }, x.text)))),
+      (e?.qa || []).length ? h('ul', { class: 'r-qa' }, e.qa.map((q) => h('li', { class: q.level === 'error' ? 'bad' : '' }, q.msg))) : null,
+      b.items.map((x, i) => h('div', { class: 'r-copy-item' }, h('div', { class: 'r-copy-head' }, h('b', {}, x.label),
+        i === 0 && editable && !e.approved?.caption ? h('button', { class: 'btn primary small', type: 'button', disabled: !online(),
+          onclick: (ev) => approveText(r, it, e, 'caption', ev.currentTarget) }, 'APROBAR TEXTO') : null,
+        h('button', { class: 'btn ghost small', type: 'button', onclick: (ev) => copy(x.text, ev.currentTarget, x.label) }, 'Copiar')),
+      h('p', { class: 'r-text' }, x.text))),
+      editable ? h('details', { class: 'fold r-fields' }, h('summary', {}, `Editar los textos de ${pf === 'tiktok' ? 'TikTok' : 'Instagram'}`),
+        Object.keys(e.fields).map((k) => fieldRow(r, it, e, k))) : null);
+    },
+    // Lo aprendido del canal (VideoFactory copy_editorial): se puede leer y REVERTIR. Revertir no borra: deja de aplicarse.
+    learned: (r, b, it) => {
+      const can = (it?.actions || []).some((a) => a.id === 'revert_learning');
+      const rev = (id, what) => (can ? h('button', { class: 'btn ghost small', type: 'button', disabled: !online(), onclick: async (ev) => {
+        const ok = await ask({ title: 'Revertir lo aprendido', help: `«${what}» dejará de aplicarse en los textos nuevos (queda en el historial).`, ok: 'Revertir',
+          fields: [{ name: 'reason', label: 'Por qué (opcional)', type: 'text', required: false }] });
+        if (ok) await send(r, it, 'revert_learning', { id, reason: ok.reason }, ev.currentTarget);
+      } }, 'Revertir') : null);
+      return h('section', { class: 'r-block' }, h('details', { class: 'fold' }, h('summary', {}, `${b.title} · ${b.rules.length} reglas${b.candidates.length ? ` · ${b.candidates.length} pendientes` : ''}`),
+        b.identity ? h('p', {}, h('b', {}, 'Quién habla: '), b.identity) : null,
+        h('ul', { class: 'r-rules' }, b.rules.map((x) => h('li', {}, h('p', {}, x.text), h('small', { class: 'muted' }, [x.origin || '', x.repeats ? `· hubo que corregirlo ${x.repeats} vez/veces más` : ''].join(' ')), rev(x.id, x.text)))),
+        b.candidates.length ? [h('h4', {}, 'Pendientes de confirmar (no se aplican todavía)'), h('ul', { class: 'r-rules' }, b.candidates.map((x) => h('li', {},
+          h('p', {}, x.text), h('small', { class: 'muted' }, `${x.motive === 'inferido' ? 'inferida por la IA' : x.motive || ''} · visto en ${x.evidence} vídeo(s)`), rev(x.id, x.text))))] : null,
+        b.examples.length ? [h('h4', {}, 'Correcciones guardadas'), h('ul', { class: 'r-rules' }, b.examples.map((x) => h('li', {},
+          h('small', {}, `${x.date} · ${x.field}${x.platform ? ` · ${x.platform}` : ''} · ${x.changes} cambio(s)`), rev(x.id, `la corrección ${x.id}`))))] : null));
+    },
     // Galería (p. ej. PORTADAS de VideoFactory): cada imagen con SUS botones; cada botón es una acción CERRADA del contenido
     // (oculta en la lista general) con el parámetro de la imagen ya puesto. Tocar la imagen la amplía.
-    gallery: (r, b, it) => h('section', { class: 'r-block r-gallery' }, h('h3', {}, b.title), b.help ? h('p', { class: 'muted' }, b.help) : null,
+    gallery: (r, b, it) => {
+      const picked = new Set();
+      const dls = (b.items || []).filter((x) => x.download && media(r, x.download));
+      const multiBtn = h('button', { class: 'btn ghost small', type: 'button', disabled: true,
+        onclick: (ev) => downloadCovers(r, [...picked], ev.currentTarget, `${it.id}-portadas.zip`) }, 'Descargar seleccionadas');
+      const paintMulti = () => { multiBtn.disabled = !picked.size; multiBtn.textContent = picked.size > 1 ? `Descargar ${picked.size} portadas (ZIP)` : 'Descargar seleccionadas'; };
+      return h('section', { class: 'r-block r-gallery' }, h('h3', {}, b.title), b.help ? h('p', { class: 'muted' }, b.help) : null,
+      dls.length > 1 ? h('p', { class: 'r-dlbar' }, h('button', { class: 'btn ghost small', type: 'button', onclick: (ev) => downloadCovers(r, dls.map((x) => x.download), ev.currentTarget, `${it.id}-portadas.zip`) },
+        `Descargar todas (${dls.length}, ZIP)`), ' ', multiBtn) : null,
       local && /^http:\/\/127\.0\.0\.1:\d+\//.test(b.pc_url || '') ? h('a', { class: 'btn ghost small', href: b.pc_url, target: '_blank', rel: 'noopener' }, 'Abrir en el panel de VideoFactory ↗') : null,
       h('div', { class: 'r-gal' }, (b.items || []).map((x) => {
         const pic = img(r, x.media, 'r-gal-img');
         pic.addEventListener('click', () => pic.closest('figure').classList.toggle('big'));
         return h('figure', { class: 'r-gal-item' }, h('div', { class: 'r-gal-pic' }, pic, x.badge ? h('span', { class: 'r-gal-badge' }, x.badge) : null),
           h('figcaption', {}, h('b', {}, x.caption || ''), x.sub ? h('small', { class: 'muted' }, x.sub) : null),
+          x.download && media(r, x.download) ? h('div', { class: 'r-gal-dl' },
+            h('button', { class: 'btn primary small', type: 'button', onclick: (ev) => downloadCovers(r, [x.download], ev.currentTarget) }, 'DESCARGAR'),
+            dls.length > 1 ? h('label', { class: 'check small' }, h('input', { type: 'checkbox', onchange: (ev) => { if (ev.target.checked) picked.add(x.download); else picked.delete(x.download); paintMulti(); } }), ' Seleccionar') : null,
+            h('small', { class: 'muted' }, MB(media(r, x.download).bytes))) : null,
           h('div', { class: 'r-gal-acts' }, (x.actions || []).map((g) => {
             const def = (it.actions || []).find((a) => a.id === g.action);
             if (!def) return null;
             return h('button', { type: 'button', class: `btn small ${g.style === 'primary' ? 'primary' : g.style === 'danger' ? 'ghost-danger' : 'ghost'}`,
               disabled: !online(), onclick: (e) => doAction(r, it, { ...def, fixed: g.fixed || {} }, e.currentTarget) }, g.label);
           })));
-      }))),
+      })));
+    },
     download: (r, b) => {
       const m = media(r, b.media);
       if (!m) return null;

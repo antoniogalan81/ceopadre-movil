@@ -227,7 +227,7 @@ function ask({ title, help = '', fields = [], ok = 'Aceptar', danger = false }) 
     // choice: una opción de una lista cerrada (p. ej. TikTok / Instagram), ya elegida si sólo hay una.
     if (f.type === 'choice') {
       box.append(h('label', { class: 'field' }, f.label, h('select', { name: f.name, required },
-        (f.options || []).length > 1 ? h('option', { value: '' }, 'Elige…') : null, (f.options || []).map((o) => h('option', { value: o.value }, o.label)))));
+        (f.options || []).length > 1 && !f.value ? h('option', { value: '' }, 'Elige…') : null, (f.options || []).map((o) => h('option', { value: o.value, selected: o.value === f.value }, o.label)))));
       continue;
     }
     const input = f.type === 'textarea'

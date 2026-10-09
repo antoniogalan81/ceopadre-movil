@@ -22,12 +22,17 @@ export function aiEditor({ api, toast, onApplied }) {
   async function open(destino) {
     $('red-title').textContent = 'Editar con IA';
     $('red-body').replaceChildren(h('p', { class: 'muted' }, 'Abriendo…'));
+    // Hasta tener la sesión (en el móvil, 1-2 s por la cola del PC) no se puede pedir ni aplicar nada.
+    ses = null; delete dlg.dataset.ready;
+    for (const id of ['red-send', 'red-apply', 'red-cancel']) $(id).disabled = true;
     if (!dlg.open) dlg.showModal();
     const v = await cmd('redactor.abrir', { destino });
     if (!v) { dlg.close(); return; }
     ses = v;
     chosen = null;
-    $('red-input').value = load(DRAFT(v.id));
+    $('red-cancel').disabled = false;
+    if (!$('red-input').value.trim()) $('red-input').value = load(DRAFT(v.id)); // lo ya escrito no se pisa
+    dlg.dataset.ready = '1';
     if (v.recuperada) toast('Conversación recuperada: sigue donde lo dejaste', 'ok');
     paint();
     poll();
@@ -77,6 +82,7 @@ export function aiEditor({ api, toast, onApplied }) {
   }
 
   async function send() {
+    if (!ses) return;
     const instr = $('red-input').value.trim();
     if (!instr) { toast('Escribe qué quieres cambiar', 'bad'); return; }
     busy = true; paint();
@@ -87,6 +93,7 @@ export function aiEditor({ api, toast, onApplied }) {
   }
 
   async function apply() {
+    if (!ses) return;
     const texto = $('red-text').value.trim();
     if (!texto) { toast('El texto no puede quedar vacío', 'bad'); return; }
     busy = true; paint();
@@ -117,7 +124,7 @@ export function aiEditor({ api, toast, onApplied }) {
   $('red-apply').addEventListener('click', apply);
   $('red-cancel').addEventListener('click', cancel);
   // Cerrar (X o Esc) NO descarta: la conversación queda para la próxima vez.
-  $('red-close').addEventListener('click', () => { clearTimeout(timer); dlg.close(); });
+  $('red-close').addEventListener('click', () => { clearTimeout(timer); delete dlg.dataset.ready; dlg.close(); });
   $('red-input').addEventListener('input', () => { if (ses) keep(DRAFT(ses.id), $('red-input').value); });
   $('red-input').addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); send(); } });
   dlg.addEventListener('close', () => clearTimeout(timer));

@@ -228,7 +228,7 @@ export function remoteUi({ api, ask, toast, show, data, ago, local = false, ai =
     return out;
   }
 
-  function fieldRow(r, it, e, k) {
+  function fieldRow(r, it, e, k, readOnly = false) {
     const label = e.labels?.[k] || k, panel = h('div', { class: 'r-fpanel' });
     const exc = e.exceptions?.[k];
     const vers = e.versions?.[k] || [];
@@ -239,24 +239,26 @@ export function remoteUi({ api, ask, toast, show, data, ago, local = false, ai =
     exc ? h('p', { class: 'muted small' }, `Excepción solo en esta red: ${exc.why}`) : null,
     h('p', { class: 'r-text' }, e.fields[k] || '(vacío)'),
     h('div', { class: 'r-fbtns' },
-      h('button', { class: 'btn ghost small', type: 'button', disabled: !online(), onclick: () => editField(r, it, e, k) }, 'Editar'),
-      ai ? h('button', { class: 'btn accent small', type: 'button', disabled: !online(),
+      readOnly ? null : h('button', { class: 'btn ghost small', type: 'button', disabled: !online(), onclick: () => editField(r, it, e, k) }, 'Editar'),
+      ai && !readOnly ? h('button', { class: 'btn accent small', type: 'button', disabled: !online(),
         onclick: () => ai.open({ tipo: 'remoto', proyecto: r.id, item: it.id, plataforma: e.platform, campo: k }) }, 'Editar con IA') : null,
-      vers.length > 1 ? h('button', { class: 'btn ghost small', type: 'button', onclick: () => toggle(() => versionList(r, it, e, k)) }, `Versiones (${vers.length})`) : null,
+      vers.length > 1 ? h('button', { class: 'btn ghost small', type: 'button', onclick: () => toggle(() => versionList(r, it, e, k, readOnly)) }, `Versiones (${vers.length})`) : null,
+      vers.length > 1 && (it.actions || []).some((a) => a.id === 'learn_copy') ? h('button', { class: 'btn ghost small', type: 'button', disabled: !online(),
+        onclick: (ev) => learnFrom(r, it, e, k, ev.currentTarget) }, 'Aprender de la corrección') : null,
       h('button', { class: 'btn ghost small', type: 'button', onclick: () => toggle(() => {
         const o = e.original?.[k] || '';
         return [h('p', { class: 'muted small' }, o === e.fields[k] ? 'Original (sin cambios):' : 'Original comparado con el vigente:'), h('p', { class: 'r-text r-diff' }, ...(o === e.fields[k] ? [o] : wordDiff(o, e.fields[k])))];
       }) }, 'Original'),
-      approvable && !e.approved?.[k] ? h('button', { class: 'btn ghost small', type: 'button', disabled: !online(), onclick: (ev) => approveText(r, it, e, k, ev.currentTarget) }, 'Aprobar') : null),
+      approvable && !readOnly && !e.approved?.[k] ? h('button', { class: 'btn ghost small', type: 'button', disabled: !online(), onclick: (ev) => approveText(r, it, e, k, ev.currentTarget) }, 'Aprobar') : null),
     panel);
   }
 
-  function versionList(r, it, e, k) {
+  function versionList(r, it, e, k, readOnly = false) {
     const vers = e.versions[k];
     return [h('ol', { class: 'r-versions' }, vers.map((v, i) => h('li', {},
       h('small', { class: 'muted' }, `${v.n ? `Versión ${v.n}` : 'Original'} · ${fecha(v.at)} · ${v.by}${i === 0 ? ' · la vigente' : ''}`),
       h('p', { class: 'r-text r-diff' }, ...(i === 0 ? [v.text] : wordDiff(v.text, e.fields[k]))),
-      i ? h('button', { class: 'btn ghost small', type: 'button', disabled: !online(), onclick: async (ev) => {
+      i && !readOnly ? h('button', { class: 'btn ghost small', type: 'button', disabled: !online(), onclick: async (ev) => {
         const scope = e.exceptions?.[k] ? e.platform : 'both';
         if (!(await ask({ title: 'Recuperar esta versión', help: `${v.text}\n\nSe aplica a ${scope === 'both' ? 'Instagram y TikTok' : 'esta red'}. Si estaba aprobado, habrá que volver a aprobarlo. No se publica nada.`, ok: 'Recuperar' }))) return;
         await send(r, it, 'restore_text', { platform: e.platform, field: k, scope, n: String(v.n), base: baseFor(e, k, scope) }, ev.currentTarget);
@@ -279,6 +281,44 @@ export function remoteUi({ api, ask, toast, show, data, ago, local = false, ai =
       toast('Claude está analizando la corrección (≈1 min)…', 'ok');
       await send(r, it, 'learn_copy', { platform: e.platform, field: k, original: e.fields[k] || '', approved: got.value, instructions: got.why || '' });
     }
+  }
+
+  async function learnFrom(r, it, e, k, btn) {
+    const older = (e.versions?.[k] || []).slice(1);
+    const got = await ask({ title: `Aprender de la corrección · ${e.labels?.[k] || k}`, ok: 'Aprender',
+      help: `Texto vigente:\n${e.fields[k]}\n\nClaude compara la versión elegida con la vigente; una corrección puntual no se convierte en regla y nada de lo publicado cambia.`,
+      fields: [{ name: 'from', label: 'Corrección desde', type: 'choice', value: String(older.at(-1)?.n ?? ''),
+        options: older.map((v) => ({ value: String(v.n), label: `${v.n ? `Versión ${v.n}` : 'Original'} · ${String(v.text).slice(0, 60)}` })) },
+      { name: 'why', label: 'Por qué lo cambiaste (opcional; solo esto cuenta como motivo tuyo)', type: 'text', required: false }] });
+    if (!got) return;
+    const from = older.find((v) => String(v.n) === got.from);
+    if (!from) return;
+    toast('Claude está analizando la corrección (≈1 min)…', 'ok');
+    await send(r, it, 'learn_copy', { platform: e.platform, field: k, original: from.text, approved: e.fields[k], instructions: got.why || '' }, btn);
+  }
+
+  // Cada red por su cuenta: registro de publicación, ANULAR REGISTRO (nunca el post de la red), no publicar aquí, comentario/story.
+  const EXTRA = { pinned_comment: 'Comentario fijado', story: 'Story' };
+  function networkPart(r, it, b) {
+    const n = b.network;
+    if (!n) return null;
+    const def = (id) => (it.actions || []).find((a) => a.id === id);
+    const rec = n.record;
+    return h('div', { class: 'r-net' },
+      rec ? h('p', { class: 'r-done' }, `✓ Publicado${rec.at ? ` · ${fecha(rec.at)}` : ''}`, httpsUrl(rec.url) ? [' · ', h('a', { href: httpsUrl(rec.url), target: '_blank', rel: 'noopener noreferrer' }, 'ver post')] : rec.post_id ? ` · id ${rec.post_id}` : '') : null,
+      n.skipped ? h('p', { class: 'muted small' }, `No se publicará en esta red (decisión tuya${n.skipped.reason ? `: ${n.skipped.reason}` : ''}).`) : null,
+      Object.entries(n.extras || {}).map(([w, st]) => h('div', { class: 'r-copy-head' }, h('span', {}, `${EXTRA[w] || w}: `, h('b', {}, st)),
+        def('mark_extra') && rec && st === 'aprobado' ? h('button', { class: 'btn ghost small', type: 'button', disabled: !online(),
+          onclick: (ev) => send(r, it, 'mark_extra', { platform: n.platform, what: w, done: 'yes' }, ev.currentTarget) }, w === 'story' ? 'Marcar story publicada' : 'Marcar comentario fijado') : null,
+        def('mark_extra') && st === 'publicado' ? h('button', { class: 'btn ghost small', type: 'button', disabled: !online(),
+          onclick: (ev) => send(r, it, 'mark_extra', { platform: n.platform, what: w, done: 'no' }, ev.currentTarget) }, 'Anular marca') : null)),
+      (n.actions || []).length ? h('div', { class: 'r-fbtns' }, n.actions.map((a) => {
+        const d = def(a.action);
+        return d ? h('button', { class: `btn small ${a.style === 'danger' ? 'ghost-danger' : 'ghost'}`, type: 'button', disabled: !online(),
+          onclick: (ev) => doAction(r, it, d, ev.currentTarget) }, a.label) : null;
+      })) : null,
+      (n.annulled || []).length ? h('details', { class: 'fold' }, h('summary', {}, `Registros de publicación anulados (${n.annulled.length})`),
+        h('ul', { class: 'r-rules' }, n.annulled.map((x) => h('li', {}, h('small', {}, [fecha(x.at), x.by, x.url, x.note].filter(Boolean).join(' · ')))))) : null);
   }
 
   async function approveText(r, it, e, what, btn) {
@@ -363,17 +403,17 @@ export function remoteUi({ api, ask, toast, show, data, ago, local = false, ai =
       const editable = !!(e?.fields && !b.done && has('edit_text'));
       const pf = e?.platform;
       return h('section', { class: 'r-block r-copy' }, h('div', { class: 'r-copy-head' }, h('h3', {}, b.title),
-        e?.state_label ? h('span', { class: `r-state t-${e.approved?.caption ? 'ok' : 'ask'}` }, e.state_label) : null,
+        (e?.state_label || b.network?.state_label) ? h('span', { class: `r-state t-${b.network?.record ? 'ok' : e?.approved?.caption ? 'ok' : 'ask'}` }, b.network?.record ? 'Publicado' : e?.state_label || b.network.state_label) : null,
         httpsUrl(b.open?.url) ? h('a', { class: 'btn ghost small', href: httpsUrl(b.open.url), target: '_blank', rel: 'noopener noreferrer' }, `${b.open.label || 'Abrir'} ↗`) : null),
-      b.done ? h('p', { class: 'r-done' }, '✓ Publicado: ', httpsUrl(b.done) ? h('a', { href: httpsUrl(b.done), target: '_blank', rel: 'noopener noreferrer' }, b.done) : b.done) : null,
+      b.network ? networkPart(r, it, b) : b.done ? h('p', { class: 'r-done' }, '✓ Publicado: ', httpsUrl(b.done) ? h('a', { href: httpsUrl(b.done), target: '_blank', rel: 'noopener noreferrer' }, b.done) : b.done) : null,
       (e?.qa || []).length ? h('ul', { class: 'r-qa' }, e.qa.map((q) => h('li', { class: q.level === 'error' ? 'bad' : '' }, q.msg))) : null,
       b.items.map((x, i) => h('div', { class: 'r-copy-item' }, h('div', { class: 'r-copy-head' }, h('b', {}, x.label),
         i === 0 && editable && !e.approved?.caption ? h('button', { class: 'btn primary small', type: 'button', disabled: !online(),
           onclick: (ev) => approveText(r, it, e, 'caption', ev.currentTarget) }, 'APROBAR TEXTO') : null,
         h('button', { class: 'btn ghost small', type: 'button', onclick: (ev) => copy(x.text, ev.currentTarget, x.label) }, 'Copiar')),
       h('p', { class: 'r-text' }, x.text))),
-      editable ? h('details', { class: 'fold r-fields' }, h('summary', {}, `Editar los textos de ${pf === 'tiktok' ? 'TikTok' : 'Instagram'}`),
-        Object.keys(e.fields).map((k) => fieldRow(r, it, e, k))) : null);
+      e?.fields ? h('details', { class: 'fold r-fields' }, h('summary', {}, editable ? `Editar los textos de ${pf === 'tiktok' ? 'TikTok' : 'Instagram'}` : 'Textos publicados, versiones y aprender'),
+        Object.keys(e.fields).map((k) => fieldRow(r, it, e, k, !editable))) : null);
     },
     // Lo aprendido del canal (VideoFactory copy_editorial): se puede leer y REVERTIR. Revertir no borra: deja de aplicarse.
     learned: (r, b, it) => {

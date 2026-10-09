@@ -9,7 +9,7 @@ const load = (k) => { try { return localStorage.getItem(k) || ''; } catch { retu
 
 export function aiEditor({ api, toast, onApplied }) {
   const dlg = document.getElementById('redactor');
-  let ses = null, chosen = null, timer = null, busy = false, scope = ''; // scope: lo elegido sobrevive a cada repintado
+  let ses = null, chosen = null, timer = null, busy = false, scope = '', force = false; // force: «Aplicar igualmente» tras el aviso de datos // scope: lo elegido sobrevive a cada repintado
   const $ = (id) => document.getElementById(id);
 
   async function cmd(op, params) {
@@ -42,6 +42,13 @@ export function aiEditor({ api, toast, onApplied }) {
   const versions = () => (ses?.turnos || []).filter((t) => t.rol === 'ia' && t.estado === 'OK');
   const current = () => versions().find((t) => t.id === chosen) || versions().at(-1) || null;
   const pending = () => (ses?.turnos || []).some((t) => t.estado === 'PENDIENTE');
+  const checking = () => (ses?.turnos || []).some((t) => t.verificacion?.estado === 'PENDIENTE');
+  // Control de hechos de una propuesta (VideoFactory): ayuda a la revisión, nunca una garantía.
+  const facts = (v) => (!v ? null : v.estado === 'PENDIENTE' ? h('small', { class: 'muted' }, 'Revisando los datos de esta propuesta…')
+    : v.estado === 'ERROR' ? h('small', { class: 'note' }, `No se pudieron revisar los datos (${v.error || ''}): revísalos tú.`)
+      : v.unconfirmed?.length ? h('div', { class: 'red-facts' }, h('b', {}, `⚠ ${v.unconfirmed.length} dato(s) sin confirmar`),
+        h('ul', {}, v.unconfirmed.map((f) => h('li', {}, `«${f.texto}» — ${f.motivo}${f.sugerencia ? ` · ${f.sugerencia}` : ''}`))))
+        : h('small', { class: 'muted' }, '✓ Datos revisados: nada sin confirmar detectado (revisión de ayuda, no garantía).'));
 
   function paint() {
     if (!ses) return;
@@ -53,8 +60,8 @@ export function aiEditor({ api, toast, onApplied }) {
       : h('div', { class: `red-ia${cur && t.id === cur.id ? ' sel' : ''}` },
         t.estado === 'PENDIENTE' ? h('p', { class: 'muted' }, 'La IA está escribiendo…')
           : t.estado === 'ERROR' ? h('p', { class: 'note' }, `No pudo responder: ${t.error || ''}. Puedes pedirlo otra vez.`)
-            : [h('p', { class: 'r-text' }, t.texto), t.nota ? h('small', { class: 'muted' }, t.nota) : null,
-              h('button', { class: 'btn ghost small', type: 'button', onclick: () => { chosen = t.id; paint(); } }, cur && t.id === cur.id ? '✓ Versión elegida' : 'Recuperar esta versión')])));
+            : [h('p', { class: 'r-text' }, t.texto), t.nota ? h('small', { class: 'muted' }, t.nota) : null, facts(t.verificacion),
+              h('button', { class: 'btn ghost small', type: 'button', onclick: () => { chosen = t.id; force = false; paint(); } }, cur && t.id === cur.id ? '✓ Versión elegida' : 'Recuperar esta versión')])));
     const work = h('textarea', { id: 'red-text', rows: 6, 'aria-label': 'Texto que se aplicará (puedes retocarlo)' });
     work.value = cur ? cur.texto : v.base;
     $('red-body').replaceChildren(...[
@@ -70,7 +77,8 @@ export function aiEditor({ api, toast, onApplied }) {
     ].filter(Boolean));
     if ($('red-scope')) $('red-scope').value = scope;
     $('red-send').disabled = pending() || busy;
-    $('red-apply').disabled = pending() || busy || v.conflicto;
+    $('red-apply').disabled = pending() || checking() || busy || v.conflicto;
+    $('red-apply').textContent = checking() ? 'Revisando datos…' : force ? 'APLICAR IGUALMENTE' : 'APLICAR TEXTO';
     $('red-send').textContent = pending() ? 'Escribiendo…' : 'SEGUIR MEJORANDO';
     const chat = dlg.querySelector('.red-chat');
     if (chat) chat.scrollTop = chat.scrollHeight;
@@ -79,7 +87,7 @@ export function aiEditor({ api, toast, onApplied }) {
   // Mientras la IA escribe se consulta el estado sin bloquear nada más de CEOPadre.
   function poll() {
     clearTimeout(timer);
-    if (!ses || !dlg.open || !pending()) return;
+    if (!ses || !dlg.open || !(pending() || checking())) return;
     timer = setTimeout(async () => {
       const v = await api.cmd('redactor.ver', { sesion: ses.id });
       if (v?.ok) { ses = v.data; chosen = null; paint(); }
@@ -94,7 +102,7 @@ export function aiEditor({ api, toast, onApplied }) {
     busy = true; paint();
     try {
       const v = await cmd('redactor.pedir', { sesion: ses.id, instruccion: instr });
-      if (v) { ses = v; $('red-input').value = ''; keep(DRAFT(ses.id), ''); }
+      if (v) { ses = v; force = false; $('red-input').value = ''; keep(DRAFT(ses.id), ''); }
     } finally { busy = false; paint(); poll(); }
   }
 
@@ -104,8 +112,13 @@ export function aiEditor({ api, toast, onApplied }) {
     if (!texto) { toast('El texto no puede quedar vacío', 'bad'); return; }
     busy = true; paint();
     try {
-      const v = await cmd('redactor.aplicar', { sesion: ses.id, texto, alcance: $('red-scope')?.value || undefined });
-      if (!v) return;
+      const rr = await api.cmd('redactor.aplicar', { sesion: ses.id, texto, alcance: $('red-scope')?.value || undefined, confirmar_datos: force });
+      if (!rr?.ok) {
+        // Datos sin confirmar: no se aplica en silencio; un segundo toque en «APLICAR IGUALMENTE» lo confirma.
+        if (/sin confirmar/.test(rr?.error || '')) { force = true; toast(rr.error, 'bad'); paint(); } else toast(rr?.error || 'No se pudo', 'bad');
+        return;
+      }
+      const v = rr.data; force = false;
       toast(v.mensaje || 'Texto aplicado', 'ok');
       const learn = $('red-learn').checked;
       const done = ses.id;

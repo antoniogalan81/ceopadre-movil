@@ -768,3 +768,6 @@ a.btn { display: inline-flex; align-items: center; justify-content: center; text
 .r-gal-dl { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 6px 0; }
 .r-dlbar { display: flex; flex-wrap: wrap; gap: 8px; }
 .check.small { font-size: .85rem; display: inline-flex; gap: 4px; align-items: center; }
+.red-facts { margin: 6px 0; padding: 8px 10px; border-radius: 8px; color: var(--bad); background: var(--bad-bg); font-size: .9rem; }
+.red-facts ul { margin: 4px 0 0; padding-left: 18px; }
+.r-net { display: grid; gap: 6px; margin: 6px 0; }

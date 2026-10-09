@@ -5,6 +5,7 @@ import { h } from './dom.js';
 import { advice, decideRow, mapBody, mapPanel, pendingDecisions, proposals } from './map.js';
 import { remoteUi } from './remoto.js';
 import { autoUi } from './automatizaciones.js';
+import { aiEditor } from './redactor.js';
 
 const LOCAL = ['127.0.0.1', 'localhost'].includes(location.hostname);
 const $ = (s) => document.querySelector(s);
@@ -1133,8 +1134,9 @@ async function start() {
       return;
     }
   }
-  rui ??= remoteUi({ api, ask, toast, show, data: () => data, ago, local: LOCAL });
-  aui ??= autoUi({ api, ask, toast, show, data: () => data, run, viewText: (t, x) => view(t, x) });
+  const ai = aiEditor({ api, toast, onApplied: () => void refresh() }); // EDITAR CON IA (uno solo para todas las bandejas)
+  rui ??= remoteUi({ api, ask, toast, show, data: () => data, ago, local: LOCAL, ai });
+  aui ??= autoUi({ api, ask, toast, show, data: () => data, run, viewText: (t, x) => view(t, x), ai });
   show('p-list');
   await refresh();
   api.watch(() => void refresh());

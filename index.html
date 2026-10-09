@@ -131,6 +131,23 @@
   <main id="bi-body" class="detail autos"></main>
 </section>
 
+<!-- EDITAR CON IA: chat de redacción encima de la pantalla de trabajo. La IA sólo propone; nada se envía desde aquí. -->
+<dialog id="redactor" class="sheet composer redactor" aria-labelledby="red-title">
+  <div class="cmp-body">
+    <header class="cmp-head"><h2 id="red-title">Editar con IA</h2>
+      <button class="btn ghost small" type="button" id="red-close" title="Cerrar (la conversación se guarda)">Cerrar</button></header>
+    <div class="red-body" id="red-body"></div>
+    <textarea id="red-input" rows="3" placeholder="¿Qué quieres cambiar? («más natural», «cambia el final», o pega tu versión y pide mejorarla)"></textarea>
+    <label class="check"><input type="checkbox" id="red-learn"> Aprende esto para futuras propuestas</label>
+    <div class="row red-acts">
+      <button class="btn ghost" type="button" id="red-cancel">Cancelar</button>
+      <button class="btn ghost" type="button" id="red-send">SEGUIR MEJORANDO</button>
+      <button class="btn primary" type="button" id="red-apply">APLICAR TEXTO</button>
+    </div>
+    <p class="muted small">Aplicar solo cambia el texto. Aprobar, enviar o publicar se hace después en la tarjeta.</p>
+  </div>
+</dialog>
+
 <dialog id="dlg" class="sheet">
   <form method="dialog" id="dlg-form">
     <h2 id="dlg-title"></h2>

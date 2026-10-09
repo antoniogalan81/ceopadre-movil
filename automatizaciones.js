@@ -19,7 +19,7 @@ const fecha = (iso) => (iso ? new Date(iso).toLocaleString('es-ES', { day: '2-di
 const chip = (label, tone) => h('span', { class: `a-chip t-${tone}` }, label);
 const sha256 = async (s) => [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s)))].map((x) => x.toString(16).padStart(2, '0')).join('');
 
-export function autoUi({ api, ask, toast, show, data, run, viewText }) {
+export function autoUi({ api, ask, toast, show, data, run, viewText, ai }) {
   let mode = null;           // 'list' | 'edit' | 'runs' | 'inbox'
   let onlyProject = null;    // lista de un solo proyecto (desde DETALLES)
   let form = null;           // editor: { id?, proyecto, nombre, … pasos[] }
@@ -291,6 +291,7 @@ export function autoUi({ api, ask, toast, show, data, run, viewText }) {
     const acts = {
       PENDIENTE: [h('button', { class: 'btn primary small', type: 'button', onclick: (e) => approve([m], e.currentTarget) }, 'APROBAR Y ENVIAR'),
         h('button', { class: 'btn ghost small', type: 'button', onclick: (e) => edit(m, e.currentTarget) }, 'EDITAR'),
+        h('button', { class: 'btn accent small', type: 'button', onclick: () => ai?.open({ tipo: 'bandeja', id: m.id }) }, 'EDITAR CON IA'),
         h('button', { class: 'btn ghost-danger small', type: 'button', onclick: (e) => reject([m], e.currentTarget) }, 'RECHAZAR')],
       BLOQUEADO: [h('button', { class: 'btn primary small', type: 'button', onclick: (e) => cmd('bandeja.revisar', { id: m.id }, 'Vuelve a revisión', e.currentTarget) }, 'Revisar de nuevo'),
         h('button', { class: 'btn ghost-danger small', type: 'button', onclick: (e) => reject([m], e.currentTarget) }, 'Rechazar')],
@@ -298,6 +299,8 @@ export function autoUi({ api, ask, toast, show, data, run, viewText }) {
         h('button', { class: 'btn ghost-danger small', type: 'button', onclick: (e) => reject([m], e.currentTarget) }, 'Rechazar')],
       NO_CONFIRMADO: [h('button', { class: 'btn ghost small', type: 'button', onclick: (e) => cmd('bandeja.resolver', { id: m.id, enviado: true }, 'Marcada como enviada', e.currentTarget) }, 'Sí salió'),
         h('button', { class: 'btn ghost small', type: 'button', onclick: (e) => cmd('bandeja.resolver', { id: m.id, enviado: false }, 'Vuelve a la bandeja', e.currentTarget) }, 'No salió')],
+      // Aprobada pero aún en cola: editarla (a mano o con IA) anula esa aprobación y vuelve a pedirla.
+      APROBADO: [h('button', { class: 'btn accent small', type: 'button', onclick: () => ai?.open({ tipo: 'bandeja', id: m.id }) }, 'EDITAR CON IA')],
     }[m.estado] || [];
     return h('article', { class: `a-msg t-${tone}`, 'data-id': `msg-${m.id}` },
       h('header', {}, h('label', { class: 'a-sel' }, box, h('b', {}, m.contacto)), chip(label, tone)),

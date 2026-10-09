@@ -17,7 +17,7 @@ const TAB_MAIN = 'Pendientes';
 const STALE_DAYS = 7;
 const KIND_LABEL = { you: 'Te necesita', old: 'Antigua: ¿sigue vigente?', run: 'En marcha', wait: 'Espera automática', error: 'Error', done: '' };
 
-export function remoteUi({ api, ask, toast, show, data, ago, local = false }) {
+export function remoteUi({ api, ask, toast, show, data, ago, local = false, ai = null }) {
   let openId = null, openItem = null, urls = new Map(); // objeto del bucket → { url, hasta }
   let tab = TAB_MAIN, pendingRoute = location.hash; // una dirección directa espera a la primera foto
   const remotos = () => data().remotos || [];
@@ -217,7 +217,10 @@ export function remoteUi({ api, ask, toast, show, data, ago, local = false }) {
       if (m) Promise.all([urlOf(r, b.media), media(r, b.poster) ? urlOf(r, b.poster) : null]).then(([u, p]) => { if (u) v.src = u; if (p) v.poster = p; }).catch(() => {});
       return h('section', { class: 'r-block' }, h('h3', {}, b.title), v, m ? h('small', { class: 'muted' }, MB(m.bytes)) : null);
     },
-    copy: (r, b) => h('section', { class: 'r-block r-copy' }, h('div', { class: 'r-copy-head' }, h('h3', {}, b.title),
+    copy: (r, b, it) => h('section', { class: 'r-block r-copy' }, h('div', { class: 'r-copy-head' }, h('h3', {}, b.title),
+      // EDITAR CON IA el texto de publicación de una red aún sin publicar (si el proyecto ofrece cambiarlo).
+      ai && b.edit && !b.done && (it?.actions || []).some((a) => a.id === 'edit_caption')
+        ? h('button', { class: 'btn accent small', type: 'button', disabled: !online(), onclick: () => ai.open({ tipo: 'remoto', proyecto: r.id, item: it.id, plataforma: b.edit.platform }) }, 'EDITAR CON IA') : null,
       httpsUrl(b.open?.url) ? h('a', { class: 'btn ghost small', href: httpsUrl(b.open.url), target: '_blank', rel: 'noopener noreferrer' }, `${b.open.label || 'Abrir'} ↗`) : null),
       b.done ? h('p', { class: 'r-done' }, '✓ Publicado: ', httpsUrl(b.done) ? h('a', { href: httpsUrl(b.done), target: '_blank', rel: 'noopener noreferrer' }, b.done) : b.done) : null,
       b.items.map((x) => h('div', { class: 'r-copy-item' }, h('div', { class: 'r-copy-head' }, h('b', {}, x.label),

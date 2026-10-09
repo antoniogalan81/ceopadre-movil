@@ -4,6 +4,7 @@ import { conditionsText, decisionCount, decisionsText, gestText, HIGH_RISK, mood
 import { h } from './dom.js';
 import { advice, decideRow, mapBody, mapPanel, pendingDecisions, proposals } from './map.js';
 import { remoteUi } from './remoto.js';
+import { autoUi } from './automatizaciones.js';
 
 const LOCAL = ['127.0.0.1', 'localhost'].includes(location.hostname);
 const $ = (s) => document.querySelector(s);
@@ -12,7 +13,8 @@ const $ = (s) => document.querySelector(s);
 
 function localApi() {
   const call = async (path, opts = {}) => {
-    const r = await fetch(path, { ...opts, headers: { 'x-ceo': '1', 'content-type': 'application/json' } });
+    const ui = document.querySelector('meta[name="ceo-ui"]')?.content || '';
+    const r = await fetch(path, { ...opts, headers: { 'x-ceo': '1', 'content-type': 'application/json', ...(ui ? { 'x-ceo-ui': ui } : {}) } });
     return r.json();
   };
   let remotos = [], remSig = null;
@@ -117,8 +119,11 @@ async function strongConfirm(sb, op, params) {
   if (!s) return { ok: false, error: 'Sesión caducada: vuelve a entrar' };
   const where = data.proyectos.find((c) => c.id === params?.proyecto || (params?.trabajo && c.trabajo === params.trabajo))?.nombre || 'el proyecto';
   const fresh = Date.now() - passwordAt(s.access_token) < REAUTH_MS - 60_000;
-  const r = await ask({ title: 'Confirmar orden a Claude', ok: 'Enviar al PC',
-    help: `Vas a enviar texto libre a Claude en «${where}». Claude puede ejecutar código en tu PC.${fresh ? '' : ' Por seguridad, escribe tu contraseña (como mucho una vez cada 30 min).'}`,
+  const what = op === 'bandeja.aprobar' ? { title: 'Confirmar envío a terceros', text: `Vas a autorizar el envío de ${params?.items?.length || 0} mensaje(s) desde tu cuenta.` }
+    : op === 'automatizacion.guardar' ? { title: 'Guardar procedimiento', text: `Guardas un procedimiento que Claude ejecutará en tu PC cada vez que pulses el botón («${where}»).` }
+    : { title: 'Confirmar orden a Claude', text: `Vas a enviar texto libre a Claude en «${where}». Claude puede ejecutar código en tu PC.` };
+  const r = await ask({ title: what.title, ok: 'Enviar al PC',
+    help: `${what.text}${fresh ? '' : ' Por seguridad, escribe tu contraseña (como mucho una vez cada 30 min).'}`,
     fields: fresh ? [] : [{ name: 'password', type: 'password', label: 'Contraseña de CEOPadre' }] });
   if (!r) return null;
   if (fresh) return { ok: true, token: s.access_token };
@@ -175,8 +180,9 @@ function toast(msg, kind = '') {
   clearTimeout(toastT); toastT = setTimeout(() => { t.className = 'toast'; }, 3500);
 }
 
-const show = (id) => { for (const s of ['p-login', 'p-list', 'p-detail', 'p-remote']) $('#' + s).hidden = s !== id; };
+const show = (id) => { for (const s of ['p-login', 'p-list', 'p-detail', 'p-remote', 'p-autos', 'p-bandeja']) $('#' + s).hidden = s !== id; };
 let rui = null; // MANDO REMOTO (web/remoto.js)
+let aui = null; // AUTOMATIZACIONES y BANDEJA DE APROBACIÓN (web/automatizaciones.js)
 
 async function refresh() {
   try {
@@ -192,6 +198,7 @@ async function refresh() {
   paintList();
   if (openId) paintDetail();
   rui?.paint();
+  aui?.paint();
 }
 
 async function run(op, params, okMsg, btn) {
@@ -818,7 +825,7 @@ async function paintDetail(force) {
   const decide = (id, que, b) => run(`canon.${que}`, { proyecto: c.id, id }, que === 'aprobar' ? 'Aprobado' : 'Rechazado', b);
   const consult = (ref, b) => actions.consult(c, ref, b);
   const openMap = () => { $('#map-title').textContent = `Mapa · ${c.nombre}`; paintMap(d.mapa, decide, consult); $('#map').showModal(); };
-  body.replaceChildren(...[summaryPanel(c, d), esperasPanel(c, d), mapPanel(d.mapa, { open: openMap, decide, ...decisionHandlers(c) }), writePanel(c, d), roundsPanel(d), techPanel(c, d)].filter(Boolean));
+  body.replaceChildren(...[summaryPanel(c, d), aui?.projectPanel(c), esperasPanel(c, d), mapPanel(d.mapa, { open: openMap, decide, ...decisionHandlers(c) }), writePanel(c, d), roundsPanel(d), techPanel(c, d)].filter(Boolean));
   if ($('#map').open) paintMap(d.mapa, decide, consult);
   for (const x of body.querySelectorAll('details')) if (wasOpen.has(x.dataset.k)) x.open = true;
 }
@@ -1127,6 +1134,7 @@ async function start() {
     }
   }
   rui ??= remoteUi({ api, ask, toast, show, data: () => data, ago, local: LOCAL });
+  aui ??= autoUi({ api, ask, toast, show, data: () => data, run, viewText: (t, x) => view(t, x) });
   show('p-list');
   await refresh();
   api.watch(() => void refresh());

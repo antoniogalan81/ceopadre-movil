@@ -14,6 +14,8 @@ const fecha = (iso) => { const d = new Date(String(iso || '')); return Number.is
 // Dirección directa (favoritos): #videofactory y #videofactory/<contenido>. El nombre del proyecto, sin acentos ni signos.
 export const slug = (s) => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '');
 const TAB_MAIN = 'Pendientes';
+const STALE_DAYS = 7;
+const KIND_LABEL = { you: 'Te necesita', old: 'Antigua: ¿sigue vigente?', run: 'En marcha', wait: 'Espera automática', error: 'Error', done: '' };
 
 export function remoteUi({ api, ask, toast, show, data, ago, local = false }) {
   let openId = null, openItem = null, urls = new Map(); // objeto del bucket → { url, hasta }
@@ -56,15 +58,38 @@ export function remoteUi({ api, ask, toast, show, data, ago, local = false }) {
   }
 
   // ------------------------------------------------------------ tarjeta en la oficina
-  function counts(r) {
-    const g = Object.fromEntries((r.datos.groups || []).map((x) => [x.id, x.items.filter((id) => r.datos.items[id] && visible(r, r.datos.items[id])).length]));
-    return g;
+  // Qué necesita cada contenido AHORA, como lo dice el proyecto (`need`); sin él, por su tono. Sólo «you» es «te necesita».
+  // Uno que te pide algo pero lleva más de STALE_DAYS sin moverse NO se cuenta como pendiente: se enseña aparte como
+  // «antiguo» (¿sigue vigente?), con su botón para archivarlo si ya no vale.
+  function kindOf(it) {
+    const k = it.need?.kind || { you: 'you', ready: 'you', busy: 'run', done: 'done', bad: 'error' }[it.tone] || 'done';
+    return k === 'you' && stale(it) ? 'old' : k;
+  }
+  const stale = (it) => { const t = Date.parse(String(it.when || '')); return Number.isFinite(t) && Date.now() - t > STALE_DAYS * 86400_000; };
+  const reasonOf = (it) => it.need?.reason || it.note || it.state_label || '';
+  function needs(r) {
+    const seen = new Set(), by = { you: [], old: [], run: [], wait: [], error: [] };
+    for (const g of r.datos.groups || []) {
+      if ((g.tab || TAB_MAIN) !== TAB_MAIN) continue;
+      for (const id of g.items) {
+        const it = r.datos.items[id];
+        if (!it || seen.has(id) || !visible(r, it)) continue;
+        seen.add(id);
+        by[kindOf(it)]?.push(it);
+      }
+    }
+    return by;
   }
   function card(r) {
-    const c = r.datos.groups ? counts(r) : {};
-    const need = (c.attention || 0) + (c.approved || 0);
-    const line = r.datos.groups ? [need ? `${need} te necesita${need === 1 ? '' : 'n'}` : 'Nada te necesita', c.producing ? `${c.producing} produciéndose` : null,
-      c.ready ? `${c.ready} listo${c.ready === 1 ? '' : 's'} para publicar` : null].filter(Boolean).join(' · ') : 'Esperando la primera foto del PC…';
+    const n = r.datos.groups ? needs(r) : null;
+    const you = n?.you || [];
+    // Una sola cosa: la instrucción concreta («Elige la portada de «La persiana…»»); varias: cuántas y la primera.
+    const first = you[0] ? `${reasonOf(you[0])} · «${you[0].title}»` : '';
+    const line = n ? [you.length === 1 ? `Te necesita: ${first}` : you.length ? `${you.length} te necesitan · ${first}` : 'Nada te necesita ahora',
+      n.error.length ? `${n.error.length} con error` : null, n.run.length ? `${n.run.length} en marcha` : null,
+      n.wait.length ? `${n.wait.length} en espera automática` : null,
+      n.old.length ? `${n.old.length} antigua${n.old.length === 1 ? '' : 's'} sin tocar (¿siguen vigentes?)` : null].filter(Boolean).join(' · ') : 'Esperando la primera foto del PC…';
+    const need = you.length + (n?.error.length || 0);
     // Con un filtro puesto la tarjeta lo dice: «nada te necesita» sólo vale para lo que se está mirando.
     const sel = r.datos.filters ? selection(r) : [];
     const names = (r.datos.filters?.options || []).filter((o) => sel.includes(o.id)).map((o) => o.name);
@@ -135,11 +160,17 @@ export function remoteUi({ api, ask, toast, show, data, ago, local = false }) {
         () => set(sel.includes(o.id) ? sel.filter((x) => x !== o.id) : [...sel, o.id]), hexColor(o.color))));
   }
 
+  // Qué pide AHORA y por qué, en una frase (o, si ya no pide nada, la nota del proyecto).
+  function needLine(it) {
+    const k = kindOf(it);
+    if (k === 'done') return it.note ? h('small', { class: 'r-note' }, it.note) : null;
+    return h('small', { class: `r-need k-${k}` }, `${KIND_LABEL[k]}: ${k === 'old' ? `sin moverse desde ${fecha(it.when)}. ${reasonOf(it)}` : reasonOf(it)}`);
+  }
   function row(r, it) {
     return h('button', { type: 'button', class: `r-row t-${TONES[it.tone] || 'idle'}`, onclick: () => { openItem = it.id; paint(true); window.scrollTo(0, 0); } },
       img(r, it.thumb, 'r-thumb'),
       h('span', { class: 'r-what' }, h('b', {}, it.title), h('small', { class: 'muted' }, [it.meta, fecha(it.when)].filter(Boolean).join(' · ')),
-        h('span', { class: 'r-state' }, it.state_label), it.note ? h('small', { class: 'r-note' }, it.note) : null),
+        h('span', { class: 'r-state' }, it.state_label), needLine(it)),
       it.actions?.length ? h('span', { class: 'r-go', 'aria-hidden': 'true' }, '›') : null);
   }
 
@@ -287,7 +318,7 @@ export function remoteUi({ api, ask, toast, show, data, ago, local = false }) {
     const acts = (it.actions || []).filter((a) => !a.hidden); // las ocultas viven en su bloque (galería), no en la lista
     return [h('header', { class: 'r-item-head' }, img(r, it.thumb, 'r-thumb big'),
       h('div', {}, h('h2', {}, it.title), h('p', { class: 'muted' }, [it.meta, fecha(it.when)].filter(Boolean).join(' · ')), h('span', { class: `r-state t-${TONES[it.tone] || 'idle'}` }, it.state_label),
-        it.note ? h('p', { class: 'r-note' }, it.note) : null)),
+        needLine(it))),
     (it.blocks || []).map((b) => BLOCKS[b.type]?.(r, b, it) || null),
     acts.length ? h('div', { class: 'r-actions' }, !online() ? h('p', { class: 'muted small' }, 'PC desconectado: las acciones se activan cuando vuelva.') : null,
       acts.map((a) => h('button', { type: 'button', class: `btn ${a.style === 'danger' ? 'ghost-danger' : a.style === 'primary' ? 'primary' : 'ghost'}`,

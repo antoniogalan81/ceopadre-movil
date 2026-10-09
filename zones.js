@@ -167,7 +167,8 @@ export function decisionsText(cards, fecha = new Date()) {
 // ser el dueño (RLS), confirmación expresa y una contraseña escrita hace menos de REAUTH_MS (modo seguro): una sesión
 // robada no basta. El resto de órdenes (aprobar, pausar, mando remoto cerrado…) siguen como siempre. Lista única: la usan
 // el PC (src/sync.js, src/commands.js) y el móvil (web/app.js).
-export const HIGH_RISK = new Set(['objetivo.iniciar', 'objetivo.anadir', 'trabajo.instruccion', 'pendiente.editar']);
+// También: guardar un procedimiento de automatización (texto que ejecutará Claude) y aprobar envíos a terceros (bandeja).
+export const HIGH_RISK = new Set(['objetivo.iniciar', 'objetivo.anadir', 'trabajo.instruccion', 'pendiente.editar', 'automatizacion.guardar', 'bandeja.aprobar']);
 export const REAUTH_MS = 30 * 60_000;
 /** Hora (ms) de la última vez que esta sesión se abrió CON CONTRASEÑA, leída del token (amr). 0 si no consta. */
 export function passwordAt(accessToken) {

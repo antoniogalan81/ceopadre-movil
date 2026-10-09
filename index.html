@@ -10,6 +10,8 @@
 <meta name="apple-mobile-web-app-title" content="CEOPadre">
 <meta name="application-name" content="CEOPadre">
 <meta name="format-detection" content="telephone=no">
+<!-- PC: CEOPadre pone aquí el token de su arrancada (aprobar envíos sólo desde esta página). En el móvil queda vacío. -->
+<meta name="ceo-ui" content="">
 <!-- La misma página sirve en el PC (API local) y en el móvil (Supabase). Scripts sólo propios:
      el cliente de Supabase viaja en vendor/, no desde una CDN (lección de Batuta). -->
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data: blob: https://pzlotrzphjpnqixrtvin.supabase.co; media-src 'self' blob: https://pzlotrzphjpnqixrtvin.supabase.co; manifest-src 'self'; connect-src 'self' https://pzlotrzphjpnqixrtvin.supabase.co wss://pzlotrzphjpnqixrtvin.supabase.co; form-action 'none'; base-uri 'none'">
@@ -56,6 +58,9 @@
       <div class="top-actions">
         <!-- Paneles de los proyectos con mando remoto (hoy VIDEOFACTORY): abren su panel, nunca un objetivo. -->
         <span class="top-remotes" id="top-remotes"></span>
+        <!-- AUTOMATIZACIONES (botones guardados de cada proyecto) y BANDEJA de respuestas por aprobar. -->
+        <button class="btn small remote-top" id="b-autos" type="button" title="Botones de automatización de todos los proyectos">AUTOMATIZACIONES</button>
+        <button class="btn small remote-top need" id="b-inbox" type="button" hidden title="Respuestas preparadas que esperan tu aprobación"></button>
         <button class="btn light small sync-btn" id="b-sync" type="button" aria-label="Actualizar todos los proyectos ahora" title="Actualizar todos los proyectos ahora"><span class="sync-ico" aria-hidden="true">↻</span></button>
         <button class="btn light small" id="b-install" type="button" hidden>Instalar CEOPadre</button>
         <button class="btn light small" id="b-logout" type="button" hidden>Salir</button>
@@ -69,6 +74,8 @@
   <section class="zone remotes" id="remotes" aria-label="Mando remoto" hidden></section>
   <!-- DECISIONES PENDIENTES: todo lo que sólo decide Antonio (objetivo, cambios protegidos del canon y preguntas), de todos los proyectos. -->
   <section class="decisions" id="decisions" aria-label="Decisiones pendientes" hidden></section>
+  <!-- AUTORIZACIONES: respuestas a terceros preparadas por una automatización que sólo salen si las apruebas. -->
+  <section class="decision inbox-line" id="inbox-line" aria-label="Respuestas por aprobar" hidden></section>
 
   <section class="zone" aria-labelledby="h-marcha">
     <div class="zone-head"><h2 id="h-marcha">En marcha</h2><span class="count" id="n-marcha">0</span></div>
@@ -104,6 +111,24 @@
     <div class="r-title"><h1 class="detail-name" id="r-name"></h1><p class="muted small" id="r-sub"></p></div>
   </header>
   <main id="r-body" class="detail remote"></main>
+</section>
+
+<!-- AUTOMATIZACIONES: botones de cada proyecto, editor (sin programar), historial de ejecuciones. -->
+<section id="p-autos" class="screen" hidden>
+  <header class="top">
+    <button class="btn ghost" id="a-back" aria-label="Volver">‹ Volver</button>
+    <div class="r-title"><h1 class="detail-name" id="a-title">Automatizaciones</h1><p class="muted small" id="a-sub"></p></div>
+  </header>
+  <main id="a-body" class="detail autos"></main>
+</section>
+
+<!-- BANDEJA DE APROBACIÓN: respuestas preparadas; editar, seleccionar, aprobar y enviar o rechazar. -->
+<section id="p-bandeja" class="screen" hidden>
+  <header class="top">
+    <button class="btn ghost" id="bi-back" aria-label="Volver">‹ Volver</button>
+    <div class="r-title"><h1 class="detail-name" id="bi-title">Respuestas por aprobar</h1><p class="muted small" id="bi-sub"></p></div>
+  </header>
+  <main id="bi-body" class="detail autos"></main>
 </section>
 
 <dialog id="dlg" class="sheet">

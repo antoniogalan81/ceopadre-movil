@@ -385,6 +385,8 @@ export function remoteUi({ api, ask, toast, show, data, ago, local = false, ai =
       } }, 'Revertir') : null);
       return h('section', { class: 'r-block' }, h('details', { class: 'fold' }, h('summary', {}, `${b.title} · ${b.rules.length} reglas${b.candidates.length ? ` · ${b.candidates.length} pendientes` : ''}`),
         b.identity ? h('p', {}, h('b', {}, 'Quién habla: '), b.identity) : null,
+        // Medido, no puntuado: correcciones que necesitó cada vídeo y reglas que hubo que volver a corregir.
+        b.metrics ? h('p', { class: 'muted small' }, `${b.metrics.videos_corrected} vídeo(s) corregidos · ${Object.values(b.metrics.changes_per_video || {}).reduce((x, y) => x + y, 0)} cambios de Antonio · errores que volvieron: ${Object.entries(b.metrics.repeated_errors || {}).map(([k, n]) => `${k} (${n})`).join(', ') || 'ninguno'}. ${b.metrics.note}`) : null,
         h('ul', { class: 'r-rules' }, b.rules.map((x) => h('li', {}, h('p', {}, x.text), h('small', { class: 'muted' }, [x.origin || '', x.repeats ? `· hubo que corregirlo ${x.repeats} vez/veces más` : ''].join(' ')), rev(x.id, x.text)))),
         b.candidates.length ? [h('h4', {}, 'Pendientes de confirmar (no se aplican todavía)'), h('ul', { class: 'r-rules' }, b.candidates.map((x) => h('li', {},
           h('p', {}, x.text), h('small', { class: 'muted' }, `${x.motive === 'inferido' ? 'inferida por la IA' : x.motive || ''} · visto en ${x.evidence} vídeo(s)`), rev(x.id, x.text))))] : null,

@@ -5,7 +5,7 @@ import { h } from './dom.js';
 // Estado de un botón: disponible · ejecutándose · esperando autorización · completada · parcial · error (y sus matices).
 const STATE = {
   DISPONIBLE: ['Disponible', 'idle'], EJECUTANDO: ['Ejecutándose', 'work'], ESPERANDO_AUTORIZACION: ['Esperando tu autorización', 'ask'],
-  COMPLETADA: ['Completada', 'ok'], PARCIAL: ['Completada parcialmente', 'warn'], ERROR: ['Error', 'bad'], CANCELADA: ['Cancelada', 'idle'],
+  COMPLETADA: ['Completada', 'ok'], PARCIAL: ['Completada parcialmente', 'warn'], BLOQUEADA: ['Bloqueada', 'bad'], ERROR: ['Error', 'bad'], CANCELADA: ['Cancelada', 'idle'],
   PAUSADA: ['Pausada', 'idle'], DESACTIVADA: ['Desactivada', 'idle'],
 };
 // Integración: lo que vio la última ejecución que la usó (nunca «conectada» sólo por estar configurada).
@@ -101,7 +101,7 @@ export function autoUi({ api, ask, toast, show, data, run, viewText, ai }) {
     if (running) out.push(h('button', { class: 'btn ghost-danger small', type: 'button', onclick: (e) => cancel(a, u, e.currentTarget) }, 'Cancelar'));
     else {
       out.push(h('button', { class: 'btn primary a-run', type: 'button', disabled: !a.activa || !online(), onclick: (e) => execute(a, false, e.currentTarget) }, '▶ EJECUTAR'));
-      if (u && ['ERROR', 'PARCIAL', 'CANCELADA'].includes(u.estado)) out.push(h('button', { class: 'btn ghost small', type: 'button', onclick: (e) => retry(a, u, e.currentTarget) }, 'Reintentar'));
+      if (u && ['ERROR', 'PARCIAL', 'BLOQUEADA', 'CANCELADA'].includes(u.estado)) out.push(h('button', { class: 'btn ghost small', type: 'button', onclick: (e) => retry(a, u, e.currentTarget) }, 'Reintentar'));
     }
     out.push(h('button', { class: 'btn ghost small', type: 'button', onclick: () => openRuns(a) }, 'Historial'));
     out.push(h('details', { class: 'a-more' }, h('summary', { class: 'btn ghost small' }, 'Más'), h('div', { class: 'a-menu' },

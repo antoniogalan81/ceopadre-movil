@@ -169,7 +169,7 @@ export function autoUi({ api, ask, toast, show, data, run, viewText, ai }) {
     const [label, tone] = STATE[r.estado] || [r.estado, 'idle'];
     const res = r.resultado;
     return h('article', { class: `a-runrow t-${tone}` },
-      h('header', {}, h('b', {}, `${fecha(r.inicio)}${r.fin ? ` → ${fecha(r.fin)}` : ''}`), chip(label, tone),
+      h('header', {}, h('b', {}, `${fecha(r.inicio)}${r.fin ? ` → ${fecha(r.fin)}` : ''}${r.modo ? ` · ${r.modo}` : ''}`), chip(label, tone),
         h('small', { class: 'muted' }, `v${r.version} · ${r.origen}${r.prueba ? ' · prueba' : ''}${r.reintento_de ? ' · reintento' : ''}`)),
       r.texto ? h('p', { class: 'ln' }, `${r.texto}${r.progreso ? ` · ${r.progreso}` : ''}`) : null,
       res?.resumen ? h('p', { class: 'a-desc' }, res.resumen) : null,

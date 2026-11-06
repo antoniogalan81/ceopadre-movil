@@ -182,46 +182,132 @@ export function passwordAt(accessToken) {
   } catch { return 0; }
 }
 
-// ------------------------------------------------------------------ CENTRO DE DIRECCIÓN (pantalla principal, V3.2)
-// Reparte las tarjetas por lo que Antonio necesita saber, en este orden: qué le necesita, qué trabaja, qué viene y qué se
-// terminó. Sólo estados reales del motor (nada se estima ni se inventa). Los proyectos sin actividad quedan al final y
-// plegados. Sin DOM: se prueba en Node (test/v32.test.js).
-const ATENDER = ['ESPERANDO_ANTONIO', 'BLOQUEADO', 'ERROR', 'LISTO']; // le necesitan aunque no sea una pregunta
-const EN_CURSO = [...WORKING, ...WAITING];
+
+// ------------------------------------------------------------------ CENTRO DE DIRECCIÓN (pantalla principal, V3.3)
+// Cada trabajo tiene UN estado principal y sale en UNA sección (los contadores no se inflan):
+//   necesita tu intervención · con problemas · trabajando · esperando algo externo · próximos · terminado y comprobado.
+// Sólo estados reales del motor (nada estimado). Sin DOM: se prueba en Node (test/v32 y v33).
+// Te necesitan aunque no sea una pregunta: una acción tuya, tu turno, o la cuota agotada (nunca se reanuda solo: CONTINUAR).
+const TU_TURNO = ['ESPERANDO_ANTONIO', 'LISTO', 'ESPERANDO_CLAUDE', 'ESPERANDO_CEO'];
+const PROBLEMA = ['ERROR', 'BLOQUEADO'];
 const DIA = 86_400_000;
 const tms = (c) => Date.parse(c.updated_at || c.ultima_actividad || c.usado || '') || 0;
+export function seccion(c) {
+  if (needsDecision(c) || TU_TURNO.includes(c.estado)) return 'necesita';
+  if (PROBLEMA.includes(c.estado)) return 'problema';
+  if (WORKING.includes(c.estado)) return 'trabajando';
+  if (c.estado === 'ESPERANDO_CONDICION') return 'esperando';
+  if (c.estado === 'EN_COLA') return 'proximo';
+  if (c.estado === 'TERMINADO') return 'terminado';
+  return 'reposo'; // LIBRE, PAUSADO, CANCELADO
+}
 export function direccion(cards, now = Date.now()) {
-  const decide = cards.filter(needsDecision);
-  const atender = sortMarcha(cards.filter((c) => ATENDER.includes(c.estado)));
-  const trabajando = sortMarcha(cards.filter((c) => EN_CURSO.includes(c.estado)));
-  // TERMINADO = el motor sólo cierra con evidencia COMPROBADO (guardia de evidencia): se dice «comprobado».
+  const by = (s) => sortMarcha(cards.filter((c) => seccion(c) === s));
+  const necesita = by('necesita'), problemas = by('problema'), trabajando = by('trabajando');
+  // Esperando algo externo: el objetivo que enseña la tarjeta y los OTROS objetivos del proyecto que esperan (sin repetir tarjeta).
+  const esperando = [...by('esperando').map((c) => ({ c, trabajo: c.trabajo, objetivo: c.objetivo, esperas: c.esperas_info || [], condicion: c.condicion })),
+    ...cards.flatMap((c) => (c.esperando || []).filter((x) => !x.te_necesita).map((x) => ({ c, trabajo: x.trabajo, objetivo: x.objetivo, esperas: [], condicion: x.condicion, otro: true })))];
+  // Otro objetivo del proyecto que espera algo que SÓLO puede hacer Antonio: le necesita (no es «externo»).
+  const tuyas = cards.flatMap((c) => (c.esperando || []).filter((x) => x.te_necesita).map((x) => ({ c, trabajo: x.trabajo, objetivo: x.objetivo, condicion: x.condicion })));
   const terminados = cards.filter((c) => c.estado === 'TERMINADO').sort((a, b) => tms(b) - tms(a));
   const autos = cards.flatMap((c) => (c.automatizaciones || []).map((a) => ({ ...a, proyectoNombre: c.nombre, proyectoId: c.id })));
   const programadas = autos.filter((a) => a.programa?.proxima).sort((a, b) => a.programa.proxima.localeCompare(b.programa.proxima));
   const pausadas = autos.filter((a) => a.programa && !a.programa.proxima); // con horario, pero en pausa (se dice, no se esconde)
   const autosHechas = autos.filter((a) => a.ultima?.estado === 'COMPLETADA' && a.ultima.fin && now - Date.parse(a.ultima.fin) < 7 * DIA)
     .sort((a, b) => b.ultima.fin.localeCompare(a.ultima.fin));
+  // Próximos = SÓLO lo programado o preparado para empezar (nunca una espera: ésa tiene su sección).
   const proximos = [
-    ...programadas.map((a) => ({ tipo: 'auto', cuando: a.programa.proxima, titulo: a.nombre, proyecto: a.proyectoNombre, id: a.proyectoId })),
-    ...cards.filter((c) => c.cola > 0).map((c) => ({ tipo: 'cola', titulo: `${c.cola} objetivo${c.cola === 1 ? '' : 's'} en cola`, proyecto: c.nombre, id: c.id })),
-    ...cards.filter((c) => c.estado === 'ESPERANDO_CONDICION').map((c) => ({ tipo: 'condicion', titulo: c.condicion || c.siguiente || 'Espera una condición', proyecto: c.nombre, id: c.id })),
-    ...trabajando.filter((c) => c.siguiente).map((c) => ({ tipo: 'siguiente', titulo: c.siguiente, proyecto: c.nombre, id: c.id })),
+    ...programadas.map((a) => ({ tipo: 'auto', cuando: a.programa.proxima, titulo: a.nombre, para: a.descripcion, proyecto: a.proyectoNombre, id: a.proyectoId })),
+    ...by('proximo').map((c) => ({ tipo: 'cola', titulo: c.objetivo, para: 'Empieza en cuanto termine lo que está en marcha en el proyecto', proyecto: c.nombre, id: c.id })),
+    ...cards.filter((c) => c.cola > 0 && c.estado !== 'EN_COLA').map((c) => ({ tipo: 'cola', titulo: `${c.cola} objetivo${c.cola === 1 ? '' : 's'} más en cola`, para: 'Empiezan uno detrás de otro', proyecto: c.nombre, id: c.id })),
   ];
-  const shown = new Set([...decide, ...atender, ...trabajando].map((c) => c.id));
-  // Con actividad = tiene objetivo vivo o reciente (30 días) o automatizaciones. Lo demás, a la fila plegada.
-  const activo = (c) => (c.automatizaciones || []).length > 0 || (!['LIBRE', 'CANCELADO'].includes(c.estado) && (c.estado !== 'TERMINADO' || now - tms(c) < 30 * DIA));
-  const resto = cards.filter((c) => c.tipo !== 'GESTION' && !shown.has(c.id));
+  const activo = (c) => (c.automatizaciones || []).length > 0 || seccion(c) !== 'reposo' && (c.estado !== 'TERMINADO' || now - tms(c) < 30 * DIA);
+  const proyectos = cards.filter((c) => c.tipo !== 'GESTION');
   const decisiones = cards.reduce((a, c) => a + decisionCount(c), 0);
   const aprobaciones = cards.reduce((a, c) => a + (c.aprobaciones || 0), 0);
   return {
-    decide, atender, trabajando, terminados: terminados.slice(0, 5), autosHechas: autosHechas.slice(0, 4), programadas, pausadas, autos, proximos,
-    conHistoria: sortEspera(resto.filter(activo)), sinActividad: sortEspera(resto.filter((c) => !activo(c))),
+    necesita, tuyas, problemas, trabajando, esperando, terminados: terminados.slice(0, 5), autosHechas: autosHechas.slice(0, 4), programadas, pausadas, autos, proximos,
+    // Compatibles con V3.2 (pantalla de proyectos): los que tienen historia y los que están en reposo.
+    conHistoria: sortEspera(proyectos.filter(activo)), sinActividad: sortEspera(proyectos.filter((c) => !activo(c))),
     kpis: {
-      necesita: decisiones + atender.filter((c) => !needsDecision(c)).length + aprobaciones, decisiones, aprobaciones,
-      trabajando: trabajando.length, claude: trabajando.filter((c) => c.estado === 'TRABAJANDO' && c.actividad).length,
-      terminados7: terminados.filter((c) => now - tms(c) < 7 * DIA).length,
-      programadas: programadas.length, proxima: programadas[0] || null,
-      proyectos: cards.filter((c) => c.tipo !== 'GESTION').length, inactivos: resto.filter((c) => !activo(c)).length,
+      decisiones, aprobaciones, necesita: necesita.length, problemas: problemas.length, trabajando: trabajando.length,
+      claude: trabajando.filter((c) => c.estado === 'TRABAJANDO' && c.actividad).length, esperando: esperando.length,
+      terminados7: terminados.filter((c) => now - tms(c) < 7 * DIA).length, programadas: programadas.length, proxima: programadas[0] || null,
+      proyectos: proyectos.length, inactivos: proyectos.filter((c) => !activo(c)).length, agentes: autos.length,
     },
   };
+}
+
+// «GOAL — COMPLETAR SALDOS…» → «Completar saldos…»: el objetivo en lenguaje normal (el texto original sigue en la ficha).
+export function cleanGoal(t) {
+  const s = String(t || '').replace(/^\s*#*\s*(GOAL|OBJETIVO)\s*[—:–-]+\s*/i, '').split('\n')[0].trim();
+  return s && s === s.toUpperCase() && /[A-ZÁÉÍÓÚÑ]{4}/.test(s) ? s.charAt(0) + s.slice(1).toLowerCase() : s;
+}
+
+// Una espera en lenguaje normal: título corto, qué se espera y qué pasará al cumplirse. Sin nombres de scripts ni rutas.
+// El texto técnico original sigue en la ficha del proyecto.
+const TECH = /\s*\(([^)]*\b(I-\d|A-\d|\.md|\.py|\.json|\.log)[^)]*)\)/gi;
+const SCRIPT = /\b[\w./\\-]+\.(?:py|mjs|js|ps1|cmd|bat|sh)\b(?:\s+--?[\w-]+)*/gi;
+export function esperaHumana(descripcion = '') {
+  const d = String(descripcion || '');
+  const [antes, despues = ''] = d.split(/\s*Al cumplirse\s*:?\s*/i);
+  const que = antes.replace(TECH, '').replace(SCRIPT, 'el proceso del proyecto').replace(/'([^']+)'/g, '«$1»').replace(/\s+/g, ' ').trim();
+  const low = d.toLowerCase();
+  const titulo = /document|extracto|certificad|justificante|factura|pdf/.test(low) ? `Esperando documentos${/banc/.test(low) ? ' bancarios' : ''}`
+    : /respuesta|conteste|contesta|responda/.test(low) ? 'Esperando una respuesta'
+      : /permiso|token|autoriz|credencial|contraseña/.test(low) ? 'Esperando un permiso'
+        : /commit|versi[oó]n|reinici|despleg/.test(low) ? 'Esperando una actualización'
+          : /objetivo|dependencia|termine el/.test(low) ? 'Esperando otro trabajo'
+            : /\b(hora|fecha|d[ií]a|lunes|martes|mi[eé]rcoles|jueves|viernes|mes)\b/.test(low) ? 'Esperando la fecha prevista' : 'Esperando algo externo';
+  const luego = despues.replace(SCRIPT, '').replace(/\s+y\s+/i, ' y ').replace(/^[\s,;y]+|[\s,;.]+$/g, '').trim();
+  return { titulo, que: que.replace(/^([^:]{3,60}):\s*/, ''), asunto: /^([^:]{3,60}):/.exec(que)?.[1] || '',
+    luego: luego ? `El CEO procesa lo recibido, se encarga de ${luego.charAt(0).toLowerCase() + luego.slice(1)} y comprueba el resultado.` : 'El CEO revisa lo que haya llegado, sigue con el trabajo y comprueba el resultado.' };
+}
+
+// «Revisa todos los días a las 10 de la mañana las facturas nuevas de Galán Contable» → proyecto, horario y texto.
+// Sin IA: sólo lo que la frase dice con claridad; lo que falta se pregunta en el editor (nunca se inventa).
+const DIAS_N = { lunes: 1, martes: 2, miercoles: 3, jueves: 4, viernes: 5, sabado: 6, domingo: 7 };
+const sinTilde = (s) => String(s || '').normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase();
+export function fraseAutomatizacion(texto, proyectos = []) {
+  const t = String(texto || '').trim();
+  const n = sinTilde(t), compact = n.replace(/[^a-z0-9]/g, '');
+  const proyecto = [...proyectos].sort((a, b) => b.nombre.length - a.nombre.length)
+    .find((p) => { const k = sinTilde(p.nombre).replace(/[^a-z0-9]/g, ''); return k.length >= 3 && compact.includes(k); }) || null;
+  let programa = null;
+  const hm = /\ba las (\d{1,2})(?:[:.h](\d{2}))?(?:\s*(?:h|horas)\b)?(?:\s+de la (manana|tarde|noche))?/.exec(n);
+  let hora = null;
+  if (hm) {
+    let hh = Number(hm[1]);
+    if ((hm[3] === 'tarde' || hm[3] === 'noche') && hh < 12) hh += 12;
+    if (hh <= 23) hora = `${String(hh).padStart(2, '0')}:${hm[2] || '00'}`;
+  }
+  const dias = Object.entries(DIAS_N).filter(([d]) => new RegExp(`\\b${d}s?\\b`).test(n)).map(([, v]) => v);
+  const cadaH = /\bcada (\d{1,2}) horas?\b/.exec(n), cadaM = /\bcada (\d{2,3}) minutos\b/.exec(n);
+  if (cadaH || cadaM) programa = { tipo: 'cada', cada_min: cadaH ? Number(cadaH[1]) * 60 : Number(cadaM[1]), desde: '08:00', hasta: '20:00', reintentos: 1, recuperar: true };
+  else if (dias.length && hora) programa = { tipo: 'semanal', hora, dias, reintentos: 1, recuperar: true };
+  else if (/\b(todos los dias|cada dia|diariamente|a diario)\b/.test(n) && hora) programa = { tipo: 'diaria', hora, reintentos: 1, recuperar: true };
+  else if (/\b(laborables|entre semana|de lunes a viernes)\b/.test(n) && hora) programa = { tipo: 'semanal', hora, dias: [1, 2, 3, 4, 5], reintentos: 1, recuperar: true };
+  // Nombre del botón = la frase sin el horario ni el proyecto («Revisa las facturas nuevas»).
+  let words = t.replace(/^\s*(quiero que|me gustar[ií]a que|necesito que)\s+/i, '')
+    .replace(/\b(todos los d[ií]as|cada d[ií]a|diariamente|a diario|de lunes a viernes|entre semana|los laborables|cada \d+ (horas?|minutos))\b/gi, ' ')
+    .replace(/\ba las \d{1,2}([:.h]\d{2})?(\s*h\b|\s+horas)?(\s+de la (ma[ñn]ana|tarde|noche))?/gi, ' ')
+    .replace(/\b(los |cada )?(lunes|martes|mi[eé]rcoles|jueves|viernes|s[aá]bados?|domingos?)\b(\s+y\b)?/gi, ' ').split(/\s+/).filter(Boolean);
+  if (proyecto) {
+    const key = sinTilde(proyecto.nombre).replace(/[^a-z0-9]/g, '');
+    for (let size = 4; size >= 1; size--) {
+      const i = words.findIndex((_, k) => sinTilde(words.slice(k, k + size).join('')).replace(/[^a-z0-9]/g, '') === key);
+      if (i >= 0) { const from = i > 0 && /^(de|del|en|para)$/i.test(words[i - 1]) ? i - 1 : i; words = [...words.slice(0, from), ...words.slice(i + size)]; break; }
+    }
+  }
+  const frase = words.join(' ').replace(/[.,;:]+$/, '');
+  const nombre = (frase || t).slice(0, 60).toUpperCase();
+  const faltan = [!proyecto && 'proyecto', !programa && /\b(cada|todos|diari|semana|lunes|martes|miercoles|jueves|viernes|sabado|domingo)\b/.test(n) && 'hora'].filter(Boolean);
+  return { proyecto: proyecto?.id || null, proyectoNombre: proyecto?.nombre || null, nombre, descripcion: t.slice(0, 600), procedimiento: t, programa, faltan };
+}
+
+/** Proyectos que una frase nombra («clientes para GEST7», «Galán Contable» → GalanContable), del nombre más largo al más corto. */
+export function proyectosEn(texto, proyectos = []) {
+  const compact = sinTilde(texto).replace(/[^a-z0-9]/g, '');
+  return [...proyectos].sort((a, b) => b.nombre.length - a.nombre.length)
+    .filter((p) => { const k = sinTilde(p.nombre).replace(/[^a-z0-9]/g, ''); return k.length >= 3 && compact.includes(k); }).map((p) => p.id);
 }

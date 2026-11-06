@@ -52,6 +52,7 @@
       <button class="tab" id="b-negocio" type="button" title="Objetivos de negocio: resultado, plan, indicadores medidos y trabajos">Objetivos</button>
       <button class="tab" id="b-autos" type="button" title="Agentes y automatizaciones de todos los proyectos: qué hacen, cuándo trabajan, última ejecución">Agentes</button>
       <button class="tab need" id="b-inbox" type="button" hidden title="Respuestas preparadas que esperan tu aprobación"></button>
+      <button class="tab" type="button" data-tab="proyectos" title="Todos los proyectos">Proyectos</button>
     </nav>
     <div class="bar-side">
       <div class="bar-status">
@@ -80,12 +81,12 @@
   </header>
   <p class="pcline" id="pc-line" hidden></p>
 
-  <!-- De un vistazo: contadores reales (cada uno lleva a su sitio). -->
-  <section class="glance" id="kpis" aria-label="De un vistazo"></section>
+  <!-- LAS CUATRO PREGUNTAS: qué necesita de mí · qué está haciendo · qué ha conseguido · qué hará después. -->
+  <section class="brief" id="kpis" aria-label="Resumen"></section>
 
   <div class="home-grid">
     <div class="home-main">
-      <section class="zone z-need" id="z-need" aria-labelledby="h-need">
+      <section class="zone z-need" id="z-need" aria-labelledby="h-need" hidden>
         <div class="zone-head"><h2 id="h-need">Necesita tu intervención</h2><span class="count" id="n-need">0</span></div>
         <!-- DECISIONES PENDIENTES: todo lo que sólo decide Antonio (objetivo, cambios protegidos del canon y preguntas), de todos los proyectos. -->
         <section class="decisions" id="decisions" aria-label="Decisiones pendientes" hidden></section>
@@ -93,13 +94,22 @@
         <section class="decision inbox-line" id="inbox-line" aria-label="Respuestas por aprobar" hidden></section>
         <div id="need-goals" class="need-goals"></div>
         <div id="atender" class="desks"></div>
-        <p class="zone-empty calm" id="need-empty" hidden>✓ Nada te necesita ahora mismo. CEOPadre sigue solo y te avisará.</p>
+      </section>
+
+      <section class="zone z-bad" id="z-bad" aria-labelledby="h-bad" hidden>
+        <div class="zone-head"><h2 id="h-bad">Con problemas</h2><span class="count" id="n-bad">0</span></div>
+        <div id="problemas" class="desks"></div>
       </section>
 
       <section class="zone" aria-labelledby="h-marcha">
         <div class="zone-head"><h2 id="h-marcha">Trabajando ahora</h2><span class="count" id="n-marcha">0</span></div>
         <main id="marcha" class="desks" aria-live="polite"></main>
-        <p class="zone-empty" id="marcha-empty" hidden>Ahora mismo no hay ningún trabajo en marcha. Dale un objetivo a un proyecto o crea un objetivo de negocio.</p>
+        <p class="zone-empty" id="marcha-empty" hidden>Ahora mismo no hay ningún trabajo en marcha.</p>
+      </section>
+
+      <section class="zone z-wait" id="z-wait" aria-labelledby="h-wait" hidden>
+        <div class="zone-head"><h2 id="h-wait">Esperando algo externo</h2><span class="count" id="n-wait">0</span><span class="conds" id="conds"></span></div>
+        <div id="esperando" class="waits-list"></div>
       </section>
     </div>
 
@@ -107,18 +117,18 @@
       <section class="side-card" id="s-goals" aria-labelledby="h-goals"></section>
       <section class="side-card" id="s-next" aria-labelledby="h-next"></section>
       <section class="side-card" id="s-done" aria-labelledby="h-done"></section>
+      <section class="side-card" id="s-proj" aria-labelledby="h-proj"></section>
       <!-- MANDO REMOTO: proyectos que se gestionan desde aquí (VideoFactory…). La verdad vive en el proyecto, en el PC. -->
       <section class="zone remotes side-card" id="remotes" aria-label="Mando remoto" hidden></section>
     </aside>
   </div>
 
-  <section class="zone z-projects" id="z-projects" aria-labelledby="h-espera">
-    <div class="zone-head"><h2 id="h-espera">Proyectos</h2><span class="count" id="n-espera">0</span></div>
-    <!-- CONDICIONES EN ESPERA: todas las condiciones monitorizadas, completas y copiables, sin entrar en ninguna tarjeta. -->
-    <div class="conds" id="conds"></div>
+  <!-- TODOS LOS PROYECTOS: plegado; se abre desde «Proyectos y agentes» o la pestaña Proyectos. -->
+  <details class="z-projects" id="z-projects">
+    <summary><h2 id="h-espera">Todos los proyectos</h2><span class="count" id="n-espera">0</span></summary>
     <div id="espera" class="tiles"></div>
     <div id="idle" class="idle-row"></div>
-  </section>
+  </details>
   <p class="empty" id="empty" hidden>Todavía no hay proyectos. Abre <b>Más</b> y pulsa <b>+ Nuevo proyecto</b> o <b>Vincular carpeta</b>.</p>
 </section>
 
@@ -128,6 +138,7 @@
   <button type="button" data-go="negocio"><span aria-hidden="true">◆</span>Objetivos<i class="badge" hidden></i></button>
   <button type="button" data-go="autos"><span aria-hidden="true">⚙</span>Agentes</button>
   <button type="button" data-go="inbox"><span aria-hidden="true">✉</span>Respuestas<i class="badge" hidden></i></button>
+  <button type="button" data-go="proyectos"><span aria-hidden="true">▦</span>Proyectos</button>
 </nav>
 
 <section id="p-detail" class="screen" hidden>

@@ -1,6 +1,6 @@
 // CEOPadre en el navegador. En el PC habla con la API local; en el móvil, con Supabase.
 // No ejecuta nada: pinta el estado y deja órdenes. Todo el texto se inserta como texto (nunca HTML).
-import { conditionsText, decisionCount, decisionsText, direccion, gestText, HIGH_RISK, mood, needsDecision, netStatus, office, passwordAt, pcOnline, priority, PROMPT_LIMIT, PROMPT_WARN, quotaView, REAUTH_MS, waitingConditions, zone } from './zones.js';
+import { cleanGoal, conditionsText, decisionCount, decisionsText, direccion, esperaHumana, gestText, HIGH_RISK, mood, needsDecision, netStatus, office, passwordAt, pcOnline, priority, PROMPT_LIMIT, PROMPT_WARN, quotaView, REAUTH_MS, waitingConditions, zone } from './zones.js';
 import { h } from './dom.js';
 import { advice, decideRow, mapBody, mapPanel, pendingDecisions, proposals } from './map.js';
 import { remoteUi } from './remoto.js';
@@ -140,12 +140,12 @@ async function strongConfirm(sb, op, params) {
 // ------------------------------------------------------------------ vocabulario
 
 const STATES = {
-  LIBRE: ['⚪', 'SIN OBJETIVO', 'idle'], EN_COLA: ['⏳', 'EN COLA', 'wait'], TRABAJANDO: ['🟢', 'TRABAJANDO', 'work'],
-  ESPERANDO_DECISION: ['🟡', 'ESPERANDO DECISIÓN', 'ask'], PAUSADO: ['⏸️', 'PAUSADO', 'idle'],
-  ESPERANDO_CLAUDE: ['⏳', 'ESPERANDO CLAUDE', 'wait'], ESPERANDO_CEO: ['⏳', 'ESPERANDO CEO', 'wait'],
-  ESPERANDO_CONDICION: ['🔭', 'ESPERANDO CONDICIÓN · MONITORIZADO', 'wait'], ESPERANDO_ANTONIO: ['✋', 'TE NECESITA', 'ask'],
-  SIN_ACTIVIDAD: ['🟠', 'SIN ACTIVIDAD', 'warn'], BLOQUEADO: ['🔴', 'BLOQUEADO', 'bad'], ERROR: ['🔴', 'ERROR', 'bad'],
-  LISTO: ['✅', 'LISTO · TU TURNO', 'ok'], TERMINADO: ['✅', 'TERMINADO', 'ok'], CANCELADO: ['⚪', 'CANCELADO', 'idle'],
+  LIBRE: ['⚪', 'SIN OBJETIVO', 'idle'], EN_COLA: ['⏳', 'PRÓXIMO · EN COLA', 'wait'], TRABAJANDO: ['🟢', 'TRABAJANDO', 'work'],
+  ESPERANDO_DECISION: ['🟡', 'NECESITA TU RESPUESTA', 'ask'], PAUSADO: ['⏸️', 'EN PAUSA', 'idle'],
+  ESPERANDO_CLAUDE: ['⏳', 'SIN CUOTA DE CLAUDE · PULSA CONTINUAR', 'wait'], ESPERANDO_CEO: ['⏳', 'SIN CUOTA DEL CEO · PULSA CONTINUAR', 'wait'],
+  ESPERANDO_CONDICION: ['🔭', 'ESPERANDO ALGO EXTERNO', 'wait'], ESPERANDO_ANTONIO: ['✋', 'NECESITA QUE HAGAS ALGO', 'ask'],
+  SIN_ACTIVIDAD: ['🟠', 'TRABAJANDO · SIN SEÑALES', 'warn'], BLOQUEADO: ['🔴', 'BLOQUEADO', 'bad'], ERROR: ['🔴', 'HAY UN PROBLEMA', 'bad'],
+  LISTO: ['✅', 'TE TOCA: CONTINUAR', 'ok'], TERMINADO: ['✅', 'TERMINADO Y COMPROBADO', 'ok'], CANCELADO: ['⚪', 'CANCELADO', 'idle'],
 };
 const OPEN = ['LIBRE', 'TERMINADO', 'CANCELADO'];
 const WAITING = ['ESPERANDO_CLAUDE', 'ESPERANDO_CEO'];
@@ -195,6 +195,7 @@ const show = (id) => {
 };
 function goTab(go) {
   if (go === 'home') { openId = null; show('p-list'); window.scrollTo(0, 0); return; }
+  if (go === 'proyectos') { openId = null; show('p-list'); const z = $('#z-projects'); z.open = true; z.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
   $({ negocio: '#b-negocio', autos: '#b-autos', inbox: '#b-inbox' }[go])?.click();
 }
 document.addEventListener('click', (e) => {
@@ -477,8 +478,10 @@ const esGasto = (x) => (x.propuesta || '').startsWith('⚠️ AUTORIZACIÓN DE G
 const decisionLines = (x) => {
   if (esGasto(x)) return [h('p', { class: 'ln gasto' }, x.recomendacion || x.propuesta)];
   const [rec, opts] = String(x.recomendacion || '').split(/\n?OPCIONES:\n?/);
-  return [line('QUÉ CAMBIA', x.propuesta), rec ? line('RECOMIENDO', rec) : null,
-    opts ? h('details', { class: 'prop-more', 'data-k': `opts-${x.trabajo}` }, h('summary', {}, 'Opciones'), h('p', { class: 'ln' }, opts)) : null];
+  // Las alternativas, a la vista (antes plegadas): cada una en su línea, con su letra.
+  const alts = String(opts || '').split(/\n+/).map((l) => l.trim()).filter(Boolean);
+  return [line('QUÉ NECESITA', x.propuesta), rec ? line('EL CEO RECOMIENDA', rec) : null,
+    alts.length ? h('ul', { class: 'alts' }, alts.map((a) => { const m = /^([A-Z])\s*[—:–-]\s*(.*)$/.exec(a); return h('li', {}, m ? [h('b', {}, m[1]), ' ', m[2]] : a); })) : null];
 };
 /** TRABAJO POSTERIOR FUERA DE CEOPADRE: lo que se espera de Antonio puede estar superado. Sólo avisa (con datos) y deja
  *  conciliar: nunca da la pregunta por respondida ni el objetivo por terminado (src/commands.js trabajo.conciliar). */
@@ -497,19 +500,23 @@ function superadaBox(c) {
         onclick: (e) => run('trabajo.vigente', { trabajo: c.trabajo }, 'Anotado', e.currentTarget) }, 'Sigue vigente')));
 }
 /** La decisión del objetivo (ESPERANDO_DECISION): qué cambia, recomendación de Codex si la hay y ✓ ✕ ?. Igual en todas partes. */
-const jobDecision = (c) => (c.estado === 'ESPERANDO_DECISION' ? h('div', { class: 'decision' }, superadaBox(c), ...decisionLines(c), advice(c.consejo),
+// Qué pasa con cada botón, dicho antes de pulsarlo (lo que hace de verdad el motor: trabajo.aprobar / trabajo.rechazar).
+const conseq = (c) => (esGasto(c) ? null : h('p', { class: 'ln conseq' }, h('b', {}, 'SI APRUEBAS'), ' el CEO sigue con lo propuesto. ',
+  h('b', {}, 'SI RECHAZAS'), ' busca otra vía sin ese cambio o termina explicando por qué no se puede.'));
+const jobDecision = (c) => (c.estado === 'ESPERANDO_DECISION' ? h('div', { class: 'decision' }, superadaBox(c), ...decisionLines(c), advice(c.consejo), conseq(c),
   decideRow({ yes: (e) => actions.approve(c, e.currentTarget), no: (e) => actions.reject(c, e.currentTarget),
     ask: c.ref ? (e) => actions.consult(c, c.ref, e.currentTarget) : null,
-    yesLabel: esGasto(c) ? 'Sí, autorizo este gasto' : 'Aprobar', noLabel: esGasto(c) ? 'No autorizo este gasto' : 'Rechazar' })) : null);
+    yesLabel: esGasto(c) ? 'Sí, autorizo este gasto' : 'Aprobar', noLabel: esGasto(c) ? 'No autorizo este gasto' : 'Rechazar' }),
+  h('button', { class: 'link', type: 'button', onclick: (e) => actions.instruct(c, e.currentTarget) }, 'Responder otra cosa o pedir una aclaración')) : null);
 
 // ------------------------------------------------------------------ la oficina
 
 // Texto del estado en los puestos (lo que Antonio lee de un vistazo).
-const MOOD_LABEL = { ESPERANDO_DECISION: 'Te necesita · decidir', ERROR: 'Error · revisar', BLOQUEADO: 'Bloqueado · revisar',
-  SIN_ACTIVIDAD: 'Sin actividad', TRABAJANDO: 'Trabajando', ESPERANDO_CLAUDE: 'Esperando a Claude', ESPERANDO_CEO: 'Esperando al CEO',
-  ESPERANDO_CONDICION: 'Esperando condición · monitorizado', ESPERANDO_ANTONIO: 'Te necesita · hacer algo', EN_COLA: 'En cola', LIBRE: 'Sin objetivo', PAUSADO: 'Pausado', LISTO: 'Listo · tu turno', TERMINADO: 'Terminado', CANCELADO: 'Cancelado' };
+const MOOD_LABEL = { ESPERANDO_DECISION: 'Necesita tu respuesta', ERROR: 'Hay un problema', BLOQUEADO: 'Bloqueado',
+  SIN_ACTIVIDAD: 'Trabajando (sin señales; se recupera solo)', TRABAJANDO: 'Trabajando', ESPERANDO_CLAUDE: 'Sin cuota de Claude · pulsa Continuar', ESPERANDO_CEO: 'Sin cuota del CEO · pulsa Continuar',
+  ESPERANDO_CONDICION: 'Esperando algo externo', ESPERANDO_ANTONIO: 'Necesita que hagas algo', EN_COLA: 'Próximo: en cola', LIBRE: 'Sin objetivo', PAUSADO: 'En pausa', LISTO: 'Te toca: continuar', TERMINADO: 'Terminado y comprobado', CANCELADO: 'Cancelado' };
 // Una decisión pendiente de Antonio (del objetivo o del canon) manda sobre cualquier otro estado.
-const decisionLabel = (c) => { const n = decisionCount(c); return n > 1 ? `ESPERANDO TU DECISIÓN · ${n}` : 'ESPERANDO TU DECISIÓN'; };
+const decisionLabel = (c) => { const n = decisionCount(c); return n > 1 ? `Necesita tu respuesta · ${n}` : 'Necesita tu respuesta'; };
 const status = (c, text) => h('span', { class: 'status' }, h('i', { class: 'dot', 'aria-hidden': 'true' }),
   text || (needsDecision(c) ? decisionLabel(c) : MOOD_LABEL[c.estado] || c.estado));
 
@@ -518,37 +525,71 @@ function canonDecisionLine(c) {
   const n = (c.decisiones?.length || 0) + (c.propuestas?.length || 0);
   if (!n) return null;
   return h('div', { class: 'decision' },
-    h('p', { class: 'ln' }, h('b', {}, 'TE NECESITA'), ` ${n} ${n === 1 ? 'decisión pendiente' : 'decisiones pendientes'}`,
+    h('p', { class: 'ln' }, h('b', {}, 'NECESITA TU RESPUESTA'), ` ${n} ${n === 1 ? 'pregunta pendiente' : 'preguntas pendientes'}`,
       c.estado !== 'ESPERANDO_DECISION' && c.estado !== 'LIBRE' ? ` · el objetivo sigue: ${MOOD_LABEL[c.estado] || c.estado}` : ''),
-    h('div', { class: 'row' }, h('button', { class: 'btn primary small', type: 'button', onclick: () => openDecisions(c.id) }, 'DECIDIR')));
+    h('div', { class: 'row' }, h('button', { class: 'btn primary small', type: 'button', onclick: () => openDecisions(c.id) }, 'RESPONDER')));
 }
 
 /** Puesto de trabajo (EN MARCHA): qué hace, qué sigue y, si hay que decidir, la decisión a mano. */
 // «última señal hace N»: la hora del último evento real del proceso (no un contador que avanza solo): lento ≠ parado.
 const signal = (c) => (c.ultima_actividad ? `última señal ${ago(c.ultima_actividad)}` : '');
+// Lo que el puesto pide a Antonio cuando no es una pregunta: dicho en una frase, con el botón que lo resuelve al lado.
+function needLine(c) {
+  if (WAITING.includes(c.estado)) { const [a, b] = waitLines(c); return line('TE NECESITA', `${a} ${b}`); }
+  if (c.estado === 'ESPERANDO_ANTONIO') return line('TE NECESITA', c.te_necesita || 'Una acción tuya: cuando la hagas, CEOPadre lo comprueba solo y sigue.');
+  if (c.estado === 'LISTO') return line('TE TOCA', c.modo === 'MANUAL' ? 'Claude terminó su parte: envía la siguiente instrucción.' : 'Claude terminó su parte: pulsa Continuar o da una instrucción.');
+  return null;
+}
 function desk(c) {
   const running = ['TRABAJANDO', 'SIN_ACTIVIDAD'].includes(c.estado);
-  const [ahora, siguiente] = WAITING.includes(c.estado) ? waitLines(c) : [running && c.actividad ? `${c.actividad} · ${signal(c)}${c.ahora ? ` · ${c.ahora}` : ''}` : c.ahora, c.siguiente];
   const decision = jobDecision(c);
+  const need = needLine(c);
   return h('article', { class: `desk m-${mood(c)}`, 'data-id': c.id },
     h('header', { class: 'unit-head' }, logo(c),
       h('div', { class: 'title' }, h('h3', { title: c.nombre }, c.nombre), status(c)),
       c.estado === 'TRABAJANDO' ? h('span', { class: 'beacon', title: 'Trabajando ahora', 'aria-hidden': 'true' }) : null),
-    h('p', { class: 'ln goal', title: c.objetivo }, c.objetivo),
-    line('AHORA', ahora),
-    line('SIGUIENTE', siguiente, 'next'),
+    h('p', { class: 'ln goal', title: c.objetivo }, cleanGoal(c.objetivo)),
+    need,
+    running ? line('HACIENDO AHORA', c.actividad ? `${c.actividad} · ${signal(c)}` : 'preparando el siguiente paso') : null,
+    need || decision ? null : line(running ? 'ÚLTIMO AVANCE' : 'SITUACIÓN', c.ahora),
+    running && c.siguiente ? line('DESPUÉS', c.siguiente, 'next') : null,
     c.detalle && ['BLOQUEADO', 'ERROR', 'SIN_ACTIVIDAD'].includes(c.estado) ? h('p', { class: 'note' }, c.detalle) : null,
     c.pendientes ? h('p', { class: 'ln muted' }, h('b', {}, 'PENDIENTES'), ` ${c.pendientes}`) : null,
     c.anadidos ? h('p', { class: 'ln muted' }, h('b', {}, 'AÑADIDO'), ` ${c.anadidos} sin incorporar todavía`) : null,
-    esperandoLine(c),
     decision || superadaBox(c),
     canonDecisionLine(c),
     h('div', { class: 'actions' }, buttonsFor(c)));
 }
 
-/** Otros objetivos del proyecto que esperan una condición (monitorizados, sin ocupar el hueco). */
-const esperandoLine = (c) => (c.esperando?.length ? h('p', { class: 'ln muted', title: c.esperando.map((x) => x.condicion).join(' · ') },
-  h('b', {}, 'MONITORIZADO'), ` ${c.esperando.length} objetivo${c.esperando.length === 1 ? '' : 's'} esperando una condición`) : null);
+/** Otro objetivo del proyecto que espera algo que sólo puedes hacer tú (renovar un permiso…): qué y el botón que lo resuelve. */
+function tuyaCard(x) {
+  const hum = esperaHumana(x.condicion || '');
+  return h('article', { class: 'desk m-need', 'data-id': `${x.c.id}:${x.trabajo}` },
+    h('header', { class: 'unit-head' }, logo(x.c), h('div', { class: 'title' }, h('h3', {}, x.c.nombre), status({ estado: 'ESPERANDO_ANTONIO' }))),
+    h('p', { class: 'ln goal', title: x.objetivo }, cleanGoal(x.objetivo)),
+    line('TE NECESITA', hum.que ? hum.que.charAt(0).toUpperCase() + hum.que.slice(1) : x.condicion),
+    h('p', { class: 'ln muted' }, 'Cuando lo hagas, CEOPadre lo comprueba solo y sigue. Si ya lo has hecho, pulsa el botón.'),
+    h('div', { class: 'row' }, h('button', { class: 'btn primary small', type: 'button', onclick: (e) => run('trabajo.reanudar', { trabajo: x.trabajo }, 'Comprobando', e.currentTarget) }, 'Ya lo he hecho'),
+      h('button', { class: 'btn ghost small', type: 'button', onclick: () => actions.details(x.c) }, 'Ver detalles')));
+}
+/** ESPERANDO ALGO EXTERNO: en lenguaje normal (qué falta, cuándo se miró, qué pasará). Lo técnico, en la ficha. */
+function waitCard(x) {
+  const c = x.c, e = x.esperas[0];
+  const hum = esperaHumana(e?.descripcion || x.condicion || '');
+  const que = hum.que ? hum.que.charAt(0).toUpperCase() + hum.que.slice(1) : 'Algo que no depende del CEO.';
+  const hasta = e?.hasta ? new Date(e.hasta).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' }) : '';
+  return h('article', { class: 'wait-card', 'data-id': `${c.id}:${x.trabajo}` },
+    h('header', { class: 'unit-head' }, logo(c), h('div', { class: 'title' }, h('h3', {}, `${c.nombre} — ${hum.titulo}`),
+      h('small', { class: 'muted goal1', title: x.objetivo }, hum.asunto || cleanGoal(x.objetivo)))),
+    h('p', { class: 'wait-lead' }, 'Este trabajo sigue en cuanto ocurra. CEOPadre lo comprueba solo y continúa: no tienes que hacer nada.'),
+    h('dl', { class: 'wait-dl' },
+      h('dt', {}, 'Qué falta'), h('dd', {}, que),
+      e ? [h('dt', {}, 'Última comprobación'), h('dd', {}, `${e.comprobada ? ago(e.comprobada) : 'aún no'}${e.error ? ' · no se pudo comprobar' : ' · todavía no ha llegado'} · se mira cada ${Math.round(e.cada_s / 60) || 1} min${hasta ? ` hasta el ${hasta}` : ''}`)] : null,
+      h('dt', {}, 'Cuando llegue'), h('dd', {}, hum.luego)),
+    h('div', { class: 'row' },
+      h('button', { class: 'btn ghost small', type: 'button', onclick: () => actions.details(c) }, 'Ver detalles'),
+      e ? h('button', { class: 'btn ghost small', type: 'button', onclick: (ev) => run('espera.comprobar', { id: e.id }, 'Comprobado', ev.currentTarget) }, 'Comprobar ahora') : null));
+}
 
 /** Azulejo (EN ESPERA): logo, nombre, estado mínimo y las acciones de siempre (y, si espera, qué espera). */
 function tile(c) {
@@ -596,8 +637,9 @@ function repaint(box, items) {
   if (active) box.querySelector(`[data-id="${CSS.escape(active)}"] button`)?.focus({ preventScroll: true });
 }
 
-// CENTRO DE DIRECCIÓN: qué te necesita · qué trabaja · objetivos · qué viene · qué se terminó · proyectos.
-// El reparto sale de web/zones.js direccion() (estados reales del motor; nada estimado).
+// CENTRO DE DIRECCIÓN (V3.3). Arriba, las cuatro preguntas; debajo, cada trabajo en UNA sección (sin repetir tarjetas):
+// necesita tu intervención · con problemas · trabajando · esperando algo externo · próximos · conseguido · proyectos y agentes.
+// El reparto es web/zones.js direccion() (estados reales del motor; nada estimado). Las secciones vacías no ocupan sitio.
 function paintList() {
   const pcl = $('#pc-line');
   pcl.hidden = LOCAL || data.pc.online || net === 'offline';
@@ -608,26 +650,34 @@ function paintList() {
   const d = direccion(data.proyectos);
   const inboxN = data.proyectos.reduce((a, c) => a + (c.bandeja || []).filter((m) => ['PENDIENTE', 'BLOQUEADO', 'NO_CONFIRMADO', 'FALLIDO'].includes(m.estado)).length, 0);
   const negNeed = data.negocio?.te_necesitan || 0;
-  const need = d.kpis.decisiones + d.atender.filter((c) => !needsDecision(c)).length + inboxN + negNeed;
-  // Te necesitan: las decisiones (lista global) y los puestos que esperan algo tuyo sin ser una pregunta.
-  repaint($('#atender'), d.atender.filter((c) => c.estado !== 'ESPERANDO_DECISION').map(desk));
+  // Cosas que te esperan (no tarjetas): cada pregunta, cada puesto que te pide algo, las respuestas y los objetivos de negocio.
+  const need = d.kpis.decisiones + d.necesita.filter((c) => !needsDecision(c)).length + d.tuyas.length + inboxN + negNeed;
+  repaint($('#atender'), [...d.necesita.filter((c) => !needsDecision(c)).map(desk), ...d.tuyas.map(tuyaCard)]);
   $('#n-need').textContent = String(need);
-  $('#need-empty').hidden = need > 0;
-  $('#z-need').classList.toggle('calm', !need);
-  // Trabajando ahora: con la actividad real de Claude y la última señal.
+  $('#z-need').hidden = !need;
+  // Con problemas: sólo si hay.
+  repaint($('#problemas'), d.problemas.map(desk));
+  $('#n-bad').textContent = String(d.problemas.length);
+  $('#z-bad').hidden = !d.problemas.length;
+  // Trabajando: la actividad real de Claude; vacío = una línea, no un hueco.
   repaint($('#marcha'), d.trabajando.map(desk));
   $('#n-marcha').textContent = String(d.trabajando.length);
   $('#marcha-empty').hidden = d.trabajando.length > 0;
-  // Proyectos: GESTIONES + los que tienen historial; los que no tienen actividad, en una fila compacta plegada.
+  // Esperando algo externo: en lenguaje normal.
+  repaint($('#esperando'), d.esperando.map(waitCard));
+  $('#n-wait').textContent = String(d.esperando.length);
+  $('#z-wait').hidden = !d.esperando.length;
+  // Todos los proyectos: plegado al final (GESTIONES + los que tienen historia + los que están en reposo).
   repaint($('#espera'), [gestUnit(o, false), ...d.conHistoria.map(tile)].filter(Boolean));
   paintIdle(d.sinActividad);
   $('#n-espera').textContent = String(d.kpis.proyectos);
-  $('#office-sum').textContent = `${d.trabajando.length} trabajando · ${need} ${need === 1 ? 'te necesita' : 'te necesitan'} · ${data.negocio?.abiertos || 0} objetivos`;
+  $('#office-sum').textContent = need ? `${need} ${need === 1 ? 'cosa te espera' : 'cosas te esperan'}` : 'nada te espera ahora';
   $('#empty').hidden = data.proyectos.length > 0;
-  paintKpis(d, need, inboxN);
+  paintBrief(d, need, inboxN);
   paintGoals();
   paintNext(d);
   paintDone(d);
+  paintProjects(d);
   paintTabs(inboxN, negNeed);
   paintQuota();
   paintDecisions();
@@ -635,23 +685,26 @@ function paintList() {
   rui?.paintCards($('#remotes'));
 }
 
-// Contadores de un vistazo: cada uno lleva a su sitio. Sólo números del motor (sin porcentajes ni estimaciones).
-let kpiSig = null;
-function paintKpis(d, need, inboxN) {
+// LAS CUATRO PREGUNTAS: cada respuesta en una frase con su número real, y un toque lleva al detalle.
+let briefSig = null;
+function paintBrief(d, need, inboxN) {
   const k = d.kpis, prox = k.proxima;
+  const first = d.necesita[0];
   const items = [
-    ['need', need, need === 1 ? 'Te necesita' : 'Te necesitan', need ? [k.decisiones && `${k.decisiones} decisión${k.decisiones === 1 ? '' : 'es'}`, inboxN && `${inboxN} respuesta${inboxN === 1 ? '' : 's'}`, data.negocio?.te_necesitan && 'objetivo de negocio'].filter(Boolean).join(' · ') : 'todo en orden', () => scrollToId('z-need')],
-    ['work', k.trabajando, 'Trabajando', k.trabajando ? `Claude activo en ${k.claude}` : 'ningún trabajo en marcha', () => scrollToId('h-marcha')],
-    ['goal', data.negocio?.abiertos || 0, 'Objetivos de negocio', data.negocio?.abiertos ? 'planificados y medidos' : 'crea el primero', () => nui?.open()],
-    ['done', k.terminados7, 'Terminados · 7 días', 'cerrados con evidencia', () => scrollToId('s-done')],
-    ['auto', k.programadas, 'Programadas', prox ? `próxima ${hhmm(prox.programa.proxima)} · ${prox.nombre.toLowerCase()}` : d.pausadas.length ? `${d.pausadas.length} con horario en pausa` : 'sin horario activo', () => $('#b-autos').click()],
-    ['proj', k.proyectos, 'Proyectos', `${k.proyectos - k.inactivos} con actividad · ${k.inactivos} en reposo`, () => scrollToId('z-projects')],
+    ['need', '¿Qué necesita de mí?', need ? `${need} ${need === 1 ? 'cosa' : 'cosas'}` : 'Nada ahora',
+      need ? [first && `${first.nombre}: ${needsDecision(first) ? 'una respuesta' : (MOOD_LABEL[first.estado] || '').toLowerCase()}`, inboxN && `${inboxN} respuesta${inboxN === 1 ? '' : 's'} por aprobar`].filter(Boolean).join(' · ') : 'CEOPadre sigue solo y te avisará', () => scrollToId('z-need')],
+    ['work', '¿Qué está haciendo?', k.trabajando ? `${k.trabajando} en marcha` : 'Nada en marcha',
+      [d.trabajando[0] && `${d.trabajando[0].nombre}: ${d.trabajando[0].actividad || 'trabajando'}`, k.esperando && `${k.esperando} esperando algo externo`, k.problemas && `${k.problemas} con problemas`].filter(Boolean).join(' · ') || 'Dale un objetivo a un proyecto', () => scrollToId(k.trabajando ? 'h-marcha' : k.esperando ? 'z-wait' : 'h-marcha')],
+    ['done', '¿Qué ha conseguido?', `${k.terminados7} ${k.terminados7 === 1 ? 'terminado' : 'terminados'}`,
+      `esta semana, comprobados con evidencia${data.negocio?.abiertos ? ` · ${data.negocio.abiertos} objetivo${data.negocio.abiertos === 1 ? '' : 's'} de negocio en marcha` : ''}`, () => scrollToId('s-done')],
+    ['next', '¿Qué hará después?', prox ? hhmm(prox.programa.proxima) : 'Nada programado',
+      prox ? `${prox.nombre.charAt(0)}${prox.nombre.slice(1).toLowerCase()} · ${prox.proyectoNombre}` : d.pausadas.length ? `${d.pausadas.length} con horario en pausa` : 'Programa un agente en Agentes', () => scrollToId('s-next')],
   ];
   const sig = JSON.stringify(items.map((x) => x.slice(0, 4)));
-  if (sig === kpiSig) return;
-  kpiSig = sig;
-  $('#kpis').replaceChildren(...items.map(([cls, n, label, sub, go]) => h('button', { class: `kpi-tile k-${cls}${cls === 'need' && n ? ' hot' : ''}`, type: 'button', onclick: go },
-    h('span', { class: 'kpi-n' }, String(n)), h('span', { class: 'kpi-l' }, label), h('small', { class: 'kpi-s' }, sub))));
+  if (sig === briefSig) return;
+  briefSig = sig;
+  $('#kpis').replaceChildren(...items.map(([cls, q, a, sub, go]) => h('button', { class: `q-tile q-${cls}${cls === 'need' && need ? ' hot' : ''}`, type: 'button', onclick: go },
+    h('span', { class: 'q-q' }, q), h('span', { class: 'q-a' }, a), h('small', { class: 'q-s' }, sub))));
 }
 // replaceChildren() pinta «null» y los arrays como texto: sólo nodos.
 const fill = (box, ...kids) => box.replaceChildren(...kids.flat(Infinity).filter(Boolean));
@@ -670,7 +723,7 @@ function paintGoals() {
     void api.cmd('negocio.lista', {}).then((r) => { if (r?.ok) { goals.list = r.data.objetivos; goals.at = Date.now(); } }).finally(() => { goals.busy = false; paintGoals(); });
   }
   const list = n ? (goals.list || []).filter((g) => !['ALCANZADA', 'CANCELADA'].includes(g.estado)) : [];
-  const kpi = (g) => { const x = g.kpis.find((k) => k.disponible && k.valor != null); return x ? `${x.nombre}: ${x.valor}${x.unidad ? ` ${x.unidad}` : ''} (objetivo ${x.sentido} ${x.objetivo})` : g.kpis.length ? 'indicadores aún sin medir' : 'sin indicadores aprobados'; };
+  const kpi = (g) => { const x = g.kpis.find((k) => k.disponible && k.valor != null); return x ? `${x.nombre}: ${x.valor}${x.unidad ? ` ${x.unidad}` : ''} de ${x.objetivo}` : g.kpis.length ? 'resultados aún sin medir' : 'sin indicadores aprobados'; };
   const sig = JSON.stringify([n, list.map((g) => [g.id, g.estado, kpi(g), g.trabajos.terminados, g.trabajos.en_curso?.ahora])]);
   const box = $('#s-goals');
   if (box.dataset.sig === sig) return;
@@ -678,31 +731,31 @@ function paintGoals() {
   // Los que te necesitan (plan por aprobar, pregunta, bloqueo) también van a «Necesita tu intervención».
   fill($('#need-goals'), list.filter((g) => g.te_necesita).map((g) => h('div', { class: 'decision need-goal' },
     h('p', { class: 'ln' }, h('b', {}, 'OBJETIVO DE NEGOCIO'), ` ${g.titulo} · ${g.estado_texto}${g.pregunta ? ` · ${g.pregunta}` : ''}`),
-    h('div', { class: 'row' }, h('button', { class: 'btn primary small', type: 'button', onclick: () => nui?.openOne(g.id) }, g.estado === 'ESPERANDO_APROBACION' ? 'REVISAR EL PLAN' : 'ABRIR Y RESPONDER')))));
-  fill(box, sideHead('h-goals', 'Objetivos empresariales', n, ['Ver todos', () => nui?.open()]),
+    h('div', { class: 'row' }, h('button', { class: 'btn primary small', type: 'button', onclick: () => nui?.openOne(g.id) }, g.estado === 'ESPERANDO_APROBACION' ? 'Revisar el plan' : 'Abrir y responder')))));
+  fill(box, sideHead('h-goals', 'Objetivos de negocio', n, ['Ver todos', () => nui?.open()]),
     n && !goals.list ? h('p', { class: 'muted small' }, 'Cargando…')
       : list.length ? h('ul', { class: 'side-list goals' }, list.map((g) => h('li', { class: `g-${g.te_necesita ? 'need' : 'ok'}` },
         h('button', { class: 'side-item', type: 'button', onclick: () => nui?.openOne(g.id) },
           h('b', {}, g.titulo), h('span', { class: `a-chip t-${g.te_necesita ? 'ask' : g.estado === 'ACTIVA' ? 'work' : 'idle'}` }, g.estado_texto),
-          h('small', { class: 'muted' }, `${kpi(g)} · ${g.trabajos.terminados} trabajo${g.trabajos.terminados === 1 ? '' : 's'} hecho${g.trabajos.terminados === 1 ? '' : 's'}${g.trabajos.en_curso ? ` · ahora en ${g.trabajos.en_curso.proyecto}` : ''}`)))))
-        : [h('p', { class: 'muted small' }, 'Ningún objetivo empresarial activo. Escribe el resultado que buscas («vender GEST7 por redes») y el director planifica, ejecuta, mide y sigue solo.'),
-          h('button', { class: 'btn primary small', type: 'button', disabled: data.pc.online === false, onclick: (e) => nui?.crear(e.currentTarget) }, '+ Nuevo objetivo de negocio')]);
+          h('small', { class: 'muted' }, `Resultado: ${kpi(g)} · ${g.trabajos.terminados} trabajo${g.trabajos.terminados === 1 ? '' : 's'} hecho${g.trabajos.terminados === 1 ? '' : 's'}${g.trabajos.en_curso ? ` · ahora en ${g.trabajos.en_curso.proyecto}` : ''}`)))))
+        : [h('p', { class: 'muted small' }, 'Escribe el resultado que quieres («Quiero conseguir clientes para GEST7 por redes sociales»): el CEO lo analiza, te pregunta lo necesario, lo organiza y trabaja solo.'),
+          h('button', { class: 'btn primary', type: 'button', disabled: data.pc.online === false, onclick: (e) => nui?.crear(e.currentTarget) }, '+ Nuevo objetivo de negocio')]);
 }
 
-// PRÓXIMOS TRABAJOS: horarios reales, colas, condiciones vigiladas y el SIGUIENTE de lo que está en marcha.
-const NEXT_ICON = { auto: '⏰', cola: '⏳', condicion: '🔭', siguiente: '→' };
+// PRÓXIMOS TRABAJOS: sólo lo programado (fecha, hora y para qué) o preparado para empezar. Las esperas tienen su sección.
 function paintNext(d) {
-  const items = d.proximos.slice(0, 7);
+  const items = d.proximos.slice(0, 6);
   const sig = JSON.stringify([items, d.pausadas.map((a) => a.id)]);
   const box = $('#s-next');
   if (box.dataset.sig === sig) return;
   box.dataset.sig = sig;
   fill(box, sideHead('h-next', 'Próximos trabajos', items.length, ['Agentes', () => $('#b-autos').click()]),
-    items.length ? h('ul', { class: 'side-list' }, items.map((x) => h('li', {}, h('button', { class: 'side-item', type: 'button', onclick: () => actions.details({ id: x.id }) },
-      h('span', { class: 'ico', 'aria-hidden': 'true' }, NEXT_ICON[x.tipo]), h('b', {}, x.tipo === 'auto' ? `${hhmm(x.cuando)} · ${x.titulo}` : x.titulo),
-      h('small', { class: 'muted' }, x.tipo === 'siguiente' ? `${x.proyecto} · después de lo actual` : x.tipo === 'condicion' ? `${x.proyecto} · vigilado: sigue solo al cumplirse` : x.proyecto)))))
+    items.length ? h('ul', { class: 'side-list' }, items.map((x) => h('li', {}, h('button', { class: 'side-item', type: 'button', onclick: () => (x.tipo === 'auto' ? $('#b-autos').click() : actions.details({ id: x.id })) },
+      h('span', { class: 'ico', 'aria-hidden': 'true' }, x.tipo === 'auto' ? '⏰' : '⏳'),
+      h('b', {}, x.tipo === 'auto' ? `${hhmm(x.cuando)} · ${x.titulo.toLowerCase()}` : cleanGoal(x.titulo)),
+      h('small', { class: 'muted' }, `${x.proyecto}${x.para ? ` · ${x.para}` : ''}`)))))
       : h('p', { class: 'muted small' }, 'Nada programado ni en cola.'),
-    d.pausadas.length ? h('p', { class: 'muted small' }, `Con horario EN PAUSA: ${d.pausadas.map((a) => `${a.nombre.toLowerCase()} (${a.proyectoNombre}, ${a.programa.texto.toLowerCase()})`).join(' · ')}`) : null);
+    d.pausadas.length ? h('p', { class: 'muted small' }, `Con horario en pausa: ${d.pausadas.map((a) => `${a.nombre.toLowerCase()} (${a.proyectoNombre}, ${a.programa.texto.replace(' (hora de Madrid)', '').toLowerCase()})`).join(' · ')}`) : null);
 }
 
 // TERMINADO Y COMPROBADO: objetivos cerrados (el motor sólo cierra con evidencia) y ejecuciones de agentes completadas.
@@ -714,12 +767,27 @@ function paintDone(d) {
   const day = (iso) => new Date(iso).toLocaleDateString('es-ES', { day: '2-digit', month: 'short' });
   fill(box, sideHead('h-done', 'Terminado y comprobado', null),
     d.terminados.length || d.autosHechas.length ? h('ul', { class: 'side-list done' },
-      d.terminados.map((c) => h('li', {}, h('button', { class: 'side-item', type: 'button', onclick: () => actions.details(c) },
+      d.terminados.slice(0, 3).map((c) => h('li', {}, h('button', { class: 'side-item', type: 'button', onclick: () => actions.details(c) },
         h('span', { class: 'ico ok', 'aria-hidden': 'true' }, '✓'), h('b', {}, c.nombre), h('small', { class: 'muted' }, `${day(c.updated_at)} · ${c.ahora || 'terminado'}`)))),
-      d.autosHechas.map((a) => h('li', {}, h('button', { class: 'side-item', type: 'button', onclick: () => $('#b-autos').click() },
+      d.autosHechas.slice(0, 2).map((a) => h('li', {}, h('button', { class: 'side-item', type: 'button', onclick: () => $('#b-autos').click() },
         h('span', { class: 'ico ok', 'aria-hidden': 'true' }, '⚙'), h('b', {}, `${a.nombre.toLowerCase()} · ${a.proyectoNombre}`),
         h('small', { class: 'muted' }, `${day(a.ultima.fin)} · ${a.ultima.resultado?.resumen || 'completada'}`)))))
       : h('p', { class: 'muted small' }, 'Aún no hay trabajos cerrados.'));
+}
+
+// PROYECTOS Y AGENTES: accesos, no tarjetas. Los proyectos con actividad como fichas pequeñas; el resto, a un toque.
+function paintProjects(d) {
+  const box = $('#s-proj');
+  const act = d.conHistoria;
+  const sig = JSON.stringify([act.map((c) => [c.id, c.estado, c.logo]), d.kpis.proyectos, d.kpis.agentes]);
+  if (box.dataset.sig === sig) return;
+  box.dataset.sig = sig;
+  fill(box, sideHead('h-proj', 'Proyectos y agentes', null),
+    h('div', { class: 'chips' }, act.slice(0, 8).map((c) => h('button', { class: 'pchip', type: 'button', title: `${c.nombre} · ${MOOD_LABEL[c.estado] || c.estado}`, onclick: () => actions.details(c) },
+      logo(c), h('span', {}, c.nombre)))),
+    h('div', { class: 'row side-links' },
+      h('button', { class: 'btn ghost small', type: 'button', onclick: () => goTab('proyectos') }, `Todos los proyectos (${d.kpis.proyectos})`),
+      h('button', { class: 'btn ghost small', type: 'button', onclick: () => $('#b-autos').click() }, `Agentes (${d.kpis.agentes})`)));
 }
 
 // Proyectos en reposo: una fila compacta (logo + nombre), plegada. Un toque abre su ficha.
@@ -738,7 +806,7 @@ function paintIdle(list) {
 // Pestañas: la de arriba (PC) y la barra inferior (móvil) dicen dónde estás y cuántas cosas te esperan.
 function paintTabs(inboxN, negNeed) {
   const bar = $('#tabbar');
-  const badge = (go, n) => { const b = bar.querySelector(`[data-go="${go}"] .badge`); b.hidden = !n; b.textContent = String(n); };
+  const badge = (go, n) => { const b = bar.querySelector(`[data-go="${go}"] .badge`); if (!b) return; b.hidden = !n; b.textContent = String(n); };
   badge('inbox', inboxN);
   badge('negocio', negNeed);
 }
@@ -758,23 +826,8 @@ function paintConditions() {
   const sig = JSON.stringify(list);
   if (sig === condSig) return;
   condSig = sig;
-  const n = list.length;
-  // Sin condiciones no se pinta nada (antes: «CONDICIONES EN ESPERA · 0», ruido en la pantalla principal).
-  if (!n) { $('#conds').replaceChildren(); return; }
-  const estado = (x) => [x.principal ? 'Monitorizado' : `Otro objetivo del proyecto · el proyecto: ${MOOD_LABEL[x.estado] || x.estado}`,
-    x.decide ? 'además te necesita (decisión pendiente)' : ''].filter(Boolean).join(' · ');
-  $('#conds').replaceChildren(h('details', { class: 'fold cond-global', open: condOpen ? true : null,
-    ontoggle: (e) => { condOpen = e.currentTarget.open; } },
-  h('summary', {}, `🔭 CONDICIONES EN ESPERA · ${n}`),
-  n ? h('div', { class: 'cond-body' },
-    h('div', { class: 'cond-top' }, h('button', { class: 'btn primary small', type: 'button', onclick: (e) => copyCond(conditionsText(list), e.currentTarget) }, 'COPIAR TODAS')),
-    list.map((x) => h('section', { class: 'cond-item', 'data-cond': `${x.id}:${x.trabajo}` },
-      h('h3', {}, x.proyecto),
-      h('p', { class: 'cond-text' }, x.condicion),
-      h('p', { class: 'cond-meta muted' }, estado(x)),
-      x.principal ? null : h('p', { class: 'cond-meta cond-goal muted', title: x.objetivo }, h('b', {}, 'OBJETIVO'), ` ${x.objetivo}`),
-      h('button', { class: 'btn small', type: 'button', 'aria-label': `Copiar la condición de ${x.proyecto}`, onclick: (e) => copyCond(x.condicion, e.currentTarget) }, 'COPIAR'))))
-    : h('p', { class: 'muted cond-empty' }, 'Ningún proyecto está esperando una condición ahora mismo.')));
+  fill($('#conds'), list.length ? h('button', { class: 'link', type: 'button', title: 'Copiar todas las esperas, completas, para pegarlas donde quieras',
+    onclick: (e) => copyCond(conditionsText(list), e.currentTarget) }, 'Copiar todas') : null);
 }
 
 // DECISIONES PENDIENTES (vista global): las preguntas que sólo contesta Antonio, agrupadas por proyecto. Sin IA: salen
@@ -821,7 +874,7 @@ function paintDecisions() {
       h('p', { class: 'dec-title' }, `${n} ${n === 1 ? 'decisión pendiente' : 'decisiones pendientes'} · sólo tú puedes decidir`),
       withDec.map((p) => h('section', { class: `dec-proj m-${mood(p)}`, 'data-dec': p.id },
         h('header', { class: 'unit-head' }, logo(p), h('div', { class: 'title' }, h('h3', {}, p.nombre),
-          p.objetivo ? h('small', { class: 'muted goal1', title: p.objetivo }, p.objetivo) : null),
+          p.objetivo ? h('small', { class: 'muted goal1', title: p.objetivo }, cleanGoal(p.objetivo)) : null),
           iconBtn('info', `Detalles de ${p.nombre}`, () => actions.details(p))),
         jobDecision(p),
         proposals(p, (id, que, b) => run(`canon.${que}`, { proyecto: p.id, id }, que === 'aprobar' ? 'Aprobado' : 'Rechazado', b), (ref, b) => actions.consult(p, ref, b)),
@@ -1012,7 +1065,7 @@ function revisionPanel(c) {
   const L = (label, xs) => (xs?.length ? [h('p', { class: 'lbl' }, label), h('ul', { class: 'a-pend' }, xs.map((x) => h('li', {}, typeof x === 'object' ? `${x.que} → ${x.como} → ${x.resultado}` : x)))] : null);
   const launch = async (p, btn) => {
     const ok = await ask({ title: 'Lanzar como objetivo', ok: 'Lanzar', help: p.objetivo + (p.requiere_antonio ? '\n\nOjo: la revisión dice que necesita algo tuyo.' : '') });
-    if (ok) await run('objetivo.iniciar', { proyecto: c.id, objetivo: p.objetivo }, 'Objetivo lanzado', btn);
+    if (ok) await run('objetivo.iniciar', { proyecto: c.id, texto: p.objetivo }, 'Objetivo lanzado', btn);
   };
   return h('section', { class: 'panel' }, h('h4', {}, 'Revisar proyecto'),
     c.fuera?.commits ? h('p', { class: 'ln' }, h('b', {}, 'FUERA DE CEOPADRE'), ` ${c.fuera.commits} commit${c.fuera.commits === 1 ? '' : 's'} desde la última actualización del mapa (${when(c.fuera.desde)}): el mapa puede estar desfasado.`) : null,
@@ -1089,22 +1142,34 @@ function direccionPanel(c, d) {
     items.length ? h('ul', { class: 'mlist' }, items.slice(0, 4).map((x) => h('li', {}, String(x).slice(0, 220))), items.length > 4 ? h('li', { class: 'more' }, `+${items.length - 4} más (mapa completo)`) : null)
       : h('p', { class: 'muted small' }, empty));
   const hasJob = !['LIBRE', 'CANCELADO'].includes(c.estado);
+  const vivo = hasJob && c.estado !== 'TERMINADO';
+  const prio = rev?.prioridades?.[0];
+  // «Continúa con la siguiente prioridad»: la primera de la última revisión, o que el CEO la deduzca del mapa y la revisión.
+  const seguir = async (b) => {
+    const texto = prio ? prio.objetivo : 'Continúa con la siguiente prioridad de este proyecto según su mapa, lo pendiente y su última revisión. Antes de empezar, comprueba el estado real; verifica cada paso y no repitas lo ya hecho.';
+    const ok = await ask({ title: 'Continuar con la siguiente prioridad', ok: 'Continuar', help: `${prio ? `Según la última revisión: «${prio.objetivo.slice(0, 300)}».` : 'El CEO elegirá la siguiente prioridad a partir del mapa y la última revisión.'}${vivo ? ' Ya hay un objetivo en marcha: éste esperará en cola.' : ''}` });
+    if (ok) await run('objetivo.iniciar', { proyecto: c.id, texto }, 'Objetivo lanzado', b);
+  };
+  // «Quiero cambiar este objetivo»: con uno en marcha se corrige ESE objetivo (añadido, sin empezar de cero); si no, uno nuevo.
+  const cambiar = (b) => (vivo ? actions.add(c, b) : actions.goal(c, b));
   return h('section', { class: 'panel dir', 'aria-labelledby': 'h-dir' },
     h('header', { class: 'dir-head' }, h('h4', { id: 'h-dir' }, 'Dirección del proyecto'),
       c.fuera?.commits || c.fuera?.archivos ? h('small', { class: 'muted' }, `fuera de CEOPadre: ${[c.fuera.commits && `${c.fuera.commits} commit${c.fuera.commits === 1 ? '' : 's'}`, c.fuera.archivos && `${c.fuera.archivos} archivo${c.fuera.archivos === 1 ? '' : 's'}`].filter(Boolean).join(' · ')}`) : null),
     h('div', { class: 'dir-top' },
-      h('div', {}, h('p', { class: 'lbl' }, 'OBJETIVO PRINCIPAL'), h('p', { class: 'dir-mission' }, m?.mision || m?.definicion?.resumen || 'Sin definir todavía: «Revisar proyecto» lo propone a partir del repositorio real.')),
-      h('div', {}, h('p', { class: 'lbl' }, 'SITUACIÓN ACTUAL'), h('p', {}, rev?.estado || c.ahora || (hasJob ? MOOD_LABEL[c.estado] : 'Sin objetivo en curso')),
+      h('div', {}, h('p', { class: 'lbl' }, 'OBJETIVO'), h('p', { class: 'dir-mission' }, m?.mision || m?.definicion?.resumen || 'Sin definir todavía: «Revisar proyecto» lo propone a partir del repositorio real.'),
+        vivo ? h('small', { class: 'muted' }, `Ahora: ${cleanGoal(c.objetivo)}`) : null),
+      h('div', {}, h('p', { class: 'lbl' }, 'SITUACIÓN'), h('p', {}, rev?.estado || c.ahora || (hasJob ? MOOD_LABEL[c.estado] : 'Sin objetivo en curso')),
         rev ? h('small', { class: 'muted' }, 'según la última revisión') : null)),
     h('div', { class: 'dir-grid' },
-      box('LO CONSEGUIDO', e.hecho.map(txt), 'Nada registrado en el mapa.', 'ok'),
-      box('LO PENDIENTE', [...e.en_curso.map(txt), ...e.falta.map(txt)], 'Nada pendiente en el mapa.'),
-      box('LO COMPROBADO', comprobado, 'Sin comprobaciones registradas: revisa el proyecto para separarlo de lo declarado.', 'ok'),
+      box('CONSEGUIDO', [...comprobado, ...e.hecho.map(txt).filter((x) => !comprobado.includes(x))], 'Nada registrado todavía.', 'ok'),
+      box('PENDIENTE', [...e.en_curso.map(txt), ...e.falta.map(txt)], 'Nada pendiente registrado.'),
       box('PROBLEMAS', problemas, 'Ninguno registrado.', 'bad'),
-      box('RECOMENDACIONES DEL CEO', recos, 'Sin recomendaciones: revisa el proyecto y el CEO propondrá las prioridades.', 'reco')),
+      box('SIGUIENTE PASO', recos, 'Sin propuesta todavía: pulsa «Revisar proyecto» y el CEO propondrá las prioridades.', 'reco')),
+    comprobado.length ? h('p', { class: 'muted small' }, `${comprobado.length} de lo conseguido está comprobado (por la revisión o con evidencia en el mapa).`) : null,
     h('div', { class: 'a-acts' },
-      h('button', { class: 'btn primary small', type: 'button', onclick: (e2) => (hasJob && c.estado !== 'TERMINADO' ? actions.instruct(c, e2.currentTarget) : actions.goal(c, e2.currentTarget)) },
-        hasJob && c.estado !== 'TERMINADO' ? 'Dar una instrucción' : 'Continuar el proyecto (nuevo objetivo)'),
+      h('button', { class: 'btn primary', type: 'button', onclick: (e2) => seguir(e2.currentTarget) }, 'Continúa con la siguiente prioridad'),
+      h('button', { class: 'btn ghost', type: 'button', onclick: (e2) => cambiar(e2.currentTarget) }, 'Quiero cambiar este objetivo'),
+      vivo ? h('button', { class: 'btn ghost small', type: 'button', onclick: (e2) => actions.instruct(c, e2.currentTarget) }, 'Dar una instrucción') : null,
       m ? h('button', { class: 'btn ghost small', type: 'button', onclick: () => { $('#map-title').textContent = `Mapa · ${c.nombre}`; paintMap(d.mapa, (id, que, b) => run(`canon.${que}`, { proyecto: c.id, id }, 'Hecho', b), (ref, b) => actions.consult(c, ref, b)); $('#map').showModal(); } }, 'Ver mapa completo') : null));
 }
 
@@ -1127,10 +1192,10 @@ function autonomiaFold(a) {
   const x = a.despues, b = a.antes || {};
   const pct = (v) => (v == null ? '—' : `${v} %`);
   const fila = (k, t) => h('li', {}, `${t}: ${k === 'pct_terminados_sin_antonio' ? pct(x[k]) : x[k] ?? '—'} (antes ${k === 'pct_terminados_sin_antonio' ? pct(b[k]) : b[k] ?? '—'})`);
-  return fold('autonomia', `Autonomía desde V2.7: ${x.dudas_resueltas_ceo ?? '—'} dudas resueltas por el CEO · ${x.dudas_escaladas_antonio ?? '—'} escaladas a ti · ${x.intervenciones_por_objetivo ?? '—'} intervenciones/objetivo`,
+  return fold('autonomia', `Autonomía desde V2.7: ${x.dudas_resueltas_ceo ?? '—'} dudas resueltas por el CEO · ${x.dudas_escaladas_antonio ?? '—'} te las pasó a ti · ${x.intervenciones_por_objetivo ?? '—'} intervenciones/objetivo`,
     h('ul', { class: 'kv' },
       fila('objetivos', 'Objetivos'), fila('terminados', 'Terminados'), fila('dudas_resueltas_ceo', 'Dudas resueltas por el CEO'),
-      fila('dudas_escaladas_antonio', 'Dudas escaladas a ti'), fila('pct_terminados_sin_antonio', 'Terminados sin intervenir tú'),
+      fila('dudas_escaladas_antonio', 'Dudas que te pasó a ti'), fila('pct_terminados_sin_antonio', 'Terminados sin intervenir tú'),
       fila('intervenciones_por_objetivo', 'Intervenciones tuyas por objetivo'),
       h('li', { class: 'muted' }, a.muestra_suficiente ? `Actualizado ${when(a.generado)}` : `Muestra insuficiente (${x.terminados}/${a.muestra_minima} terminados): aún no se compara · actualizado ${when(a.generado)}`)));
 }
@@ -1191,11 +1256,11 @@ function esperasPanel(c, d) {
   const list = (d.esperas || []).filter((x) => x.estado === 'ESPERANDO_CONDICION' || x.esperas.some((e) => e.estado === 'ACTIVA'));
   if (!list.length) return null;
   const B = (label, op, params, cls = '') => h('button', { class: `btn small ${cls}`, type: 'button', onclick: (e) => run(op, params, label, e.currentTarget) }, label);
-  return h('section', { class: 'panel waits m-wait' }, h('h4', {}, `Esperando una condición (${list.length})`),
+  return h('section', { class: 'panel waits m-wait' }, h('h4', {}, `Esperando algo externo (${list.length})`),
     list.map((x) => h('div', { class: 'wait-item' },
       h('p', { class: 'ln goal', title: x.objetivo }, x.objetivo),
       x.esperas.filter((e) => e.estado === 'ACTIVA').map((e) => h('div', { class: 'wait-cond' },
-        line(e.interna ? 'SIGUE SOLO (interna)' : 'ESPERA', e.descripcion),
+        line(e.interna ? 'SIGUE SOLO' : 'QUÉ SE ESPERA', e.descripcion),
         h('p', { class: 'ln muted' }, `Comprobada ${e.comprobada ? ago(e.comprobada) : 'aún no'} · cada ${Math.round(e.cada_s / 60) || 1} min · hasta ${when(e.hasta)}`),
         e.monitor ? h('p', { class: `ln ${e.monitor.vivo ? 'muted' : 'note'}` }, `Monitor pid ${e.monitor.pid}: ${e.monitor.vivo ? 'vivo' : `caído${e.monitor.relanzable ? ' (se relanza solo)' : ''}`}`) : null,
         e.error ? h('p', { class: 'ln muted' }, e.error) : null,
@@ -1208,8 +1273,8 @@ function esperasPanel(c, d) {
 
 /** Historial de rondas: siempre visible, cada ronda plegada. */
 function roundsPanel(d) {
-  return h('section', { class: 'panel' }, h('h4', {}, `Rondas (${d.rondas?.length || 0})`),
-    ...(d.rondas?.length ? d.rondas.map((r) => roundItem(r, d.trabajo?.trabajo)) : [h('p', { class: 'muted' }, 'Sin rondas todavía.')]));
+  return h('section', { class: 'panel' }, h('h4', {}, `Historial de trabajo (${d.rondas?.length || 0} pasos)`),
+    ...(d.rondas?.length ? d.rondas.map((r) => roundItem(r, d.trabajo?.trabajo)) : [h('p', { class: 'muted' }, 'Todavía no ha trabajado en este objetivo.')]));
 }
 
 /** Todo lo técnico, plegado: consumo, lecciones, mensajes, objetivos anteriores y la carpeta. */

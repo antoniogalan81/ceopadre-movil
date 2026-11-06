@@ -2,6 +2,7 @@
 // órdenes de la lista cerrada; no decide nada. Separa siempre lo HECHO (trabajos) de lo CONSEGUIDO (indicadores medidos).
 // Sin porcentajes ni estimaciones: sólo valores medidos, con su fecha, y su objetivo.
 import { h } from './dom.js';
+import { proyectosEn } from './zones.js';
 
 const TONE = { DEFINIENDO: 'work', ESPERANDO_APROBACION: 'ask', ACTIVA: 'work', ESPERANDO_ANTONIO: 'ask', PAUSADA: 'idle', ALCANZADA: 'ok', BLOQUEADA: 'bad', CANCELADA: 'idle' };
 const fecha = (iso) => (iso ? new Date(iso).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '');
@@ -53,7 +54,7 @@ export function negocioUi({ api, ask, toast, show, data, run, viewText }) {
     const closed = ['ALCANZADA', 'CANCELADA'].includes(o.estado);
     return h('div', { class: 'a-acts' },
       mode === 'list' ? h('button', { class: 'btn ghost small', type: 'button', onclick: () => openOne(o.id) }, 'Ver todo') : null,
-      !closed ? h('button', { class: 'btn ghost small', type: 'button', onclick: (e) => instruir(o, e.currentTarget) }, 'Dar instrucción') : null,
+      !closed ? h('button', { class: 'btn ghost small', type: 'button', onclick: (e) => instruir(o, e.currentTarget) }, 'Añadir información o cambiar prioridades') : null,
       ['ACTIVA', 'ESPERANDO_ANTONIO', 'PAUSADA'].includes(o.estado) ? h('button', { class: 'btn ghost small', type: 'button', onclick: (e) => after(cmd('negocio.medir', { id: o.id }, 'Medido', e.currentTarget)) }, 'Medir ahora') : null,
       o.estado === 'PAUSADA' ? h('button', { class: 'btn primary small', type: 'button', onclick: (e) => after(cmd('negocio.reanudar', { id: o.id }, 'Reanudado', e.currentTarget)) }, 'REANUDAR')
         : !closed && o.estado !== 'BLOQUEADA' ? h('button', { class: 'btn ghost small', type: 'button', onclick: (e) => after(cmd('negocio.pausar', { id: o.id }, 'En pausa', e.currentTarget)) }, 'Pausar') : null,
@@ -74,21 +75,27 @@ export function negocioUi({ api, ask, toast, show, data, run, viewText }) {
   async function crear(btn) {
     const ps = projects();
     if (!ps.length) { toast('Primero vincula algún proyecto', 'bad'); return; }
-    const r = await ask({ title: 'Nuevo objetivo de negocio', ok: 'Crear',
-      help: 'Escribe el resultado que quieres (no la tarea). CEOPadre investiga primero los proyectos y te trae un plan con indicadores medibles y las preguntas imprescindibles; nada se ejecuta hasta que lo apruebes. Gasto 0 € y nada sale a terceros sin ti.',
-      fields: [{ name: 'texto', label: 'Objetivo', type: 'textarea', placeholder: 'Quiero vender GEST7 por redes sociales' },
-        { name: 'principal', label: 'Proyecto principal', type: 'choice', options: ps.map((p) => ({ value: p.id, label: p.nombre })) },
-        ...ps.map((p) => ({ name: `p_${p.id}`, label: `Implicar ${p.nombre}`, type: 'checkbox' }))] });
+    // Paso 1: sólo la frase. Paso 2: el proyecto que nombra ya elegido, y sólo se ofrecen los proyectos con actividad.
+    const t = await ask({ title: 'Nuevo objetivo de negocio', ok: 'Siguiente',
+      help: 'Escribe el resultado que quieres conseguir, no la tarea. El CEO lo analiza, te pregunta lo imprescindible y te trae un plan con indicadores medibles; nada se ejecuta hasta que lo apruebes. Gasto 0 € y nada sale a terceros sin ti.',
+      fields: [{ name: 'texto', label: 'Qué quieres conseguir', type: 'textarea', placeholder: 'Quiero conseguir clientes para GEST7 mediante redes sociales' }] });
+    if (!t?.texto) return;
+    const nombrados = proyectosEn(t.texto, ps);
+    const vivos = ps.filter((p) => nombrados.includes(p.id) || (p.automatizaciones || []).length || !['LIBRE', 'CANCELADO'].includes(p.estado));
+    const r = await ask({ title: 'Proyectos implicados', ok: 'Crear objetivo',
+      help: nombrados.length ? `He reconocido: ${ps.filter((p) => nombrados.includes(p.id)).map((p) => p.nombre).join(', ')}. Cámbialo si hace falta.` : 'Elige el proyecto principal.',
+      fields: [{ name: 'principal', label: 'Proyecto principal', type: 'choice', value: nombrados[0] || '', options: ps.map((p) => ({ value: p.id, label: p.nombre })) },
+        ...vivos.map((p) => ({ name: `p_${p.id}`, label: `También ${p.nombre}`, type: 'checkbox', value: nombrados.slice(1).includes(p.id) }))] });
     if (!r) return;
-    const ids = [r.principal, ...ps.filter((p) => r[`p_${p.id}`]).map((p) => p.id)].filter((x, i, a) => x && a.indexOf(x) === i);
-    await after(cmd('negocio.crear', { texto: r.texto, proyectos: ids, principal: r.principal }, 'Creado: preparando el plan', btn));
+    const ids = [r.principal, ...vivos.filter((p) => r[`p_${p.id}`]).map((p) => p.id)].filter((x, i, a) => x && a.indexOf(x) === i);
+    await after(cmd('negocio.crear', { texto: t.texto, proyectos: ids, principal: r.principal }, 'Creado: el CEO prepara el plan', btn));
   }
   async function responder(o, btn) {
     const r = await ask({ title: 'Responder', help: o.pregunta || '', ok: 'Enviar respuesta', fields: [{ name: 'respuesta', label: 'Tu respuesta', type: 'textarea' }] });
     if (r) await after(cmd('negocio.responder', { id: o.id, respuesta: r.respuesta }, 'Respuesta enviada', btn));
   }
   async function instruir(o, btn) {
-    const r = await ask({ title: 'Instrucción para el director', help: 'La tendrá en cuenta en su próxima decisión. El trabajo en marcha no se corta.', ok: 'Guardar', fields: [{ name: 'texto', label: 'Instrucción', type: 'textarea' }] });
+    const r = await ask({ title: 'Añadir información o cambiar prioridades', help: 'Para corregir el rumbo sin empezar de cero: el CEO lo tiene en cuenta en su próxima decisión. El trabajo en marcha no se corta.', ok: 'Guardar', fields: [{ name: 'texto', label: 'Instrucción', type: 'textarea' }] });
     if (r) await after(cmd('negocio.instruccion', { id: o.id, texto: r.texto }, 'Guardada', btn));
   }
   async function cancelar(o, btn) {
@@ -127,20 +134,59 @@ export function negocioUi({ api, ask, toast, show, data, run, viewText }) {
       o.estado === 'ESPERANDO_APROBACION' ? h('div', { class: 'a-acts' }, h('button', { class: 'btn primary', type: 'button', disabled: !online(), onclick: (e) => aprobar(o, e.currentTarget) }, 'RESPONDER Y APROBAR'),
         h('button', { class: 'btn ghost small', type: 'button', onclick: (e) => corregir(o, e.currentTarget) }, 'Corregir el plan')) : null);
   }
+  // UN OBJETIVO (V3.3): primero las respuestas (qué queremos, cómo, qué se hizo, qué se comprobó, qué resultados hay,
+  // qué hace ahora, qué viene, qué necesita de ti); después la hoja de ruta por fases y el detalle. HECHO ≠ CONSEGUIDO:
+  // los trabajos dicen lo hecho; sólo los indicadores medidos dicen el resultado.
+  function resumenOne(o) {
+    const p = o.plan || {};
+    const hechos = o.trabajos_lista.filter((t) => t.estado === 'TERMINADO');
+    const comprobado = hechos.flatMap((t) => (t.comprobado || []).map((x) => `${t.proyecto}: ${x}`));
+    const medidos = o.kpis.filter((k) => k.disponible && k.valor != null);
+    const ahora = o.trabajos.en_curso;
+    const box = (t, body, cls = '') => h('div', { class: `dir-box ${cls}` }, h('p', { class: 'lbl' }, t), body);
+    const ul = (xs, empty) => (xs.length ? h('ul', { class: 'mlist' }, xs.slice(0, 4).map((x) => h('li', {}, String(x).slice(0, 220))), xs.length > 4 ? h('li', { class: 'more' }, `+${xs.length - 4} más (abajo)`) : null) : h('p', { class: 'muted small' }, empty));
+    return h('section', { class: 'panel dir' }, h('div', { class: 'dir-head' }, h('h4', {}, o.titulo), chip(o.estado_texto, TONE[o.estado] || 'idle')),
+      needBox(o),
+      h('div', { class: 'dir-grid' },
+        box('QUÉ QUEREMOS CONSEGUIR', h('p', {}, p.resultado_buscado || o.texto)),
+        box('ESTRATEGIA', p.hoja_de_ruta?.length ? h('p', {}, p.hoja_de_ruta.map((f) => f.fase).join(' → ')) : h('p', { class: 'muted small' }, o.estado === 'DEFINIENDO' ? 'El CEO la está preparando.' : 'Sin plan todavía.')),
+        box('RESULTADOS REALES', ul(medidos.map((k) => `${k.nombre}: ${k.valor}${k.unidad ? ` ${k.unidad}` : ''} (objetivo ${k.sentido} ${k.objetivo})${k.cumple ? ' ✓' : ''}`), o.kpis.length ? 'Aún sin medir: se mide solo, sin IA.' : 'Sin indicadores aprobados.'), 'ok'),
+        box('REALIZADO', ul(hechos.map((t) => `${t.proyecto}: ${t.objetivo}`), 'Ningún trabajo terminado todavía.')),
+        box('COMPROBADO', ul(comprobado, 'Nada comprobado todavía.'), 'ok'),
+        box('AHORA', ahora ? h('p', {}, `${ahora.proyecto}: ${ahora.ahora || ahora.objetivo}`) : h('p', { class: 'muted small' }, 'Nada en marcha.'), 'reco'),
+        box('DESPUÉS', h('p', {}, o.proxima_revision && o.estado === 'ACTIVA' ? `El CEO revisa los resultados el ${fecha(o.proxima_revision)} y decide el siguiente trabajo.` : o.estado === 'ESPERANDO_APROBACION' ? 'Empieza al aprobar el plan.' : o.estado_texto)),
+        p.riesgos?.length ? box('OBSTÁCULOS', ul(p.riesgos, ''), 'bad') : null),
+      actions(o));
+  }
+  // HOJA DE RUTA: las fases del plan en orden, con su proyecto y cuándo se da por cumplida. El estado de cada fase no se
+  // inventa: se enseña cuántos trabajos de ese proyecto hay terminados y si el que está en marcha es de ella.
+  function roadmap(o) {
+    const fases = o.plan?.hoja_de_ruta || [];
+    if (!fases.length) return null;
+    return h('section', { class: 'panel' }, h('h4', {}, 'Hoja de ruta'),
+      h('ol', { class: 'road' }, fases.map((f, i) => {
+        const hechos = o.trabajos_lista.filter((t) => t.estado === 'TERMINADO' && t.proyecto === f.proyecto).length;
+        const enMarcha = o.trabajos.en_curso?.proyecto === f.proyecto;
+        return h('li', { class: `road-step${enMarcha ? ' now' : hechos ? ' some' : ''}` }, h('span', { class: 'road-n', 'aria-hidden': 'true' }, String(i + 1)),
+          h('div', {}, h('b', {}, f.fase), h('p', {}, f.objetivo),
+            h('small', { class: 'muted' }, `${f.proyecto}${f.criterio ? ` · cumplida cuando ${f.criterio}` : ''}${hechos ? ` · ${hechos} trabajo${hechos === 1 ? '' : 's'} terminado${hechos === 1 ? '' : 's'} en este proyecto` : ''}${enMarcha ? ' · trabajando ahora' : ''}`)));
+      })));
+  }
   function one() {
     const o = viewing;
-    return [h('section', { class: 'panel' }, card(o)), planView(o),
+    return [resumenOne(o), roadmap(o), planView(o),
       Object.keys(o.respuestas || {}).length ? h('section', { class: 'panel' }, h('h4', {}, 'Tus respuestas e instrucciones'), h('ul', { class: 'a-pend' }, Object.entries(o.respuestas).map(([k, v]) => h('li', {}, h('b', {}, k), ` · ${v}`)))) : null,
       h('section', { class: 'panel' }, h('h4', {}, `Trabajos (${o.trabajos_lista.length})`), o.trabajos_lista.length ? o.trabajos_lista.map((t) => h('article', { class: `a-runrow t-${t.estado === 'TERMINADO' ? 'ok' : ['CANCELADO'].includes(t.estado) ? 'idle' : 'work'}` },
-        h('header', {}, h('b', {}, `${fecha(t.inicio)} · ${t.proyecto}`), chip(t.verificado ? 'Terminado y verificado' : t.estado, t.verificado ? 'ok' : 'work')),
-        h('p', { class: 'a-desc' }, t.objetivo), t.ahora ? h('p', { class: 'ln' }, h('b', {}, 'AHORA'), ` ${t.ahora}`) : null,
+        h('header', {}, h('b', {}, `${fecha(t.inicio)} · ${t.proyecto}`), chip(t.verificado ? 'Terminado y comprobado' : t.estado === 'CANCELADO' ? 'Cancelado' : 'En marcha', t.verificado ? 'ok' : 'work')),
+        h('p', { class: 'a-desc' }, t.objetivo), t.ahora ? h('p', { class: 'ln' }, h('b', {}, 'SITUACIÓN'), ` ${t.ahora}`) : null,
         t.comprobado?.length ? h('ul', { class: 'a-pend' }, t.comprobado.map((x) => h('li', {}, x))) : null,
         h('div', { class: 'a-acts' }, h('button', { class: 'btn ghost small', type: 'button', onclick: async (e) => {
           e.currentTarget.disabled = true;
           try { const x = await api.cmd('ronda.informe', { trabajo: t.trabajo }); if (x?.ok) viewText(`Informe · ${t.proyecto}`, x.data.texto); else toast(x?.error || 'Sin informe', 'bad'); } finally { e.currentTarget.disabled = false; }
         } }, 'Informe completo')))) : h('p', { class: 'muted' }, 'Ninguno todavía.')),
-      h('section', { class: 'panel' }, h('h4', {}, 'Historial'), h('ul', { class: 'a-pend' }, o.eventos.map((e) => h('li', {}, h('small', { class: 'muted' }, `${fecha(e.at)} · ${e.tipo} · `), e.texto))))];
+      h('details', { class: 'panel fold' }, h('summary', {}, 'Historial del director'), h('ul', { class: 'a-pend' }, o.eventos.map((e) => h('li', {}, h('small', { class: 'muted' }, `${fecha(e.at)} · ${e.tipo} · `), e.texto))))];
   }
+
 
   function paint(force = false) {
     paintTop();

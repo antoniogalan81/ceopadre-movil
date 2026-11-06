@@ -17,8 +17,9 @@ function statusItem(kind, it, full) {
 const short = (t, n) => { const s = String(t || '').replace(/\s+/g, ' ').trim(); return s.length > n ? `${s.slice(0, n - 1)}…` : s; };
 
 /** Botón de decisión con un solo símbolo (✓ ✕ ? ✎ ⏱): SIEMPRE con nombre accesible y ayuda al pasar el ratón. */
+// V3.3: el texto también se VE (antes sólo el símbolo: «✓ ✕ ?» no decía qué hacía cada uno).
 const dbtn = (glyph, label, onclick, cls) => h('button', { class: `dbtn ${cls}`, type: 'button', 'aria-label': label, title: label, onclick },
-  h('span', { 'aria-hidden': 'true' }, glyph));
+  h('span', { 'aria-hidden': 'true' }, glyph), h('span', { class: 'dbtn-l', 'aria-hidden': 'true' }, label));
 
 /** ✓ ✕ ? de una decisión. `ask` (Preguntar a Codex) es consultivo: nunca aprueba ni rechaza. */
 export function decideRow({ yes, no, ask, yesLabel = 'Aprobar', noLabel = 'Rechazar' }) {

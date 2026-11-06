@@ -947,3 +947,108 @@ a.btn { display: inline-flex; align-items: center; justify-content: center; text
 .dir-box .mlist { margin: 4px 0 0; padding-left: 18px; font-size: 13.5px; display: grid; gap: 3px; }
 .dir-box .lbl { margin: 0; }
 .fold.motor { margin-top: 6px; }
+
+/* ================================================================== V3.3 · LAS CUATRO PREGUNTAS Y UN ESTADO POR TRABAJO
+   Arriba, cuatro respuestas grandes (qué necesita de mí · qué hace · qué ha conseguido · qué hará después). Cada trabajo
+   en una sola sección; las vacías no ocupan sitio. Texto principal a 15-16 px; nada por debajo de 13 px en el móvil. */
+.brief { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 0 0 20px; }
+.q-tile { appearance: none; text-align: left; cursor: pointer; display: grid; gap: 4px; align-content: start; min-width: 0; padding: 14px 16px 14px 18px;
+  border: 0; border-radius: 18px; background: var(--paper); color: var(--ink); font: inherit; position: relative; overflow: hidden;
+  box-shadow: inset 0 0 0 1px var(--line), 0 1px 2px oklch(0.3 0.02 240 / 0.05); transition: box-shadow .15s var(--ease); }
+.q-tile::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 5px; background: var(--k, var(--idle)); }
+.q-tile:hover { box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--k) 45%, var(--line)), 0 10px 24px -18px oklch(0.3 0.05 240 / 0.5); }
+.q-tile:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.q-q { font-size: 13px; font-weight: 750; color: var(--ink-2); }
+.q-a { font-size: 21px; line-height: 1.2; font-weight: 800; letter-spacing: -0.015em; color: var(--k-ink, var(--ink)); overflow-wrap: anywhere; }
+.q-s { font-size: 13.5px; color: var(--ink-2); overflow-wrap: anywhere; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+.q-need { --k: var(--ask); } .q-work { --k: var(--work); } .q-done { --k: var(--ok); } .q-next { --k: var(--wait); }
+.q-tile.hot { background: color-mix(in srgb, var(--ask-bg) 80%, var(--paper)); --k-ink: var(--ask); }
+
+/* Texto principal más legible en tarjetas y puestos. */
+.home .desk .ln, .home .wait-card, .z-need .decision .ln { font-size: 14.5px; line-height: 1.45; }
+.home .desk .ln.goal { font-size: 15px; }
+.home .desk .ln b, .z-need .decision .ln b { font-size: 11px; }
+
+/* Con problemas. */
+.z-bad { padding: 14px; margin: 0 0 18px; border-radius: 20px; background: color-mix(in srgb, var(--bad-bg) 70%, var(--bg)); box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--bad) 40%, transparent); }
+.z-bad .zone-head h2 { color: var(--bad); }
+
+/* Trabajando, vacío: una línea discreta, no un hueco. */
+#marcha-empty { border: 0; padding: 2px 4px 8px; color: var(--ink-3); }
+
+/* Esperando algo externo: tarjetas claras, en lenguaje normal. */
+.z-wait .zone-head .conds { margin-left: auto; }
+.waits-list { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 380px), 1fr)); }
+.wait-card { display: grid; gap: 8px; padding: 14px 16px; border-radius: 18px; background: color-mix(in srgb, var(--wait-bg) 65%, var(--paper));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--wait) 25%, transparent); min-width: 0; }
+.wait-card h3 { margin: 0; font-size: 16px; font-weight: 800; }
+.wait-card .logo { width: 38px; height: 38px; border-radius: 10px; }
+.wait-lead { margin: 0; color: var(--ink-2); }
+.wait-dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; margin: 0; }
+.wait-dl dt { font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); padding-top: 3px; }
+.wait-dl dd { margin: 0; overflow-wrap: anywhere; }
+.wait-card .row { display: flex; flex-wrap: wrap; gap: 8px; margin: 2px 0 0; }
+
+/* Decisiones: alternativas a la vista, qué pasa con cada botón y botones con texto. */
+.alts { list-style: none; margin: 4px 0; padding: 0; display: grid; gap: 4px; font-size: 14px; }
+.alts li { padding: 6px 10px; border-radius: 10px; background: var(--paper); box-shadow: inset 0 0 0 1px var(--line); }
+.alts b { display: inline-grid; place-items: center; min-width: 22px; height: 22px; margin-right: 6px; border-radius: 6px; background: var(--ink); color: var(--paper); font-size: 12px; }
+.ln.conseq { color: var(--ink-2); }
+.dec-btns { display: flex; flex-wrap: wrap; gap: 8px; }
+.dec-btns .dbtn, .dec-pend .dbtn { width: auto; min-width: 0; height: auto; min-height: 44px; padding: 0 16px; gap: 8px; display: inline-flex; align-items: center; font-weight: 750; font-size: 14px; }
+.dbtn-l { font: 750 14px/1.1 var(--sans); }
+.decision > .link { justify-self: start; }
+
+/* Lateral: proyectos y agentes como accesos. */
+.side-links { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.side-item > b { font-size: 14.5px; }
+.side-item > small { font-size: 13px; }
+
+/* Todos los proyectos: plegado al final. */
+details.z-projects { margin: 26px 0 0; }
+details.z-projects > summary { list-style: none; cursor: pointer; display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-radius: 16px; background: var(--paper);
+  box-shadow: inset 0 0 0 1px var(--line); }
+details.z-projects > summary::-webkit-details-marker { display: none; }
+details.z-projects > summary::after { content: "▾"; margin-left: auto; color: var(--ink-3); }
+details.z-projects[open] > summary::after { content: "▴"; }
+details.z-projects > summary h2 { margin: 0; font-size: 18px; }
+details.z-projects[open] > summary { margin-bottom: 12px; }
+
+.tabbar { grid-template-columns: repeat(5, 1fr); }
+
+@media (max-width: 1180px) { .brief { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 760px) {
+  .brief { gap: 8px; margin-bottom: 14px; }
+  .q-tile { padding: 12px 12px 12px 15px; border-radius: 16px; }
+  .q-a { font-size: 17px; }
+  .q-s { font-size: 13px; }
+  .wait-dl { grid-template-columns: 1fr; gap: 0 0; }
+  .wait-dl dd { margin-bottom: 6px; }
+  .dec-btns .dbtn { flex: 1 1 auto; justify-content: center; }
+  .tabbar button { font-size: 11px; }
+}
+.wait-card .row .btn, .desk .row .btn { width: auto; flex: 0 0 auto; padding: 0 16px; }
+.desk > .row { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 0; }
+/* Una sola tarjeta ocupa todo el ancho; varias se reparten (sin huecos vacíos a la derecha). */
+.home .desks { columns: auto; display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); align-items: start; }
+.home .desks > * { margin-bottom: 0; }
+.waits-list { grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr)); }
+.z-need .desk .ln { display: block; -webkit-line-clamp: unset; overflow: visible; }
+.z-need .desk .ln.goal { display: -webkit-box; -webkit-line-clamp: 2; overflow: hidden; }
+/* Ficha de agente: datos clave en dos columnas (una en el móvil). */
+.ag-dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; margin: 2px 0; font-size: 14.5px; }
+.ag-row { display: contents; }
+.ag-dl dt { font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); padding-top: 3px; }
+.ag-dl dd { margin: 0; overflow-wrap: anywhere; }
+.ag-title { display: grid; gap: 1px; min-width: 0; }
+.ag-title h3 { margin: 0; }
+.ag-new textarea { width: 100%; font: inherit; font-size: 15px; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); resize: vertical; }
+.ag-acts { flex-wrap: wrap; gap: 8px; }
+@media (max-width: 760px) { .ag-dl { grid-template-columns: 1fr; gap: 0; } .ag-dl dd { margin-bottom: 6px; } }
+.road { list-style: none; margin: 0; padding: 0; display: grid; gap: 0; }
+.road-step { display: grid; grid-template-columns: 34px 1fr; gap: 12px; position: relative; padding-bottom: 16px; }
+.road-step:not(:last-child)::before { content: ""; position: absolute; left: 16px; top: 34px; bottom: 0; width: 2px; background: var(--line); }
+.road-n { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; background: var(--idle-bg); color: var(--ink-2); font-weight: 800; }
+.road-step.some .road-n { background: var(--ok-bg); color: var(--ok); }
+.road-step.now .road-n { background: var(--work); color: var(--paper); }
+.road-step p { margin: 2px 0; }

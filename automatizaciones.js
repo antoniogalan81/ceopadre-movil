@@ -1,6 +1,7 @@
 // AUTOMATIZACIONES y BANDEJA DE APROBACIÓN en el PC y en el móvil (la misma pantalla). Pinta lo que llega en las tarjetas
 // (`automatizaciones`, `bandeja`) y deja órdenes de la lista cerrada; no ejecuta nada. Todo el texto entra como texto.
 import { h } from './dom.js';
+import { fraseAutomatizacion } from './zones.js';
 
 // Estado de un botón: disponible · ejecutándose · esperando autorización · completada · parcial · error (y sus matices).
 const STATE = {
@@ -93,7 +94,7 @@ export function autoUi({ api, ask, toast, show, data, run, viewText, ai }) {
     }
     return h('p', { class: 'ln' }, h('b', {}, 'ÚLTIMA'), ` ${fecha(u.fin || u.inicio)} · ${STATE[u.estado]?.[0] || u.estado}${u.prueba ? ' (prueba)' : ''}${u.resultado?.resumen ? ` · ${u.resultado.resumen}` : u.error ? ` · ${u.error}` : u.detalle ? ` · ${u.detalle}` : ''}`);
   }
-  function actionsFor(a) {
+  function actionsFor(a, pausar = null) {
     const u = a.ultima;
     const running = u && ['EJECUTANDO', 'ESPERANDO_AUTORIZACION', 'PAUSADA'].includes(u.estado) && !u.fin;
     const out = [];
@@ -103,11 +104,11 @@ export function autoUi({ api, ask, toast, show, data, run, viewText, ai }) {
       out.push(h('button', { class: 'btn primary a-run', type: 'button', disabled: !a.activa || !online(), onclick: (e) => execute(a, false, e.currentTarget) }, '▶ EJECUTAR'));
       if (u && ['ERROR', 'PARCIAL', 'BLOQUEADA', 'CANCELADA'].includes(u.estado)) out.push(h('button', { class: 'btn ghost small', type: 'button', onclick: (e) => retry(a, u, e.currentTarget) }, 'Reintentar'));
     }
-    out.push(h('button', { class: 'btn ghost small', type: 'button', onclick: () => openRuns(a) }, 'Historial'));
+    out.push(h('button', { class: 'btn ghost small', type: 'button', onclick: (e) => schedule(a, e.currentTarget) }, a.programa ? 'Horario' : 'Programar'));
+    out.push(h('button', { class: 'btn ghost small', type: 'button', onclick: () => openEditor(a) }, 'Editar'));
+    out.push(h('button', { class: 'btn ghost small', type: 'button', onclick: () => openRuns(a) }, 'Actividad'));
+    if (pausar) out.push(pausar);
     out.push(h('details', { class: 'a-more' }, h('summary', { class: 'btn ghost small' }, 'Más'), h('div', { class: 'a-menu' },
-      h('button', { class: 'btn ghost small', type: 'button', onclick: () => openEditor(a) }, 'Editar'),
-      h('button', { class: 'btn ghost small', type: 'button', onclick: (e) => schedule(a, e.currentTarget) }, a.programa ? 'Cambiar horario' : 'Programar'),
-      a.programa ? h('button', { class: 'btn ghost small', type: 'button', onclick: (e) => cmd('automatizacion.programar', { id: a.id, activa: !a.programa.activa }, a.programa.activa ? 'Programación en pausa' : 'Programación activa', e.currentTarget) }, a.programa.activa ? 'Pausar horario' : 'Reanudar horario') : null,
       a.programa ? h('button', { class: 'btn ghost small', type: 'button', onclick: (e) => cmd('automatizacion.programar', { id: a.id, programa: null }, 'Sin programación', e.currentTarget) }, 'Quitar horario') : null,
       h('button', { class: 'btn ghost small', type: 'button', disabled: running || !a.activa, onclick: (e) => execute(a, true, e.currentTarget) }, 'Ejecutar en prueba'),
       h('button', { class: 'btn ghost small', type: 'button', onclick: (e) => duplicate(a, e.currentTarget) }, 'Duplicar'),
@@ -153,25 +154,39 @@ export function autoUi({ api, ask, toast, show, data, run, viewText, ai }) {
     await cmd('automatizacion.programar', { id: a.id, programa, activa: true }, 'Programada', btn);
   }
 
+  // AGENTE (V3.3): una ficha de colaborador, no una consola. Lo esencial a la vista; lo técnico, en «Detalles».
   function card(a) {
     const [label, tone] = STATE[a.estado] || [a.estado, 'idle'];
     const u = a.ultima;
-    return h('article', { class: `a-card t-${tone}`, 'data-id': `auto-${a.id}` },
-      h('header', {}, h('h3', {}, a.nombre), chip(label, tone)),
+    const running = u && ['EJECUTANDO', 'ESPERANDO_AUTORIZACION', 'PAUSADA'].includes(u.estado) && !u.fin;
+    const errores = (u?.resultado?.errores || []).filter((x) => !/:\s*ning[uú]n[oa]?\.?$/i.test(x)); // «ERRORES: ninguno» no es un error
+    const necesita = [u?.aprobaciones && `${u.aprobaciones} respuesta${u.aprobaciones === 1 ? '' : 's'} esperan tu aprobación`,
+      u && ['ERROR', 'BLOQUEADA'].includes(u.estado) && 'La última ejecución falló: revísala o reinténtala', !a.activa && 'Está desactivado: actívalo para que pueda trabajar'].filter(Boolean);
+    const quien = (lbl, v) => h('div', { class: 'ag-row' }, h('dt', {}, lbl), h('dd', {}, v));
+    const g = a.programa;
+    const cuando = !g ? 'Sólo cuando pulses Ejecutar' : g.pausada_por ? `${g.texto.replace(' (hora de Madrid)', '')} · en pausa`
+      : `${g.texto.replace(' (hora de Madrid)', '')}${g.proxima ? ` · próxima ${new Date(g.proxima).toLocaleString('es-ES', { timeZone: 'Europe/Madrid', weekday: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}` : ''}`;
+    const ultimo = !u ? 'Nunca ha trabajado todavía' : running ? `Trabajando ahora${u.texto ? `: ${u.texto}` : ''}${u.progreso ? ` · ${u.progreso}` : ''}`
+      : `${fecha(u.fin || u.inicio)} · ${STATE[u.estado]?.[0] || u.estado}${u.prueba ? ' (prueba)' : ''}${u.resultado?.resumen ? ` · ${u.resultado.resumen}` : u.error ? ` · ${u.error}` : ''}`;
+    const B = (txt, on, cls = 'ghost', dis = false) => h('button', { class: `btn ${cls} small`, type: 'button', disabled: dis, onclick: on }, txt);
+    const pausar = g ? B(g.activa ? 'Pausar' : 'Reanudar', (e) => cmd('automatizacion.programar', { id: a.id, activa: !g.activa }, g.activa ? 'Horario en pausa' : 'Horario activo', e.currentTarget))
+      : B(a.activa ? 'Desactivar' : 'Activar', (e) => cmd('automatizacion.activar', { id: a.id, activa: !a.activa }, 'Hecho', e.currentTarget));
+    return h('article', { class: `a-card agent t-${tone}`, 'data-id': `auto-${a.id}` },
+      h('header', {}, h('div', { class: 'ag-title' }, h('h3', {}, a.nombre.charAt(0) + a.nombre.slice(1).toLowerCase()), h('small', { class: 'muted' }, a.proyectoNombre || '')),
+        chip(!a.activa ? 'Desactivado' : g?.activa && g.proxima ? 'Activo · programado' : label, !a.activa ? 'idle' : tone)),
       a.descripcion ? h('p', { class: 'a-desc' }, a.descripcion) : null,
-      scheduleLine(a),
-      lastLine(a),
-      u?.aprobaciones ? h('p', { class: 'ln' }, h('b', {}, 'TU AUTORIZACIÓN'), ` ${u.aprobaciones} respuesta${u.aprobaciones === 1 ? '' : 's'} esperan tu aprobación `,
-        h('button', { class: 'btn ghost small', type: 'button', onclick: openInbox }, 'Revisar')) : null,
-      u?.resultado?.pendientes?.length ? h('ul', { class: 'a-pend' }, u.resultado.pendientes.slice(0, 4).map((x) => h('li', {}, x))) : null,
-      counters(u?.resultado),
-      integrations(a),
-      (() => { const xs = (u?.resultado?.errores || []).filter((x) => !/:\s*ning[uú]n[oa]?\.?$/i.test(x)); return xs.length ? h('ul', { class: 'a-pend' }, xs.slice(0, 3).map((x) => h('li', { class: 'bad' }, x))) : null; })(), // «ERRORES: ninguno» no es un error
-      whatItDoes(a),
-      h('p', { class: 'a-meta muted' }, [`v${a.version}`, a.modo === 'DIRECTO' ? 'Claude directo' : 'Codex dirige', a.pasos ? `${a.pasos} paso${a.pasos === 1 ? '' : 's'}` : null,
-        a.verificada ? `última verificada ${fecha(a.verificada.at)}${a.verificada.prueba ? ' (prueba)' : ''}` : 'ninguna ejecución verificada'].filter(Boolean).join(' · ')),
-      h('div', { class: 'a-acts' }, actionsFor(a)));
+      h('dl', { class: 'ag-dl' }, quien('Cuándo trabaja', cuando), quien('Último resultado', ultimo),
+        necesita.length ? quien('Necesita', necesita.join(' · ')) : null),
+      u?.aprobaciones ? h('div', { class: 'a-acts' }, B('Revisar respuestas', openInbox, 'primary')) : null,
+      errores.length ? h('ul', { class: 'a-pend' }, errores.slice(0, 3).map((x) => h('li', { class: 'bad' }, x))) : null,
+      h('div', { class: 'a-acts ag-acts' }, ...actionsFor(a, pausar)),
+      h('details', { class: 'fold a-what', 'data-k': `det-${a.id}` }, h('summary', {}, 'Detalles'),
+        u?.resultado?.pendientes?.length ? h('ul', { class: 'a-pend' }, u.resultado.pendientes.slice(0, 6).map((x) => h('li', {}, x))) : null,
+        counters(u?.resultado), integrations(a), whatItDoes(a),
+        h('p', { class: 'a-meta muted' }, [`v${a.version}`, a.modo === 'DIRECTO' ? 'Claude directo' : 'Codex dirige', a.pasos ? `${a.pasos} paso${a.pasos === 1 ? '' : 's'}` : null,
+          a.verificada ? `última verificada ${fecha(a.verificada.at)}${a.verificada.prueba ? ' (prueba)' : ''}` : 'ninguna ejecución verificada'].filter(Boolean).join(' · '))));
   }
+
 
   async function execute(a, prueba, btn) {
     if (!online()) { toast('El PC no está conectado: la orden no se envía.', 'bad'); return; }
@@ -220,12 +235,30 @@ export function autoUi({ api, ask, toast, show, data, run, viewText, ai }) {
   function list() {
     const ps = projects().filter((p) => !onlyProject || p.id === onlyProject);
     const groups = ps.map((p) => [p, (p.automatizaciones || []).map((a) => ({ ...a, proyectoNombre: p.nombre }))]).filter(([p, xs]) => xs.length || p.id === onlyProject);
-    return [h('div', { class: 'a-top' }, h('button', { class: 'btn accent', type: 'button', onclick: () => openEditor(null, onlyProject) }, '+ Nueva automatización'),
+    return [phraseBox(), h('div', { class: 'a-top' }, h('button', { class: 'btn ghost small', type: 'button', onclick: () => openEditor(null, onlyProject) }, 'Crear paso a paso'),
       onlyProject ? h('button', { class: 'btn ghost small', type: 'button', onclick: () => openList(null) }, 'Ver todos los proyectos') : null,
       inbox().length ? h('button', { class: 'btn ghost small', type: 'button', onclick: openInbox }, `Respuestas por aprobar · ${pending().length}`) : null),
     groups.length ? groups.map(([p, xs]) => h('section', { class: 'a-group' }, h('div', { class: 'zone-head' }, h('h2', {}, p.nombre), h('span', { class: 'count' }, String(xs.length))),
       xs.length ? h('div', { class: 'a-cards' }, xs.map(card)) : h('p', { class: 'empty' }, 'Este proyecto aún no tiene botones.')))
       : h('p', { class: 'empty' }, 'Todavía no hay automatizaciones. Crea la primera con «+ Nueva automatización».'), winSection()];
+  }
+
+  // CREAR CON UNA FRASE: «Revisa todos los días a las 10 las facturas nuevas de Galán Contable». Sin IA: proyecto y horario
+  // salen de la frase (web/zones.js fraseAutomatizacion); lo que falta se completa en el editor. Al guardar se programa.
+  let frase = '';
+  function phraseBox() {
+    const ta = h('textarea', { rows: 2, placeholder: 'Ej.: Revisa todos los días a las 10 de la mañana las facturas nuevas de Galán Contable' });
+    ta.value = frase;
+    ta.addEventListener('input', () => { frase = ta.value; });
+    return h('section', { class: 'panel ag-new' }, h('h4', {}, 'Nuevo agente'),
+      h('p', { class: 'muted small' }, 'Dile qué quieres que haga, en qué proyecto y cuándo. Lo preparamos y revisas antes de guardarlo.'), ta,
+      h('div', { class: 'a-acts' }, h('button', { class: 'btn primary', type: 'button', disabled: !online(), onclick: () => {
+        const p = fraseAutomatizacion(frase, projects());
+        if (!frase.trim()) { toast('Escribe qué quieres que haga', 'bad'); return; }
+        form = { proyecto: p.proyecto || onlyProject || projects()[0]?.id, nombre: p.nombre, descripcion: p.descripcion, procedimiento: p.procedimiento, pasos: [], integraciones: [], recursos: [], modo: 'AUTO', prueba: '', siguiente: null,
+          programaPendiente: p.programa, avisos: [!p.proyecto && 'No he reconocido el proyecto: elígelo abajo.', !p.programa && (p.faltan.includes('hora') ? 'No he entendido la hora: prográmalo después con «Programar».' : 'Sin horario: sólo trabajará cuando pulses Ejecutar (o prográmalo después).')].filter(Boolean) };
+        mode = 'edit'; paint(true); window.scrollTo(0, 0);
+      } }, 'Preparar')));
   }
 
   // ------------------------------------------------------------ historial de una automatización
@@ -294,9 +327,22 @@ export function autoUi({ api, ask, toast, show, data, run, viewText, ai }) {
       const payload = { ...(f.id ? { id: f.id } : { proyecto: f.proyecto }), nombre: f.nombre, descripcion: f.descripcion, procedimiento: f.procedimiento,
         pasos: (f.pasos || []).filter((p) => (p.titulo || '').trim()), integraciones: f.integraciones, recursos: f.recursos, modo: f.modo, prueba: f.prueba, siguiente: f.siguiente,
         precomprobacion: f.precomprobacion || undefined, ligero: !!f.ligero };
-      if (await cmd('automatizacion.guardar', payload, 'Guardada', e.currentTarget)) { mode = 'list'; form = null; paint(true); }
-    } }, f.id ? `Guardar versión ${(f.version || 0) + 1}` : 'Crear automatización');
-    return [h('section', { class: 'panel a-form' },
+      if (f.programaPendiente && !f.id) {
+        // Creado desde una frase con horario: se guarda y, sólo si se guardó, se programa (las mismas confirmaciones de siempre).
+        const btn = e.currentTarget; btn.disabled = true;
+        try {
+          const r = await api.cmd('automatizacion.guardar', payload);
+          if (!r?.ok) { toast(r?.error || 'No se pudo guardar', 'bad'); return; }
+          if (await cmd('automatizacion.programar', { id: r.data.id, programa: f.programaPendiente, activa: true }, 'Creado y programado', btn)) { frase = ''; mode = 'list'; form = null; paint(true); }
+        } finally { btn.disabled = false; }
+        return;
+      }
+      if (await cmd('automatizacion.guardar', payload, 'Guardada', e.currentTarget)) { frase = ''; mode = 'list'; form = null; paint(true); }
+    } }, f.id ? `Guardar versión ${(f.version || 0) + 1}` : f.programaPendiente ? 'Crear y programar' : 'Crear agente');
+    return [f.programaPendiente || f.avisos?.length ? h('section', { class: 'panel ag-prep' },
+      f.programaPendiente ? h('p', { class: 'ln' }, h('b', {}, 'CUÁNDO'), ` ${f.programaPendiente.tipo === 'diaria' ? `Cada día a las ${f.programaPendiente.hora}` : f.programaPendiente.tipo === 'semanal' ? `Días ${f.programaPendiente.dias.join(', ')} (1 = lunes) a las ${f.programaPendiente.hora}` : `Cada ${f.programaPendiente.cada_min} min de ${f.programaPendiente.desde} a ${f.programaPendiente.hasta}`} (hora de Madrid): se programa al guardar.`) : null,
+      (f.avisos || []).map((x) => h('p', { class: 'note' }, x))) : null,
+    h('section', { class: 'panel a-form' },
       field('Proyecto', projSel),
       field('Nombre del botón', input('nombre', { maxlength: 60, placeholder: 'RECOGER FACTURAS' })),
       field('Descripción', area('descripcion', 2, { maxlength: 600, placeholder: 'Qué hace, en una o dos frases' })),
@@ -418,12 +464,12 @@ export function autoUi({ api, ask, toast, show, data, run, viewText, ai }) {
     if (mode === 'runs' && !force) return;
     if (mode === 'list') {
       const s = JSON.stringify(all().map((a) => [a.id, a.estado, a.activa, a.version, a.ultima?.id, a.ultima?.estado, a.ultima?.progreso, a.ultima?.texto, a.ultima?.aprobaciones, a.integraciones, a.programa])) + onlyProject + online() + inbox().length + (win?.leido || '');
-      if (!force && (s === sig || document.querySelector('dialog[open], details.a-more[open], details.a-what[open]'))) return;
+      if (!force && (s === sig || document.querySelector('dialog[open], details.a-more[open], details.a-what[open]') || document.activeElement?.closest?.('.ag-new'))) return; // no se come lo que escribes
       sig = s;
     }
     const p = onlyProject && projects().find((x) => x.id === onlyProject);
-    t.textContent = mode === 'edit' ? (form.id ? 'Editar automatización' : 'Nueva automatización') : mode === 'runs' ? viewing.ver.nombre : `Automatizaciones${p ? ` · ${p.nombre}` : ''}`;
-    document.getElementById('a-sub').textContent = mode === 'list' ? `${all().length} botón${all().length === 1 ? '' : 'es'} · ${online() ? 'PC conectado' : 'PC desconectado'}` : '';
+    t.textContent = mode === 'edit' ? (form.id ? 'Editar agente' : 'Nuevo agente') : mode === 'runs' ? viewing.ver.nombre : `Agentes y automatizaciones${p ? ` · ${p.nombre}` : ''}`;
+    document.getElementById('a-sub').textContent = mode === 'list' ? `${all().length} agente${all().length === 1 ? '' : 's'} · ${online() ? 'PC conectado' : 'PC desconectado'}` : '';
     document.getElementById('a-body').replaceChildren(...(mode === 'edit' ? editor() : mode === 'runs' ? runsView() : list()).flat(Infinity).filter(Boolean));
   }
 

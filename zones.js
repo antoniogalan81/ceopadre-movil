@@ -3,7 +3,8 @@
 
 // Te necesita (decisión o algo que arreglar) · trabajando · esperando a un proveedor o en cola.
 // SIN_ACTIVIDAD es trabajo en curso: si el proceso sigue callado, CEOPadre lo corta y lo reintenta solo.
-const NEEDS = ['ESPERANDO_DECISION', 'BLOQUEADO', 'ERROR'];
+// ESPERANDO_ANTONIO = espera una acción que sólo puede hacer Antonio (renovar un permiso, escuchar…): le necesita.
+const NEEDS = ['ESPERANDO_DECISION', 'ESPERANDO_ANTONIO', 'BLOQUEADO', 'ERROR'];
 const WORKING = ['TRABAJANDO', 'SIN_ACTIVIDAD'];
 const WAITING = ['ESPERANDO_CLAUDE', 'ESPERANDO_CEO', 'EN_COLA'];
 
@@ -168,7 +169,9 @@ export function decisionsText(cards, fecha = new Date()) {
 // robada no basta. El resto de órdenes (aprobar, pausar, mando remoto cerrado…) siguen como siempre. Lista única: la usan
 // el PC (src/sync.js, src/commands.js) y el móvil (web/app.js).
 // También: guardar un procedimiento de automatización (texto que ejecutará Claude) y aprobar envíos a terceros (bandeja).
-export const HIGH_RISK = new Set(['objetivo.iniciar', 'objetivo.anadir', 'trabajo.instruccion', 'pendiente.editar', 'automatizacion.guardar', 'bandeja.aprobar']);
+export const HIGH_RISK = new Set(['objetivo.iniciar', 'objetivo.anadir', 'trabajo.instruccion', 'pendiente.editar', 'automatizacion.guardar', 'bandeja.aprobar',
+  // Ponen a trabajar a Claude en el PC sin pulsar ▶ (horario, revisión, objetivos de negocio): las mismas garantías.
+  'automatizacion.programar', 'proyecto.revisar', 'negocio.crear', 'negocio.aprobar', 'negocio.responder', 'negocio.reanudar']);
 export const REAUTH_MS = 30 * 60_000;
 /** Hora (ms) de la última vez que esta sesión se abrió CON CONTRASEÑA, leída del token (amr). 0 si no consta. */
 export function passwordAt(accessToken) {

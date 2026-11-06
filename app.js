@@ -5,6 +5,7 @@ import { h } from './dom.js';
 import { advice, decideRow, mapBody, mapPanel, pendingDecisions, proposals } from './map.js';
 import { remoteUi } from './remoto.js';
 import { autoUi } from './automatizaciones.js';
+import { negocioUi } from './negocio.js';
 import { aiEditor } from './redactor.js';
 
 const LOCAL = ['127.0.0.1', 'localhost'].includes(location.hostname);
@@ -27,7 +28,7 @@ function localApi() {
       // MANDO REMOTO: el mismo panel que en el móvil; la foto sólo se relee cuando cambia su huella.
       const sig = JSON.stringify(Object.entries(r.data.remotos || {}).map(([id, b]) => [id, b.hash, b.at, b.error]));
       if (sig !== remSig) { const x = await call('/api/remoto'); if (x.ok) { remotos = x.data; remSig = sig; } }
-      return { proyectos: r.data.proyectos, pc: { online: true }, remoto: r.data.remoto, cuenta: r.data.remoto?.cuenta || '', cuotas: r.data.cuotas, remotos };
+      return { proyectos: r.data.proyectos, pc: { online: true }, remoto: r.data.remoto, cuenta: r.data.remoto?.cuenta || '', cuotas: r.data.cuotas, remotos, negocio: r.data.negocio };
     },
     async details(id) { return (await call(`/api/details?proyecto=${encodeURIComponent(id)}`)).data; },
     cmd: (op, params) => call('/api/cmd', { method: 'POST', body: JSON.stringify({ op, params }) }),
@@ -80,7 +81,7 @@ async function remoteApi() {
       }
       for (const x of proyectos) x._logo = x.logo && logos.get(x.id)?.hash === x.logo ? logos.get(x.id).data : null;
       cuenta ??= (await sb.auth.getUser()).data.user?.email || '';
-      return { proyectos, pc: { online: online(), visto: pc?.visto_en }, cuenta, cuotas: pc?.datos?.cuotas, remotos };
+      return { proyectos, pc: { online: online(), visto: pc?.visto_en }, cuenta, cuotas: pc?.datos?.cuotas, remotos, negocio: pc?.datos?.negocio };
     },
     async details(id) { const r = await sb.from('ceo_card').select('detalle').eq('id', id).maybeSingle(); return r.data?.detalle; },
     async cmd(op, params) {
@@ -139,7 +140,7 @@ const STATES = {
   LIBRE: ['⚪', 'SIN OBJETIVO', 'idle'], EN_COLA: ['⏳', 'EN COLA', 'wait'], TRABAJANDO: ['🟢', 'TRABAJANDO', 'work'],
   ESPERANDO_DECISION: ['🟡', 'ESPERANDO DECISIÓN', 'ask'], PAUSADO: ['⏸️', 'PAUSADO', 'idle'],
   ESPERANDO_CLAUDE: ['⏳', 'ESPERANDO CLAUDE', 'wait'], ESPERANDO_CEO: ['⏳', 'ESPERANDO CEO', 'wait'],
-  ESPERANDO_CONDICION: ['🔭', 'ESPERANDO CONDICIÓN · MONITORIZADO', 'wait'],
+  ESPERANDO_CONDICION: ['🔭', 'ESPERANDO CONDICIÓN · MONITORIZADO', 'wait'], ESPERANDO_ANTONIO: ['✋', 'TE NECESITA', 'ask'],
   SIN_ACTIVIDAD: ['🟠', 'SIN ACTIVIDAD', 'warn'], BLOQUEADO: ['🔴', 'BLOQUEADO', 'bad'], ERROR: ['🔴', 'ERROR', 'bad'],
   LISTO: ['✅', 'LISTO · TU TURNO', 'ok'], TERMINADO: ['✅', 'TERMINADO', 'ok'], CANCELADO: ['⚪', 'CANCELADO', 'idle'],
 };
@@ -181,9 +182,10 @@ function toast(msg, kind = '') {
   clearTimeout(toastT); toastT = setTimeout(() => { t.className = 'toast'; }, 3500);
 }
 
-const show = (id) => { for (const s of ['p-login', 'p-list', 'p-detail', 'p-remote', 'p-autos', 'p-bandeja']) $('#' + s).hidden = s !== id; };
+const show = (id) => { for (const s of ['p-login', 'p-list', 'p-detail', 'p-remote', 'p-autos', 'p-bandeja', 'p-negocio']) $('#' + s).hidden = s !== id; };
 let rui = null; // MANDO REMOTO (web/remoto.js)
 let aui = null; // AUTOMATIZACIONES y BANDEJA DE APROBACIÓN (web/automatizaciones.js)
+let nui = null; // OBJETIVOS DE NEGOCIO (web/negocio.js)
 
 async function refresh() {
   try {
@@ -200,6 +202,7 @@ async function refresh() {
   if (openId) paintDetail();
   rui?.paint();
   aui?.paint();
+  nui?.paint();
 }
 
 async function run(op, params, okMsg, btn) {
@@ -222,7 +225,7 @@ function ask({ title, help = '', fields = [], ok = 'Aceptar', danger = false }) 
   const box = $('#dlg-fields');
   box.textContent = '';
   for (const f of fields) {
-    if (f.type === 'checkbox') { box.append(h('label', { class: 'check' }, h('input', { name: f.name, type: 'checkbox' }), ' ', f.label)); continue; }
+    if (f.type === 'checkbox') { box.append(h('label', { class: 'check' }, h('input', { name: f.name, type: 'checkbox', checked: !!f.value }), ' ', f.label)); continue; }
     const required = f.required !== false;
     // choice: una opción de una lista cerrada (p. ej. TikTok / Instagram), ya elegida si sólo hay una.
     if (f.type === 'choice') {
@@ -435,6 +438,8 @@ function buttonsFor(c) {
     add, instr, I('target', 'Nuevo objetivo', 'goal', 'accent'), stop, info];
   // Esperando una condición: no ocupa el hueco; se puede empezar otro objetivo, reactivarlo ya o añadirle algo.
   if (e === 'ESPERANDO_CONDICION') return [I('target', 'Nuevo objetivo', 'goal', 'accent'), I('play', 'Reactivar ahora', 'resume'), add, stop, info];
+  // Espera algo que sólo puede hacer Antonio: se sigue comprobando sola; «Ya lo he hecho» la comprueba y sigue ya.
+  if (e === 'ESPERANDO_ANTONIO') return [T('YA LO HE HECHO', 'resume'), I('target', 'Nuevo objetivo', 'goal', 'accent'), add, stop, info];
   if (OPEN.includes(e)) return [I('target', 'Nuevo objetivo', 'goal', 'accent'), e === 'TERMINADO' ? instr : null, info, I('unlink', 'Quitar de CEOPadre', 'unlink', 'danger')];
   if (e === 'ESPERANDO_DECISION') return [add, instr, stop, info];
   if (WAITING.includes(e)) return [T('CONTINUAR', 'resume'), I('pause', 'Pausar', 'pause'), add, instr, stop, info];
@@ -465,7 +470,7 @@ const jobDecision = (c) => (c.estado === 'ESPERANDO_DECISION' ? h('div', { class
 // Texto del estado en los puestos (lo que Antonio lee de un vistazo).
 const MOOD_LABEL = { ESPERANDO_DECISION: 'Te necesita · decidir', ERROR: 'Error · revisar', BLOQUEADO: 'Bloqueado · revisar',
   SIN_ACTIVIDAD: 'Sin actividad', TRABAJANDO: 'Trabajando', ESPERANDO_CLAUDE: 'Esperando a Claude', ESPERANDO_CEO: 'Esperando al CEO',
-  ESPERANDO_CONDICION: 'Esperando condición · monitorizado', EN_COLA: 'En cola', LIBRE: 'Sin objetivo', PAUSADO: 'Pausado', LISTO: 'Listo · tu turno', TERMINADO: 'Terminado', CANCELADO: 'Cancelado' };
+  ESPERANDO_CONDICION: 'Esperando condición · monitorizado', ESPERANDO_ANTONIO: 'Te necesita · hacer algo', EN_COLA: 'En cola', LIBRE: 'Sin objetivo', PAUSADO: 'Pausado', LISTO: 'Listo · tu turno', TERMINADO: 'Terminado', CANCELADO: 'Cancelado' };
 // Una decisión pendiente de Antonio (del objetivo o del canon) manda sobre cualquier otro estado.
 const decisionLabel = (c) => { const n = decisionCount(c); return n > 1 ? `ESPERANDO TU DECISIÓN · ${n}` : 'ESPERANDO TU DECISIÓN'; };
 const status = (c, text) => h('span', { class: 'status' }, h('i', { class: 'dot', 'aria-hidden': 'true' }),
@@ -511,7 +516,8 @@ function tile(c) {
   return h('article', { class: `tile m-${mood(c)}`, 'data-id': c.id },
     logo(c),
     h('div', { class: 'title' }, h('h3', { title: c.nombre }, c.nombre), status(c),
-      c.estado === 'ESPERANDO_CONDICION' && c.condicion ? h('small', { class: 'muted cond', title: c.condicion }, c.condicion) : null),
+      c.estado === 'ESPERANDO_CONDICION' && c.condicion ? h('small', { class: 'muted cond', title: c.condicion }, c.condicion) : null,
+      c.estado === 'ESPERANDO_ANTONIO' && c.te_necesita ? h('small', { class: 'muted cond', title: c.te_necesita }, c.te_necesita) : null),
     h('div', { class: 'actions' }, buttonsFor(c)));
 }
 
@@ -826,9 +832,40 @@ async function paintDetail(force) {
   const decide = (id, que, b) => run(`canon.${que}`, { proyecto: c.id, id }, que === 'aprobar' ? 'Aprobado' : 'Rechazado', b);
   const consult = (ref, b) => actions.consult(c, ref, b);
   const openMap = () => { $('#map-title').textContent = `Mapa · ${c.nombre}`; paintMap(d.mapa, decide, consult); $('#map').showModal(); };
-  body.replaceChildren(...[summaryPanel(c, d), aui?.projectPanel(c), esperasPanel(c, d), mapPanel(d.mapa, { open: openMap, decide, ...decisionHandlers(c) }), writePanel(c, d), roundsPanel(d), techPanel(c, d)].filter(Boolean));
+  body.replaceChildren(...[summaryPanel(c, d), revisionPanel(c), aui?.projectPanel(c), esperasPanel(c, d), mapPanel(d.mapa, { open: openMap, decide, ...decisionHandlers(c) }), writePanel(c, d), roundsPanel(d), techPanel(c, d)].filter(Boolean));
   if ($('#map').open) paintMap(d.mapa, decide, consult);
   for (const x of body.querySelectorAll('details')) if (wasOpen.has(x.dataset.k)) x.open = true;
+}
+
+// REVISAR PROYECTO (CEO auditor): evidencia real (git, pruebas, despliegue, tareas) + una ronda que la contrasta. El
+// resultado se pide una vez por revisión (no en cada repintado) y sus prioridades se lanzan como objetivos normales.
+const revCache = new Map(); // proyecto → { key, data }
+function revisionPanel(c) {
+  const r = c.revision;
+  const key = r ? `${r.id}:${r.estado}` : 'none';
+  const cached = revCache.get(c.id);
+  if (r && r.estado !== 'EN_CURSO' && cached?.key !== key) {
+    revCache.set(c.id, { key, data: null });
+    void api.cmd('proyecto.revision', { proyecto: c.id }).then((x) => { if (x?.ok) { revCache.set(c.id, { key, data: x.data.revision }); paintDetail(true); } });
+  }
+  const res = cached?.key === key ? cached.data?.resultado : null;
+  const L = (label, xs) => (xs?.length ? [h('p', { class: 'lbl' }, label), h('ul', { class: 'a-pend' }, xs.map((x) => h('li', {}, typeof x === 'object' ? `${x.que} → ${x.como} → ${x.resultado}` : x)))] : null);
+  const launch = async (p, btn) => {
+    const ok = await ask({ title: 'Lanzar como objetivo', ok: 'Lanzar', help: p.objetivo + (p.requiere_antonio ? '\n\nOjo: la revisión dice que necesita algo tuyo.' : '') });
+    if (ok) await run('objetivo.iniciar', { proyecto: c.id, objetivo: p.objetivo }, 'Objetivo lanzado', btn);
+  };
+  return h('section', { class: 'panel' }, h('h4', {}, 'Revisar proyecto'),
+    c.fuera?.commits ? h('p', { class: 'ln' }, h('b', {}, 'FUERA DE CEOPADRE'), ` ${c.fuera.commits} commit${c.fuera.commits === 1 ? '' : 's'} desde la última actualización del mapa (${when(c.fuera.desde)}): el mapa puede estar desfasado.`) : null,
+    r ? h('p', { class: 'ln muted' }, `Última revisión: ${when(r.created_at)} · ${r.estado === 'EN_CURSO' ? 'en marcha' : r.estado.toLowerCase()}`) : h('p', { class: 'muted' }, 'Nunca revisado. La revisión mira el repositorio real (no sólo el mapa) y separa lo comprobado de lo declarado.'),
+    res ? h('div', { class: 'result' }, h('p', { class: 'ln' }, h('b', {}, 'ESTADO'), ` ${res.estado}`), L('COMPROBADO', res.comprobado), L('DECLARADO SIN VERIFICAR', res.declarado_sin_verificar),
+      L('CONTRADICHO', res.contradicho), L('BLOQUEOS', res.bloqueos), L('RIESGOS', res.riesgos), L('DESVIACIONES', res.desviaciones),
+      res.prioridades?.length ? [h('p', { class: 'lbl' }, 'PRÓXIMAS PRIORIDADES'), h('ol', { class: 'a-steps' }, res.prioridades.map((p) => h('li', {}, p.objetivo.slice(0, 300), h('small', { class: 'muted' }, ` · ${p.motivo}${p.requiere_antonio ? ' · necesita algo tuyo' : ''}`),
+        ' ', h('button', { class: 'btn ghost small', type: 'button', onclick: (e) => launch(p, e.currentTarget) }, 'Lanzar'))))] : null) : cached?.key === key && cached.data?.error ? h('p', { class: 'note' }, cached.data.error) : null,
+    h('div', { class: 'a-acts' }, h('button', { class: 'btn primary small', type: 'button', disabled: r?.estado === 'EN_CURSO', onclick: async (e) => {
+      const x = await ask({ title: `Revisar ${c.nombre}`, ok: 'Revisar', help: 'Primero CEOPadre recoge la evidencia sin IA (git, pruebas y despliegue declarados, tareas de Windows, historial); después una ronda del motor la contrasta en el repositorio, sin cambiar código ni datos, y actualiza el mapa con lo comprobado.',
+        fields: [{ name: 'indicaciones', label: 'Algo en lo que fijarse (opcional)', type: 'textarea', required: false }] });
+      if (x) await run('proyecto.revisar', { proyecto: c.id, indicaciones: x.indicaciones }, 'Revisión lanzada', e.currentTarget);
+    } }, r?.estado === 'EN_CURSO' ? 'REVISIÓN EN MARCHA' : 'REVISAR PROYECTO')));
 }
 
 /** Parte superior: esquemática. */
@@ -1137,6 +1174,7 @@ async function start() {
   const ai = aiEditor({ api, toast, onApplied: () => void refresh() }); // EDITAR CON IA (uno solo para todas las bandejas)
   rui ??= remoteUi({ api, ask, toast, show, data: () => data, ago, local: LOCAL, ai });
   aui ??= autoUi({ api, ask, toast, show, data: () => data, run, viewText: (t, x) => view(t, x), ai });
+  nui ??= negocioUi({ api, ask, toast, show, data: () => data, run, viewText: (t, x) => view(t, x) });
   show('p-list');
   await refresh();
   api.watch(() => void refresh());
@@ -1211,6 +1249,36 @@ function pwa() {
     // Al volver a la app se mira si hay versión nueva (una petición del propio sw.js; nada de sondeos).
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') reg.update().catch(() => {}); });
   }).catch(() => { /* sin service worker la app sigue funcionando en línea */ });
+
+  // AVISOS: suscripción Web Push de este dispositivo. La clave pública la da el PC; la suscripción viaja como una orden más.
+  if ('PushManager' in window && 'Notification' in window) {
+    const b = $('#b-avisos');
+    const pintar = (on) => { b.hidden = false; b.textContent = on ? '🔔 Avisos ✓' : '🔔 Avisos'; b.title = on ? 'Avisos activados en este móvil (pulsa para probar o desactivar)' : 'Activar avisos en este móvil'; };
+    navigator.serviceWorker.ready.then(async (reg) => pintar(!!(await reg.pushManager.getSubscription()))).catch(() => {});
+    b.addEventListener('click', async () => {
+      try {
+        const reg = await navigator.serviceWorker.ready;
+        const cur = await reg.pushManager.getSubscription();
+        if (cur) {
+          const r = await ask({ title: 'Avisos en este móvil', help: 'Están activados: te llega un aviso cuando algo te necesita o termina.', ok: 'Enviar un aviso de prueba',
+            fields: [{ name: 'baja', label: 'Desactivarlos en este móvil', type: 'checkbox' }] });
+          if (!r) return;
+          if (r.baja) { await api.cmd('aviso.baja', { endpoint: cur.endpoint }); await cur.unsubscribe(); pintar(false); toast('Avisos desactivados en este móvil', 'ok'); return; }
+          const x = await api.cmd('aviso.probar', {});
+          toast(x?.ok ? x.data.mensaje : x?.error || 'No se pudo', x?.ok ? 'ok' : 'bad');
+          return;
+        }
+        if (await Notification.requestPermission() !== 'granted') { toast('El navegador no ha dado permiso para avisos', 'bad'); return; }
+        const k = await api.cmd('aviso.clave', {});
+        if (!k?.ok) { toast(k?.error || 'El PC no responde', 'bad'); return; }
+        const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: Uint8Array.from(atob(k.data.clave.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0)) });
+        const r = await api.cmd('aviso.suscribir', { suscripcion: sub.toJSON(), dispositivo: navigator.userAgentData?.platform || navigator.platform || 'móvil' });
+        if (!r?.ok) { await sub.unsubscribe(); toast(r?.error || 'No se pudo activar', 'bad'); return; }
+        pintar(true);
+        toast('Avisos activados: te llegará uno cuando algo te necesite o termine', 'ok');
+      } catch (e) { toast(`Avisos: ${e.message}`, 'bad'); }
+    });
+  }
 
   // Android/Chrome: «Instalar CEOPadre» discreto, sólo cuando el navegador lo ofrece y si no está ya instalada.
   let deferred = null;

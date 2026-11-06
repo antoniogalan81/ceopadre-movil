@@ -6,7 +6,7 @@ import { h } from './dom.js';
 const STATE = {
   DISPONIBLE: ['Disponible', 'idle'], EJECUTANDO: ['Ejecutándose', 'work'], ESPERANDO_AUTORIZACION: ['Esperando tu autorización', 'ask'],
   COMPLETADA: ['Completada', 'ok'], PARCIAL: ['Completada parcialmente', 'warn'], BLOQUEADA: ['Bloqueada', 'bad'], ERROR: ['Error', 'bad'], CANCELADA: ['Cancelada', 'idle'],
-  PAUSADA: ['Pausada', 'idle'], DESACTIVADA: ['Desactivada', 'idle'],
+  PAUSADA: ['Pausada', 'idle'], DESACTIVADA: ['Desactivada', 'idle'], OMITIDA: ['No se lanzó a su hora', 'warn'],
 };
 // Integración: lo que vio la última ejecución que la usó (nunca «conectada» sólo por estar configurada).
 const INTEG = { OK: ['✓', 'ok', 'funcionó'], FALLO: ['✕', 'bad', 'falló'], NO_DISPONIBLE: ['✕', 'bad', 'no disponible'], SIN_VERIFICAR: ['?', 'idle', 'sin verificar'] };
@@ -106,24 +106,68 @@ export function autoUi({ api, ask, toast, show, data, run, viewText, ai }) {
     out.push(h('button', { class: 'btn ghost small', type: 'button', onclick: () => openRuns(a) }, 'Historial'));
     out.push(h('details', { class: 'a-more' }, h('summary', { class: 'btn ghost small' }, 'Más'), h('div', { class: 'a-menu' },
       h('button', { class: 'btn ghost small', type: 'button', onclick: () => openEditor(a) }, 'Editar'),
+      h('button', { class: 'btn ghost small', type: 'button', onclick: (e) => schedule(a, e.currentTarget) }, a.programa ? 'Cambiar horario' : 'Programar'),
+      a.programa ? h('button', { class: 'btn ghost small', type: 'button', onclick: (e) => cmd('automatizacion.programar', { id: a.id, activa: !a.programa.activa }, a.programa.activa ? 'Programación en pausa' : 'Programación activa', e.currentTarget) }, a.programa.activa ? 'Pausar horario' : 'Reanudar horario') : null,
+      a.programa ? h('button', { class: 'btn ghost small', type: 'button', onclick: (e) => cmd('automatizacion.programar', { id: a.id, programa: null }, 'Sin programación', e.currentTarget) }, 'Quitar horario') : null,
       h('button', { class: 'btn ghost small', type: 'button', disabled: running || !a.activa, onclick: (e) => execute(a, true, e.currentTarget) }, 'Ejecutar en prueba'),
       h('button', { class: 'btn ghost small', type: 'button', onclick: (e) => duplicate(a, e.currentTarget) }, 'Duplicar'),
       h('button', { class: 'btn ghost small', type: 'button', onclick: (e) => cmd('automatizacion.activar', { id: a.id, activa: !a.activa }, 'Hecho', e.currentTarget) }, a.activa ? 'Desactivar' : 'Activar'),
       h('button', { class: 'btn ghost-danger small', type: 'button', disabled: running, onclick: (e) => archive(a, e.currentTarget) }, 'Archivar'))));
     return out;
   }
+  // CUÁNDO: la programación (sólo hora de Madrid), su próxima ejecución o por qué no corre.
+  function scheduleLine(a) {
+    const g = a.programa;
+    if (!g) return h('p', { class: 'ln muted' }, h('b', {}, 'CUÁNDO'), ' Sólo al pulsar ▶ EJECUTAR (sin programar)');
+    return h('p', { class: 'ln' }, h('b', {}, 'CUÁNDO'), ` ${g.texto}`, g.pausada_por ? h('span', { class: 'muted' }, ` · ${g.pausada_por}`)
+      : g.proxima ? h('span', {}, ` · próxima: ${new Date(g.proxima).toLocaleString('es-ES', { timeZone: 'Europe/Madrid', weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}`) : null);
+  }
+  // QUÉ HACE EXACTAMENTE: lo que ya está guardado, sin IA (descripción, fases, fuentes, qué puede tocar y quién ejecuta).
+  function whatItDoes(a) {
+    const ints = Object.keys(a.integraciones || {});
+    return h('details', { class: 'fold a-what', 'data-k': `what-${a.id}` }, h('summary', {}, 'Qué hace exactamente al pulsar EJECUTAR'),
+      h('ul', { class: 'a-pend' },
+        h('li', {}, a.precomprobacion ? 'Primero una comprobación rápida sin agentes: si no hay nada nuevo, termina sola en segundos con su resultado. Si hay novedades, una revisión completa con ' : 'Una ejecución completa con ',
+          a.modo === 'DIRECTO' ? 'Claude directo (sin CEO).' : 'Codex dirigiendo a Claude y exigiendo evidencia de cada cosa.'),
+        a.pasos ? h('li', {}, `${a.pasos} paso${a.pasos === 1 ? '' : 's'} guardado${a.pasos === 1 ? '' : 's'} (Historial → Procedimiento completo).`) : null,
+        h('li', {}, ints.length ? `Fuentes y herramientas: ${ints.join(', ')}. Cada ejecución dice si funcionaron.` : 'Sin integraciones declaradas.'),
+        h('li', {}, 'Qué puede hacer: procesar lo nuevo y lo pendiente, sin duplicar, y registrar sólo lo verificado. Nunca envía nada a terceros sin tu aprobación, no inventa datos, no borra datos reales y gasta 0 €.'),
+        a.recursos?.length ? h('li', {}, `Usa en exclusiva: ${a.recursos.join(', ')} (nada más los usa a la vez).`) : null,
+        h('li', {}, 'Si una fuente falla, el resultado es PARCIAL (nunca «completada») y lo pendiente de esa fuente queda para la próxima.')));
+  }
+  async function schedule(a, btn) {
+    const g = a.programa || {};
+    const dias = ['lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado', 'domingo'];
+    const r = await ask({ title: `Programar «${a.nombre}»`, ok: 'Guardar programación',
+      help: 'Se ejecuta sola a esa hora (hora de Madrid) con el PC encendido, exactamente igual que al pulsar ▶. Si el PC estaba apagado, al volver se lanza UNA vez la última hora perdida. Nunca dos a la vez.',
+      fields: [{ name: 'tipo', label: 'Cuándo', type: 'choice', value: g.tipo || 'diaria', options: [{ value: 'diaria', label: 'Cada día' }, { value: 'semanal', label: 'Ciertos días de la semana' }, { value: 'cada', label: 'Cada cierto tiempo' }] },
+        { name: 'hora', label: 'Hora (cada día o ciertos días), HH:MM', value: g.hora || '10:00', required: false },
+        ...dias.map((d, i) => ({ name: `d${i + 1}`, label: `Días: ${d}`, type: 'checkbox', value: (g.dias || [1, 2, 3, 4, 5]).includes(i + 1) })),
+        { name: 'cada_min', label: 'Cada cuántos minutos (cada cierto tiempo, mínimo 30)', value: String(g.cada_min || 120), required: false },
+        { name: 'desde', label: 'Desde (HH:MM, cada cierto tiempo)', value: g.desde || '08:00', required: false },
+        { name: 'hasta', label: 'Hasta (HH:MM, cada cierto tiempo)', value: g.hasta || '20:00', required: false },
+        { name: 'reintentos', label: 'Si falla, reintentar (15 min después, continuando desde lo hecho)', type: 'choice', value: String(g.reintentos ?? 1), options: [{ value: '0', label: 'No reintentar' }, { value: '1', label: '1 vez' }, { value: '2', label: '2 veces' }] },
+        { name: 'recuperar', label: 'Si el PC estaba apagado a su hora, ejecutarla al volver', type: 'checkbox', value: g.recuperar !== false }] });
+    if (!r) return;
+    const programa = { tipo: r.tipo, hora: r.hora, dias: dias.map((_, i) => (r[`d${i + 1}`] ? i + 1 : null)).filter(Boolean), cada_min: Number(r.cada_min), desde: r.desde, hasta: r.hasta, reintentos: Number(r.reintentos), recuperar: r.recuperar };
+    await cmd('automatizacion.programar', { id: a.id, programa, activa: true }, 'Programada', btn);
+  }
+
   function card(a) {
     const [label, tone] = STATE[a.estado] || [a.estado, 'idle'];
     const u = a.ultima;
     return h('article', { class: `a-card t-${tone}`, 'data-id': `auto-${a.id}` },
       h('header', {}, h('h3', {}, a.nombre), chip(label, tone)),
       a.descripcion ? h('p', { class: 'a-desc' }, a.descripcion) : null,
+      scheduleLine(a),
       lastLine(a),
       u?.aprobaciones ? h('p', { class: 'ln' }, h('b', {}, 'TU AUTORIZACIÓN'), ` ${u.aprobaciones} respuesta${u.aprobaciones === 1 ? '' : 's'} esperan tu aprobación `,
         h('button', { class: 'btn ghost small', type: 'button', onclick: openInbox }, 'Revisar')) : null,
       u?.resultado?.pendientes?.length ? h('ul', { class: 'a-pend' }, u.resultado.pendientes.slice(0, 4).map((x) => h('li', {}, x))) : null,
       counters(u?.resultado),
       integrations(a),
+      u?.resultado?.errores?.length ? h('ul', { class: 'a-pend' }, u.resultado.errores.slice(0, 3).map((x) => h('li', { class: 'bad' }, x))) : null,
+      whatItDoes(a),
       h('p', { class: 'a-meta muted' }, [`v${a.version}`, a.modo === 'DIRECTO' ? 'Claude directo' : 'Codex dirige', a.pasos ? `${a.pasos} paso${a.pasos === 1 ? '' : 's'}` : null,
         a.verificada ? `última verificada ${fecha(a.verificada.at)}${a.verificada.prueba ? ' (prueba)' : ''}` : 'ninguna ejecución verificada'].filter(Boolean).join(' · ')),
       h('div', { class: 'a-acts' }, actionsFor(a)));
@@ -153,6 +197,26 @@ export function autoUi({ api, ask, toast, show, data, run, viewText, ai }) {
     if (ok) await cmd('automatizacion.archivar', { id: a.id, confirmado: true }, 'Archivada', btn);
   }
 
+  let win = null; // { leido, tareas } de tareas_windows.listar
+  async function loadWin(btn, refrescar = false) {
+    if (btn) btn.disabled = true;
+    try { const r = await api.cmd('tareas_windows.listar', { refrescar }); if (r?.ok) win = r.data; else toast(r?.error || 'No se pudieron leer', 'bad'); } finally { if (btn) btn.disabled = false; }
+    paint(true);
+  }
+  function winSection() {
+    const head = h('div', { class: 'zone-head' }, h('h2', {}, 'Procesos programados de Windows'), h('small', { class: 'muted' }, ' sólo lectura'));
+    if (!win) return h('section', { class: 'a-group' }, head, h('p', { class: 'muted' }, 'Las tareas del Programador de Windows de ECOAPP (Meditación, GalanHUB, el diario de Contable…), con su último resultado y lo que falla.'),
+      h('button', { class: 'btn ghost small', type: 'button', onclick: (e) => loadWin(e.currentTarget) }, 'Ver procesos de Windows'));
+    const xs = win.tareas.filter((t) => !onlyProject || t.proyecto === projects().find((p) => p.id === onlyProject)?.nombre);
+    return h('section', { class: 'a-group' }, head, h('p', { class: 'a-meta muted' }, `Leído ${fecha(win.leido)} · se administran en el Programador de tareas de Windows`),
+      h('div', { class: 'a-cards' }, xs.map((t) => h('article', { class: `a-card compact t-${t.incidencias.length ? 'warn' : t.habilitada ? 'ok' : 'idle'}` },
+        h('header', {}, h('h3', {}, t.nombre), chip(t.incidencias.length ? 'Incidencia' : t.habilitada ? t.estado || 'Lista' : 'Deshabilitada', t.incidencias.length ? 'warn' : t.habilitada ? 'ok' : 'idle')),
+        h('p', { class: 'a-meta muted' }, [t.proyecto, t.programacion, t.ultima ? `última ${t.ultima} (${t.resultado})` : null, t.proxima ? `próxima ${t.proxima}` : null].filter(Boolean).join(' · ')),
+        t.incidencias.length ? h('ul', { class: 'a-pend' }, t.incidencias.map((x) => h('li', {}, x))) : null,
+        h('details', { class: 'fold' }, h('summary', {}, 'Qué ejecuta'), h('code', {}, t.comando))))),
+      h('button', { class: 'btn ghost small', type: 'button', onclick: (e) => loadWin(e.currentTarget, true) }, 'Volver a leer'));
+  }
+
   function list() {
     const ps = projects().filter((p) => !onlyProject || p.id === onlyProject);
     const groups = ps.map((p) => [p, (p.automatizaciones || []).map((a) => ({ ...a, proyectoNombre: p.nombre }))]).filter(([p, xs]) => xs.length || p.id === onlyProject);
@@ -161,7 +225,7 @@ export function autoUi({ api, ask, toast, show, data, run, viewText, ai }) {
       inbox().length ? h('button', { class: 'btn ghost small', type: 'button', onclick: openInbox }, `Respuestas por aprobar · ${pending().length}`) : null),
     groups.length ? groups.map(([p, xs]) => h('section', { class: 'a-group' }, h('div', { class: 'zone-head' }, h('h2', {}, p.nombre), h('span', { class: 'count' }, String(xs.length))),
       xs.length ? h('div', { class: 'a-cards' }, xs.map(card)) : h('p', { class: 'empty' }, 'Este proyecto aún no tiene botones.')))
-      : h('p', { class: 'empty' }, 'Todavía no hay automatizaciones. Crea la primera con «+ Nueva automatización».')];
+      : h('p', { class: 'empty' }, 'Todavía no hay automatizaciones. Crea la primera con «+ Nueva automatización».'), winSection()];
   }
 
   // ------------------------------------------------------------ historial de una automatización
@@ -228,7 +292,8 @@ export function autoUi({ api, ask, toast, show, data, run, viewText, ai }) {
     }));
     const save = h('button', { class: 'btn primary big', type: 'button', onclick: async (e) => {
       const payload = { ...(f.id ? { id: f.id } : { proyecto: f.proyecto }), nombre: f.nombre, descripcion: f.descripcion, procedimiento: f.procedimiento,
-        pasos: (f.pasos || []).filter((p) => (p.titulo || '').trim()), integraciones: f.integraciones, recursos: f.recursos, modo: f.modo, prueba: f.prueba, siguiente: f.siguiente };
+        pasos: (f.pasos || []).filter((p) => (p.titulo || '').trim()), integraciones: f.integraciones, recursos: f.recursos, modo: f.modo, prueba: f.prueba, siguiente: f.siguiente,
+        precomprobacion: f.precomprobacion || undefined, ligero: !!f.ligero };
       if (await cmd('automatizacion.guardar', payload, 'Guardada', e.currentTarget)) { mode = 'list'; form = null; paint(true); }
     } }, f.id ? `Guardar versión ${(f.version || 0) + 1}` : 'Crear automatización');
     return [h('section', { class: 'panel a-form' },
@@ -243,7 +308,9 @@ export function autoUi({ api, ask, toast, show, data, run, viewText, ai }) {
       field('Integraciones que usa', listInput('integraciones'), 'Separadas por comas: gmail, drive, sheets, whatsapp, wechat… Cada ejecución dice si funcionaron.'),
       field('Recursos exclusivos', listInput('recursos'), 'Lo que no pueden usar dos automatizaciones a la vez (p. ej. wechat-ui, contabilidad).'),
       field('Instrucciones en modo prueba', area('prueba', 3, { placeholder: 'Cómo ejecutarla sin tocar datos reales (carpeta aislada, sin escribir en hojas reales…)' })),
-      field('Al completarse, ejecutar también', next)), save];
+      field('Al completarse, ejecutar también', next),
+      (() => { const x = h('input', { type: 'checkbox', checked: !!f.ligero }); x.addEventListener('change', () => { f.ligero = x.checked; });
+        return h('label', { class: 'check' }, x, ' Ejecutor ligero: Claude sin servidores MCP (unos 750 MB y 8 procesos menos). Sólo si el procedimiento no usa herramientas MCP.'); })()), save];
   }
 
   // ------------------------------------------------------------ bandeja de aprobación
@@ -350,8 +417,8 @@ export function autoUi({ api, ask, toast, show, data, run, viewText, ai }) {
     if (mode === 'edit' && !force) return;
     if (mode === 'runs' && !force) return;
     if (mode === 'list') {
-      const s = JSON.stringify(all().map((a) => [a.id, a.estado, a.activa, a.version, a.ultima?.id, a.ultima?.estado, a.ultima?.progreso, a.ultima?.aprobaciones, a.integraciones])) + onlyProject + online() + inbox().length;
-      if (!force && (s === sig || document.querySelector('dialog[open], details.a-more[open]'))) return;
+      const s = JSON.stringify(all().map((a) => [a.id, a.estado, a.activa, a.version, a.ultima?.id, a.ultima?.estado, a.ultima?.progreso, a.ultima?.texto, a.ultima?.aprobaciones, a.integraciones, a.programa])) + onlyProject + online() + inbox().length + (win?.leido || '');
+      if (!force && (s === sig || document.querySelector('dialog[open], details.a-more[open], details.a-what[open]'))) return;
       sig = s;
     }
     const p = onlyProject && projects().find((x) => x.id === onlyProject);

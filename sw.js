@@ -1,9 +1,9 @@
 // CEOPadre · service worker. SÓLO la carcasa de la app (HTML, CSS, JS, iconos) en una caché versionada.
 // Los datos (Supabase: proyectos, órdenes, sesión) nunca pasan por aquí: van siempre a la red y no se guardan.
 // VERSION la sella tools/publish-mobile.mjs con la huella del contenido: cada publicación es una caché nueva.
-const VERSION = 'c84da9465a92';
+const VERSION = '38f441329164';
 const CACHE = `ceopadre-${VERSION}`;
-const SHELL = ['./', 'index.html', 'style.css', 'app.js', 'zones.js', 'dom.js', 'map.js', 'remoto.js', 'zip.js', 'automatizaciones.js', 'redactor.js', 'config.js', 'vendor/supabase.js', 'manifest.webmanifest',
+const SHELL = ['./', 'index.html', 'style.css', 'app.js', 'zones.js', 'dom.js', 'map.js', 'remoto.js', 'zip.js', 'automatizaciones.js', 'negocio.js', 'redactor.js', 'config.js', 'vendor/supabase.js', 'manifest.webmanifest',
   'logo.png', 'gestiones.svg', 'icono-v2-192.png', 'icono-v2-512.png', 'icono-v2-maskable-512.png', 'apple-touch-icon-v2.png', 'favicon.ico'];
 
 self.addEventListener('install', (e) => {
@@ -19,6 +19,22 @@ self.addEventListener('activate', (e) => {
 });
 
 self.addEventListener('message', (e) => { if (e.data === 'SKIP_WAITING') self.skipWaiting(); });
+
+// AVISOS (Web Push): el PC los cifra para este dispositivo; aquí sólo se enseñan. Un toque abre CEOPadre.
+self.addEventListener('push', (e) => {
+  let m = {};
+  try { m = e.data ? e.data.json() : {}; } catch { m = { title: 'CEOPadre', body: e.data?.text() || '' }; }
+  e.waitUntil(self.registration.showNotification(m.title || 'CEOPadre', { body: m.body || '', tag: m.tag || undefined, renotify: !!m.tag,
+    icon: 'icono-v2-192.png', badge: 'icono-v2-192.png', data: { url: m.url || '' } }));
+});
+self.addEventListener('notificationclick', (e) => {
+  e.notification.close();
+  const url = new URL(e.notification.data?.url || './', self.registration.scope).href;
+  e.waitUntil((async () => {
+    for (const c of await self.clients.matchAll({ type: 'window', includeUncontrolled: true })) if ('focus' in c) { await c.focus(); if (e.notification.data?.url) c.navigate?.(url); return; }
+    await self.clients.openWindow(url);
+  })());
+});
 
 self.addEventListener('fetch', (e) => {
   const req = e.request;

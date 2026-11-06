@@ -771,3 +771,13 @@ a.btn { display: inline-flex; align-items: center; justify-content: center; text
 .red-facts { margin: 6px 0; padding: 8px 10px; border-radius: 8px; color: var(--bad); background: var(--bad-bg); font-size: .9rem; }
 .red-facts ul { margin: 4px 0 0; padding-left: 18px; }
 .r-net { display: grid; gap: 6px; margin: 6px 0; }
+
+/* OBJETIVOS DE NEGOCIO (V3.1): indicadores medidos; el color dice si cumple, nunca un porcentaje inventado. */
+.a-pend.kpis { list-style: none; padding-left: 0; }
+.a-pend.kpis li { padding: 4px 0 4px 22px; position: relative; }
+.a-pend.kpis li::before { position: absolute; left: 0; font-weight: 800; }
+.a-pend.kpis li.t-ok::before { content: '✓'; color: var(--ok); }
+.a-pend.kpis li.t-warn::before { content: '…'; color: var(--warn); }
+.a-pend.kpis li.t-idle::before { content: '?'; color: var(--muted, currentColor); opacity: .7; }
+.a-pend li.bad { color: var(--bad); }
+.a-what summary { cursor: pointer; font-size: 13px; }

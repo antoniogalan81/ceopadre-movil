@@ -123,6 +123,9 @@ async function strongConfirm(sb, op, params) {
   const fresh = Date.now() - passwordAt(s.access_token) < REAUTH_MS - 60_000;
   const what = op === 'bandeja.aprobar' ? { title: 'Confirmar envío a terceros', text: `Vas a autorizar el envío de ${params?.items?.length || 0} mensaje(s) desde tu cuenta.` }
     : op === 'automatizacion.guardar' ? { title: 'Guardar procedimiento', text: `Guardas un procedimiento que Claude ejecutará en tu PC cada vez que pulses el botón («${where}»).` }
+    : op === 'automatizacion.programar' ? { title: 'Confirmar horario', text: 'La automatización se ejecutará sola en tu PC a esa hora, igual que al pulsar ▶ EJECUTAR.' }
+    : op === 'proyecto.revisar' ? { title: 'Confirmar revisión', text: `Claude revisará «${where}» en tu PC (sólo lectura: no cambia código ni datos).` }
+    : op.startsWith('negocio.') ? { title: 'Confirmar objetivo de negocio', text: 'El director de CEOPadre lanzará trabajos de Claude en tu PC para este objetivo (gasto 0 €, nada sale a terceros sin ti).' }
     : { title: 'Confirmar orden a Claude', text: `Vas a enviar texto libre a Claude en «${where}». Claude puede ejecutar código en tu PC.` };
   const r = await ask({ title: what.title, ok: 'Enviar al PC',
     help: `${what.text}${fresh ? '' : ' Por seguridad, escribe tu contraseña (como mucho una vez cada 30 min).'}`,

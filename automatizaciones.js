@@ -166,7 +166,7 @@ export function autoUi({ api, ask, toast, show, data, run, viewText, ai }) {
       u?.resultado?.pendientes?.length ? h('ul', { class: 'a-pend' }, u.resultado.pendientes.slice(0, 4).map((x) => h('li', {}, x))) : null,
       counters(u?.resultado),
       integrations(a),
-      u?.resultado?.errores?.length ? h('ul', { class: 'a-pend' }, u.resultado.errores.slice(0, 3).map((x) => h('li', { class: 'bad' }, x))) : null,
+      (() => { const xs = (u?.resultado?.errores || []).filter((x) => !/:\s*ning[uú]n[oa]?\.?$/i.test(x)); return xs.length ? h('ul', { class: 'a-pend' }, xs.slice(0, 3).map((x) => h('li', { class: 'bad' }, x))) : null; })(), // «ERRORES: ninguno» no es un error
       whatItDoes(a),
       h('p', { class: 'a-meta muted' }, [`v${a.version}`, a.modo === 'DIRECTO' ? 'Claude directo' : 'Codex dirige', a.pasos ? `${a.pasos} paso${a.pasos === 1 ? '' : 's'}` : null,
         a.verificada ? `última verificada ${fecha(a.verificada.at)}${a.verificada.prueba ? ' (prueba)' : ''}` : 'ninguna ejecución verificada'].filter(Boolean).join(' · ')),

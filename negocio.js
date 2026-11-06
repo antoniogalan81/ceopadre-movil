@@ -158,10 +158,11 @@ export function negocioUi({ api, ask, toast, show, data, run, viewText }) {
   function paintTop() {
     const b = document.getElementById('b-negocio');
     const n = data().negocio?.te_necesitan || 0;
-    if (b) { b.textContent = n ? `NEGOCIO · ${n}` : 'NEGOCIO'; b.classList.toggle('need', !!n); }
+    if (b) { b.textContent = n ? `Objetivos · ${n}` : 'Objetivos'; b.classList.toggle('need', !!n); }
   }
 
   document.getElementById('n-back').addEventListener('click', back);
   document.getElementById('b-negocio')?.addEventListener('click', open);
-  return { paint, open };
+  // Desde el centro de dirección: abrir uno concreto o crear uno nuevo sin pasar por la lista.
+  return { paint, open, openOne: (id) => { open(); void openOne(id); }, crear: (btn) => { open(); void crear(btn); } };
 }

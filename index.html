@@ -35,18 +35,24 @@
     <p class="error" id="l-err" hidden></p>
   </div>
 </section>
-
-<!-- LA OFICINA: arriba lo que está en marcha (puestos de trabajo), abajo lo que espera (azulejos).
-     GESTIONES es una unidad más que se abre como un cajón en esta misma página. -->
-<section id="p-list" class="screen" hidden>
+<!-- CENTRO DE DIRECCIÓN (V3.2): de un vistazo qué te necesita, qué trabaja, qué viene, qué se terminó y qué resultados hay.
+     Los proyectos sin actividad van al final y plegados. Todo sale de los estados reales del motor. -->
+<section id="p-list" class="screen home" hidden>
   <header class="bar">
     <div class="bar-brand">
       <img class="brand-logo" src="logo.png" alt="" width="42" height="42">
       <div>
         <h1 class="brand">CEO<span>Padre</span></h1>
-        <p class="bar-sub"><span>Mi oficina</span> · <span id="office-sum"></span></p>
+        <p class="bar-sub"><span>Centro de dirección</span> · <span id="office-sum"></span></p>
       </div>
     </div>
+    <!-- Navegación principal. En el móvil la misma navegación va abajo (barra de pestañas). -->
+    <nav class="tabs" aria-label="Secciones">
+      <button class="tab on" type="button" aria-current="page" data-tab="home">Dirección</button>
+      <button class="tab" id="b-negocio" type="button" title="Objetivos de negocio: resultado, plan, indicadores medidos y trabajos">Objetivos</button>
+      <button class="tab" id="b-autos" type="button" title="Agentes y automatizaciones de todos los proyectos: qué hacen, cuándo trabajan, última ejecución">Agentes</button>
+      <button class="tab need" id="b-inbox" type="button" hidden title="Respuestas preparadas que esperan tu aprobación"></button>
+    </nav>
     <div class="bar-side">
       <div class="bar-status">
       <p class="net m-ok" id="net" role="status" aria-live="polite"><i class="dot" aria-hidden="true"></i><span>Operativo</span></p>
@@ -54,45 +60,75 @@
         <summary aria-label="Cuota de suscripción de Codex y Claude" title="Cuota de suscripción (toda la cuenta)"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 18a8 8 0 1 1 16 0M12 18l4-6"/></svg><span class="q-max"></span></summary>
         <div class="quota-pop"></div>
       </details>
+      <button class="btn light small sync-btn" id="b-sync" type="button" aria-label="Actualizar todos los proyectos ahora" title="Actualizar todos los proyectos ahora"><span class="sync-ico" aria-hidden="true">↻</span></button>
       </div>
-      <div class="top-actions">
-        <!-- Paneles de los proyectos con mando remoto (hoy VIDEOFACTORY): abren su panel, nunca un objetivo. -->
-        <span class="top-remotes" id="top-remotes"></span>
-        <!-- AUTOMATIZACIONES (botones guardados de cada proyecto) y BANDEJA de respuestas por aprobar. -->
-        <button class="btn small remote-top" id="b-negocio" type="button" title="Objetivos de negocio: resultado, indicadores medidos y trabajos">NEGOCIO</button>
-        <button class="btn small remote-top" id="b-autos" type="button" title="Botones de automatización de todos los proyectos">AUTOMATIZACIONES</button>
-        <button class="btn small remote-top need" id="b-inbox" type="button" hidden title="Respuestas preparadas que esperan tu aprobación"></button>
-        <button class="btn light small sync-btn" id="b-sync" type="button" aria-label="Actualizar todos los proyectos ahora" title="Actualizar todos los proyectos ahora"><span class="sync-ico" aria-hidden="true">↻</span></button>
-        <button class="btn light small" id="b-avisos" type="button" hidden title="Avisos en este móvil cuando algo te necesite o termine">🔔 Avisos</button>
-        <button class="btn light small" id="b-install" type="button" hidden>Instalar CEOPadre</button>
-        <button class="btn light small" id="b-logout" type="button" hidden>Salir</button>
-        <button class="btn accent small" id="b-create-project" type="button" title="Crea la carpeta E:\ECOAPP\&lt;nombre&gt; y la añade">+ Nuevo proyecto</button>
-        <button class="btn light small" id="b-new-project" type="button" aria-label="Vincular proyecto: conectar una carpeta existente">Vincular</button>
-      </div>
+      <!-- Lo secundario, en un menú: no compite con la información. -->
+      <details class="more" id="more">
+        <summary aria-label="Más acciones" title="Más acciones"><span aria-hidden="true">⋯</span><span class="more-txt">Más</span></summary>
+        <div class="more-pop top-actions">
+          <!-- Paneles de los proyectos con mando remoto (hoy VIDEOFACTORY): abren su panel, nunca un objetivo. -->
+          <span class="top-remotes" id="top-remotes"></span>
+          <button class="btn small" id="b-create-project" type="button" title="Crea la carpeta E:\ECOAPP\&lt;nombre&gt; y la añade">+ Nuevo proyecto</button>
+          <button class="btn small" id="b-new-project" type="button" aria-label="Vincular proyecto: conectar una carpeta existente">Vincular carpeta</button>
+          <button class="btn small" id="b-avisos" type="button" hidden title="Avisos en este móvil cuando algo te necesite o termine">🔔 Avisos</button>
+          <button class="btn small" id="b-install" type="button" hidden>Instalar CEOPadre</button>
+          <button class="btn small" id="b-logout" type="button" hidden>Salir</button>
+          <small class="muted acct" id="acct"></small>
+        </div>
+      </details>
     </div>
   </header>
   <p class="pcline" id="pc-line" hidden></p>
-  <!-- MANDO REMOTO: proyectos que se gestionan desde aquí (VideoFactory…). La verdad vive en el proyecto, en el PC. -->
-  <section class="zone remotes" id="remotes" aria-label="Mando remoto" hidden></section>
-  <!-- DECISIONES PENDIENTES: todo lo que sólo decide Antonio (objetivo, cambios protegidos del canon y preguntas), de todos los proyectos. -->
-  <section class="decisions" id="decisions" aria-label="Decisiones pendientes" hidden></section>
-  <!-- AUTORIZACIONES: respuestas a terceros preparadas por una automatización que sólo salen si las apruebas. -->
-  <section class="decision inbox-line" id="inbox-line" aria-label="Respuestas por aprobar" hidden></section>
 
-  <section class="zone" aria-labelledby="h-marcha">
-    <div class="zone-head"><h2 id="h-marcha">En marcha</h2><span class="count" id="n-marcha">0</span></div>
-    <main id="marcha" class="desks" aria-live="polite"></main>
-    <p class="zone-empty" id="marcha-empty" hidden>Nadie está trabajando ahora mismo. Dale un objetivo a un proyecto en espera.</p>
-  </section>
+  <!-- De un vistazo: contadores reales (cada uno lleva a su sitio). -->
+  <section class="glance" id="kpis" aria-label="De un vistazo"></section>
 
-  <section class="zone" aria-labelledby="h-espera">
-    <div class="zone-head"><h2 id="h-espera">En espera</h2><span class="count" id="n-espera">0</span><small class="acct" id="acct"></small></div>
+  <div class="home-grid">
+    <div class="home-main">
+      <section class="zone z-need" id="z-need" aria-labelledby="h-need">
+        <div class="zone-head"><h2 id="h-need">Necesita tu intervención</h2><span class="count" id="n-need">0</span></div>
+        <!-- DECISIONES PENDIENTES: todo lo que sólo decide Antonio (objetivo, cambios protegidos del canon y preguntas), de todos los proyectos. -->
+        <section class="decisions" id="decisions" aria-label="Decisiones pendientes" hidden></section>
+        <!-- AUTORIZACIONES: respuestas a terceros preparadas por una automatización que sólo salen si las apruebas. -->
+        <section class="decision inbox-line" id="inbox-line" aria-label="Respuestas por aprobar" hidden></section>
+        <div id="need-goals" class="need-goals"></div>
+        <div id="atender" class="desks"></div>
+        <p class="zone-empty calm" id="need-empty" hidden>✓ Nada te necesita ahora mismo. CEOPadre sigue solo y te avisará.</p>
+      </section>
+
+      <section class="zone" aria-labelledby="h-marcha">
+        <div class="zone-head"><h2 id="h-marcha">Trabajando ahora</h2><span class="count" id="n-marcha">0</span></div>
+        <main id="marcha" class="desks" aria-live="polite"></main>
+        <p class="zone-empty" id="marcha-empty" hidden>Ahora mismo no hay ningún trabajo en marcha. Dale un objetivo a un proyecto o crea un objetivo de negocio.</p>
+      </section>
+    </div>
+
+    <aside class="home-side" aria-label="Resumen">
+      <section class="side-card" id="s-goals" aria-labelledby="h-goals"></section>
+      <section class="side-card" id="s-next" aria-labelledby="h-next"></section>
+      <section class="side-card" id="s-done" aria-labelledby="h-done"></section>
+      <!-- MANDO REMOTO: proyectos que se gestionan desde aquí (VideoFactory…). La verdad vive en el proyecto, en el PC. -->
+      <section class="zone remotes side-card" id="remotes" aria-label="Mando remoto" hidden></section>
+    </aside>
+  </div>
+
+  <section class="zone z-projects" id="z-projects" aria-labelledby="h-espera">
+    <div class="zone-head"><h2 id="h-espera">Proyectos</h2><span class="count" id="n-espera">0</span></div>
     <!-- CONDICIONES EN ESPERA: todas las condiciones monitorizadas, completas y copiables, sin entrar en ninguna tarjeta. -->
     <div class="conds" id="conds"></div>
     <div id="espera" class="tiles"></div>
+    <div id="idle" class="idle-row"></div>
   </section>
-  <p class="empty" id="empty" hidden>Todavía no hay proyectos. Pulsa <b>+ Nuevo proyecto</b> o <b>Vincular</b> para conectar una carpeta que ya tengas en el PC.</p>
+  <p class="empty" id="empty" hidden>Todavía no hay proyectos. Abre <b>Más</b> y pulsa <b>+ Nuevo proyecto</b> o <b>Vincular carpeta</b>.</p>
 </section>
+
+<!-- Navegación del móvil (abajo, al alcance del pulgar). Mismos destinos que las pestañas de arriba. -->
+<nav class="tabbar" id="tabbar" aria-label="Secciones" hidden>
+  <button type="button" data-go="home" class="on"><span aria-hidden="true">◎</span>Dirección</button>
+  <button type="button" data-go="negocio"><span aria-hidden="true">◆</span>Objetivos<i class="badge" hidden></i></button>
+  <button type="button" data-go="autos"><span aria-hidden="true">⚙</span>Agentes</button>
+  <button type="button" data-go="inbox"><span aria-hidden="true">✉</span>Respuestas<i class="badge" hidden></i></button>
+</nav>
 
 <section id="p-detail" class="screen" hidden>
   <header class="top">

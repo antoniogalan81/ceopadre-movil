@@ -181,3 +181,47 @@ export function passwordAt(accessToken) {
     return Math.max(0, ...(c.amr || []).filter((a) => a.method === 'password').map((a) => Number(a.timestamp) * 1000));
   } catch { return 0; }
 }
+
+// ------------------------------------------------------------------ CENTRO DE DIRECCIÓN (pantalla principal, V3.2)
+// Reparte las tarjetas por lo que Antonio necesita saber, en este orden: qué le necesita, qué trabaja, qué viene y qué se
+// terminó. Sólo estados reales del motor (nada se estima ni se inventa). Los proyectos sin actividad quedan al final y
+// plegados. Sin DOM: se prueba en Node (test/v32.test.js).
+const ATENDER = ['ESPERANDO_ANTONIO', 'BLOQUEADO', 'ERROR', 'LISTO']; // le necesitan aunque no sea una pregunta
+const EN_CURSO = [...WORKING, ...WAITING];
+const DIA = 86_400_000;
+const tms = (c) => Date.parse(c.updated_at || c.ultima_actividad || c.usado || '') || 0;
+export function direccion(cards, now = Date.now()) {
+  const decide = cards.filter(needsDecision);
+  const atender = sortMarcha(cards.filter((c) => ATENDER.includes(c.estado)));
+  const trabajando = sortMarcha(cards.filter((c) => EN_CURSO.includes(c.estado)));
+  // TERMINADO = el motor sólo cierra con evidencia COMPROBADO (guardia de evidencia): se dice «comprobado».
+  const terminados = cards.filter((c) => c.estado === 'TERMINADO').sort((a, b) => tms(b) - tms(a));
+  const autos = cards.flatMap((c) => (c.automatizaciones || []).map((a) => ({ ...a, proyectoNombre: c.nombre, proyectoId: c.id })));
+  const programadas = autos.filter((a) => a.programa?.proxima).sort((a, b) => a.programa.proxima.localeCompare(b.programa.proxima));
+  const pausadas = autos.filter((a) => a.programa && !a.programa.proxima); // con horario, pero en pausa (se dice, no se esconde)
+  const autosHechas = autos.filter((a) => a.ultima?.estado === 'COMPLETADA' && a.ultima.fin && now - Date.parse(a.ultima.fin) < 7 * DIA)
+    .sort((a, b) => b.ultima.fin.localeCompare(a.ultima.fin));
+  const proximos = [
+    ...programadas.map((a) => ({ tipo: 'auto', cuando: a.programa.proxima, titulo: a.nombre, proyecto: a.proyectoNombre, id: a.proyectoId })),
+    ...cards.filter((c) => c.cola > 0).map((c) => ({ tipo: 'cola', titulo: `${c.cola} objetivo${c.cola === 1 ? '' : 's'} en cola`, proyecto: c.nombre, id: c.id })),
+    ...cards.filter((c) => c.estado === 'ESPERANDO_CONDICION').map((c) => ({ tipo: 'condicion', titulo: c.condicion || c.siguiente || 'Espera una condición', proyecto: c.nombre, id: c.id })),
+    ...trabajando.filter((c) => c.siguiente).map((c) => ({ tipo: 'siguiente', titulo: c.siguiente, proyecto: c.nombre, id: c.id })),
+  ];
+  const shown = new Set([...decide, ...atender, ...trabajando].map((c) => c.id));
+  // Con actividad = tiene objetivo vivo o reciente (30 días) o automatizaciones. Lo demás, a la fila plegada.
+  const activo = (c) => (c.automatizaciones || []).length > 0 || (!['LIBRE', 'CANCELADO'].includes(c.estado) && (c.estado !== 'TERMINADO' || now - tms(c) < 30 * DIA));
+  const resto = cards.filter((c) => c.tipo !== 'GESTION' && !shown.has(c.id));
+  const decisiones = cards.reduce((a, c) => a + decisionCount(c), 0);
+  const aprobaciones = cards.reduce((a, c) => a + (c.aprobaciones || 0), 0);
+  return {
+    decide, atender, trabajando, terminados: terminados.slice(0, 5), autosHechas: autosHechas.slice(0, 4), programadas, pausadas, autos, proximos,
+    conHistoria: sortEspera(resto.filter(activo)), sinActividad: sortEspera(resto.filter((c) => !activo(c))),
+    kpis: {
+      necesita: decisiones + atender.filter((c) => !needsDecision(c)).length + aprobaciones, decisiones, aprobaciones,
+      trabajando: trabajando.length, claude: trabajando.filter((c) => c.estado === 'TRABAJANDO' && c.actividad).length,
+      terminados7: terminados.filter((c) => now - tms(c) < 7 * DIA).length,
+      programadas: programadas.length, proxima: programadas[0] || null,
+      proyectos: cards.filter((c) => c.tipo !== 'GESTION').length, inactivos: resto.filter((c) => !activo(c)).length,
+    },
+  };
+}

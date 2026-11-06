@@ -39,7 +39,7 @@ export function autoUi({ api, ask, toast, show, data, run, viewText, ai }) {
     const b = document.getElementById('b-autos');
     const r = document.getElementById('b-inbox');
     if (b) b.hidden = false;
-    if (r) { r.hidden = !n; r.textContent = `RESPUESTAS · ${n}`; }
+    if (r) { r.hidden = !n; r.textContent = `Respuestas · ${n}`; }
     // En la lista de decisiones: las respuestas que esperan a Antonio, con lo que hay que hacer (no un «te necesita» genérico).
     const box = document.getElementById('inbox-line');
     if (box) {

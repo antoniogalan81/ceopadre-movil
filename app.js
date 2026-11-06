@@ -1,6 +1,6 @@
 // CEOPadre en el navegador. En el PC habla con la API local; en el móvil, con Supabase.
 // No ejecuta nada: pinta el estado y deja órdenes. Todo el texto se inserta como texto (nunca HTML).
-import { conditionsText, decisionCount, decisionsText, gestText, HIGH_RISK, mood, needsDecision, netStatus, office, passwordAt, pcOnline, priority, PROMPT_LIMIT, PROMPT_WARN, quotaView, REAUTH_MS, waitingConditions, zone } from './zones.js';
+import { conditionsText, decisionCount, decisionsText, direccion, gestText, HIGH_RISK, mood, needsDecision, netStatus, office, passwordAt, pcOnline, priority, PROMPT_LIMIT, PROMPT_WARN, quotaView, REAUTH_MS, waitingConditions, zone } from './zones.js';
 import { h } from './dom.js';
 import { advice, decideRow, mapBody, mapPanel, pendingDecisions, proposals } from './map.js';
 import { remoteUi } from './remoto.js';
@@ -185,7 +185,25 @@ function toast(msg, kind = '') {
   clearTimeout(toastT); toastT = setTimeout(() => { t.className = 'toast'; }, 3500);
 }
 
-const show = (id) => { for (const s of ['p-login', 'p-list', 'p-detail', 'p-remote', 'p-autos', 'p-bandeja', 'p-negocio']) $('#' + s).hidden = s !== id; };
+// La barra de pestañas (móvil) y la pestaña de arriba (PC) dicen en qué sección estás.
+const TAB_OF = { 'p-list': 'home', 'p-detail': 'home', 'p-remote': 'home', 'p-negocio': 'negocio', 'p-autos': 'autos', 'p-bandeja': 'inbox' };
+const show = (id) => {
+  for (const s of ['p-login', 'p-list', 'p-detail', 'p-remote', 'p-autos', 'p-bandeja', 'p-negocio']) $('#' + s).hidden = s !== id;
+  const bar = $('#tabbar');
+  bar.hidden = id === 'p-login';
+  for (const b of bar.querySelectorAll('button')) { const on = b.dataset.go === TAB_OF[id]; b.classList.toggle('on', on); if (on) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current'); }
+};
+function goTab(go) {
+  if (go === 'home') { openId = null; show('p-list'); window.scrollTo(0, 0); return; }
+  $({ negocio: '#b-negocio', autos: '#b-autos', inbox: '#b-inbox' }[go])?.click();
+}
+document.addEventListener('click', (e) => {
+  const t = e.target.closest?.('#tabbar [data-go], .tabs [data-tab]');
+  if (t) goTab(t.dataset.go || t.dataset.tab);
+  // Un clic fuera cierra el menú «Más».
+  const m = $('#more');
+  if (m?.open && !m.contains(e.target)) m.open = false;
+});
 let rui = null; // MANDO REMOTO (web/remoto.js)
 let aui = null; // AUTOMATIZACIONES y BANDEJA DE APROBACIÓN (web/automatizaciones.js)
 let nui = null; // OBJETIVOS DE NEGOCIO (web/negocio.js)
@@ -462,8 +480,24 @@ const decisionLines = (x) => {
   return [line('QUÉ CAMBIA', x.propuesta), rec ? line('RECOMIENDO', rec) : null,
     opts ? h('details', { class: 'prop-more', 'data-k': `opts-${x.trabajo}` }, h('summary', {}, 'Opciones'), h('p', { class: 'ln' }, opts)) : null];
 };
+/** TRABAJO POSTERIOR FUERA DE CEOPADRE: lo que se espera de Antonio puede estar superado. Sólo avisa (con datos) y deja
+ *  conciliar: nunca da la pregunta por respondida ni el objetivo por terminado (src/commands.js trabajo.conciliar). */
+function superadaBox(c) {
+  const s = c.superada;
+  if (!s) return null;
+  const donde = (s.carpetas || []).map((x) => `${x.nombre} (${x.n})`).join(' · ');
+  return h('div', { class: 'superada', role: 'note' },
+    h('p', { class: 'ln' }, h('b', {}, 'TRABAJO POSTERIOR FUERA DE CEOPADRE'),
+      ` ${s.archivos}${s.parcial ? '+' : ''} archivo${s.archivos === 1 ? '' : 's'} cambiado${s.archivos === 1 ? '' : 's'} después de esto (último ${when(s.ultimo)})${donde ? `: ${donde}` : ''}. Puede estar superado; no se ha dado por respondido ni autorizado.`),
+    s.muestra?.length ? h('details', { class: 'prop-more', 'data-k': `sup-${c.trabajo}` }, h('summary', {}, 'Qué cambió'), h('ul', { class: 'a-pend' }, s.muestra.map((x) => h('li', { class: 'mono' }, x)))) : null,
+    h('div', { class: 'row' },
+      h('button', { class: 'btn primary small', type: 'button', title: 'El CEO hace que Claude relea el estado real y, si sigue haciendo falta, te vuelve a preguntar con datos nuevos',
+        onclick: (e) => run('trabajo.conciliar', { trabajo: c.trabajo }, 'Enviado', e.currentTarget) }, 'REVISAR CON LO NUEVO'),
+      h('button', { class: 'btn ghost small', type: 'button', title: 'Lo que se te pide sigue vigente: deja de avisar hasta que haya cambios nuevos',
+        onclick: (e) => run('trabajo.vigente', { trabajo: c.trabajo }, 'Anotado', e.currentTarget) }, 'Sigue vigente')));
+}
 /** La decisión del objetivo (ESPERANDO_DECISION): qué cambia, recomendación de Codex si la hay y ✓ ✕ ?. Igual en todas partes. */
-const jobDecision = (c) => (c.estado === 'ESPERANDO_DECISION' ? h('div', { class: 'decision' }, ...decisionLines(c), advice(c.consejo),
+const jobDecision = (c) => (c.estado === 'ESPERANDO_DECISION' ? h('div', { class: 'decision' }, superadaBox(c), ...decisionLines(c), advice(c.consejo),
   decideRow({ yes: (e) => actions.approve(c, e.currentTarget), no: (e) => actions.reject(c, e.currentTarget),
     ask: c.ref ? (e) => actions.consult(c, c.ref, e.currentTarget) : null,
     yesLabel: esGasto(c) ? 'Sí, autorizo este gasto' : 'Aprobar', noLabel: esGasto(c) ? 'No autorizo este gasto' : 'Rechazar' })) : null);
@@ -507,7 +541,7 @@ function desk(c) {
     c.pendientes ? h('p', { class: 'ln muted' }, h('b', {}, 'PENDIENTES'), ` ${c.pendientes}`) : null,
     c.anadidos ? h('p', { class: 'ln muted' }, h('b', {}, 'AÑADIDO'), ` ${c.anadidos} sin incorporar todavía`) : null,
     esperandoLine(c),
-    decision,
+    decision || superadaBox(c),
     canonDecisionLine(c),
     h('div', { class: 'actions' }, buttonsFor(c)));
 }
@@ -562,6 +596,8 @@ function repaint(box, items) {
   if (active) box.querySelector(`[data-id="${CSS.escape(active)}"] button`)?.focus({ preventScroll: true });
 }
 
+// CENTRO DE DIRECCIÓN: qué te necesita · qué trabaja · objetivos · qué viene · qué se terminó · proyectos.
+// El reparto sale de web/zones.js direccion() (estados reales del motor; nada estimado).
 function paintList() {
   const pcl = $('#pc-line');
   pcl.hidden = LOCAL || data.pc.online || net === 'offline';
@@ -569,25 +605,142 @@ function paintList() {
   $('#acct').textContent = data.cuenta || '';
   paintNet();
   const o = office(data.proyectos);
-  const gestActive = o.gestiones.some((c) => zone(c) === 'marcha');
-  const marcha = o.marcha.map(desk), espera = o.espera.map(tile);
-  // GESTIONES entra en su zona según su prioridad (te necesita > trabajando > esperando), como un proyecto más.
-  if (gestActive) {
-    const p = o.resumen.necesita ? 0 : o.resumen.trabajando ? 1 : 2;
-    const at = o.marcha.findIndex((c) => priority(c) > p);
-    marcha.splice(at < 0 ? marcha.length : at, 0, gestUnit(o, true));
-  } else espera.unshift(gestUnit(o, false));
-  repaint($('#marcha'), marcha.filter(Boolean));
-  repaint($('#espera'), espera.filter(Boolean));
-  $('#n-marcha').textContent = String(o.marcha.length + (gestActive ? 1 : 0));
-  $('#n-espera').textContent = String(o.espera.length + (gestActive ? 0 : 1));
-  $('#marcha-empty').hidden = marcha.filter(Boolean).length > 0;
-  $('#office-sum').textContent = `${o.marcha.length} en marcha · ${o.espera.length} en espera · ${o.resumen.total} ${o.resumen.total === 1 ? 'gestión' : 'gestiones'}`;
+  const d = direccion(data.proyectos);
+  const inboxN = data.proyectos.reduce((a, c) => a + (c.bandeja || []).filter((m) => ['PENDIENTE', 'BLOQUEADO', 'NO_CONFIRMADO', 'FALLIDO'].includes(m.estado)).length, 0);
+  const negNeed = data.negocio?.te_necesitan || 0;
+  const need = d.kpis.decisiones + d.atender.filter((c) => !needsDecision(c)).length + inboxN + negNeed;
+  // Te necesitan: las decisiones (lista global) y los puestos que esperan algo tuyo sin ser una pregunta.
+  repaint($('#atender'), d.atender.filter((c) => c.estado !== 'ESPERANDO_DECISION').map(desk));
+  $('#n-need').textContent = String(need);
+  $('#need-empty').hidden = need > 0;
+  $('#z-need').classList.toggle('calm', !need);
+  // Trabajando ahora: con la actividad real de Claude y la última señal.
+  repaint($('#marcha'), d.trabajando.map(desk));
+  $('#n-marcha').textContent = String(d.trabajando.length);
+  $('#marcha-empty').hidden = d.trabajando.length > 0;
+  // Proyectos: GESTIONES + los que tienen historial; los que no tienen actividad, en una fila compacta plegada.
+  repaint($('#espera'), [gestUnit(o, false), ...d.conHistoria.map(tile)].filter(Boolean));
+  paintIdle(d.sinActividad);
+  $('#n-espera').textContent = String(d.kpis.proyectos);
+  $('#office-sum').textContent = `${d.trabajando.length} trabajando · ${need} ${need === 1 ? 'te necesita' : 'te necesitan'} · ${data.negocio?.abiertos || 0} objetivos`;
   $('#empty').hidden = data.proyectos.length > 0;
+  paintKpis(d, need, inboxN);
+  paintGoals();
+  paintNext(d);
+  paintDone(d);
+  paintTabs(inboxN, negNeed);
   paintQuota();
   paintDecisions();
   paintConditions();
   rui?.paintCards($('#remotes'));
+}
+
+// Contadores de un vistazo: cada uno lleva a su sitio. Sólo números del motor (sin porcentajes ni estimaciones).
+let kpiSig = null;
+function paintKpis(d, need, inboxN) {
+  const k = d.kpis, prox = k.proxima;
+  const items = [
+    ['need', need, need === 1 ? 'Te necesita' : 'Te necesitan', need ? [k.decisiones && `${k.decisiones} decisión${k.decisiones === 1 ? '' : 'es'}`, inboxN && `${inboxN} respuesta${inboxN === 1 ? '' : 's'}`, data.negocio?.te_necesitan && 'objetivo de negocio'].filter(Boolean).join(' · ') : 'todo en orden', () => scrollToId('z-need')],
+    ['work', k.trabajando, 'Trabajando', k.trabajando ? `Claude activo en ${k.claude}` : 'ningún trabajo en marcha', () => scrollToId('h-marcha')],
+    ['goal', data.negocio?.abiertos || 0, 'Objetivos de negocio', data.negocio?.abiertos ? 'planificados y medidos' : 'crea el primero', () => nui?.open()],
+    ['done', k.terminados7, 'Terminados · 7 días', 'cerrados con evidencia', () => scrollToId('s-done')],
+    ['auto', k.programadas, 'Programadas', prox ? `próxima ${hhmm(prox.programa.proxima)} · ${prox.nombre.toLowerCase()}` : d.pausadas.length ? `${d.pausadas.length} con horario en pausa` : 'sin horario activo', () => $('#b-autos').click()],
+    ['proj', k.proyectos, 'Proyectos', `${k.proyectos - k.inactivos} con actividad · ${k.inactivos} en reposo`, () => scrollToId('z-projects')],
+  ];
+  const sig = JSON.stringify(items.map((x) => x.slice(0, 4)));
+  if (sig === kpiSig) return;
+  kpiSig = sig;
+  $('#kpis').replaceChildren(...items.map(([cls, n, label, sub, go]) => h('button', { class: `kpi-tile k-${cls}${cls === 'need' && n ? ' hot' : ''}`, type: 'button', onclick: go },
+    h('span', { class: 'kpi-n' }, String(n)), h('span', { class: 'kpi-l' }, label), h('small', { class: 'kpi-s' }, sub))));
+}
+// replaceChildren() pinta «null» y los arrays como texto: sólo nodos.
+const fill = (box, ...kids) => box.replaceChildren(...kids.flat(Infinity).filter(Boolean));
+const scrollToId = (id) => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+// Cabecera de cada panel lateral: título, contador y, si hay, un enlace a la vista completa.
+const sideHead = (id, title, n, link) => h('header', { class: 'side-head' }, h('h2', { id }, title), n != null ? h('span', { class: 'count' }, String(n)) : null,
+  link ? h('button', { class: 'link', type: 'button', onclick: link[1] }, link[0]) : null);
+
+// OBJETIVOS EMPRESARIALES: el resumen de la vista de Negocio (misma orden negocio.lista; cada 60 s como mucho).
+const goals = { at: 0, list: null, busy: false };
+function paintGoals() {
+  const n = data.negocio?.abiertos || 0;
+  if (n && !goals.busy && Date.now() - goals.at > 60_000 && data.pc.online !== false) {
+    goals.busy = true;
+    void api.cmd('negocio.lista', {}).then((r) => { if (r?.ok) { goals.list = r.data.objetivos; goals.at = Date.now(); } }).finally(() => { goals.busy = false; paintGoals(); });
+  }
+  const list = n ? (goals.list || []).filter((g) => !['ALCANZADA', 'CANCELADA'].includes(g.estado)) : [];
+  const kpi = (g) => { const x = g.kpis.find((k) => k.disponible && k.valor != null); return x ? `${x.nombre}: ${x.valor}${x.unidad ? ` ${x.unidad}` : ''} (objetivo ${x.sentido} ${x.objetivo})` : g.kpis.length ? 'indicadores aún sin medir' : 'sin indicadores aprobados'; };
+  const sig = JSON.stringify([n, list.map((g) => [g.id, g.estado, kpi(g), g.trabajos.terminados, g.trabajos.en_curso?.ahora])]);
+  const box = $('#s-goals');
+  if (box.dataset.sig === sig) return;
+  box.dataset.sig = sig;
+  // Los que te necesitan (plan por aprobar, pregunta, bloqueo) también van a «Necesita tu intervención».
+  fill($('#need-goals'), list.filter((g) => g.te_necesita).map((g) => h('div', { class: 'decision need-goal' },
+    h('p', { class: 'ln' }, h('b', {}, 'OBJETIVO DE NEGOCIO'), ` ${g.titulo} · ${g.estado_texto}${g.pregunta ? ` · ${g.pregunta}` : ''}`),
+    h('div', { class: 'row' }, h('button', { class: 'btn primary small', type: 'button', onclick: () => nui?.openOne(g.id) }, g.estado === 'ESPERANDO_APROBACION' ? 'REVISAR EL PLAN' : 'ABRIR Y RESPONDER')))));
+  fill(box, sideHead('h-goals', 'Objetivos empresariales', n, ['Ver todos', () => nui?.open()]),
+    n && !goals.list ? h('p', { class: 'muted small' }, 'Cargando…')
+      : list.length ? h('ul', { class: 'side-list goals' }, list.map((g) => h('li', { class: `g-${g.te_necesita ? 'need' : 'ok'}` },
+        h('button', { class: 'side-item', type: 'button', onclick: () => nui?.openOne(g.id) },
+          h('b', {}, g.titulo), h('span', { class: `a-chip t-${g.te_necesita ? 'ask' : g.estado === 'ACTIVA' ? 'work' : 'idle'}` }, g.estado_texto),
+          h('small', { class: 'muted' }, `${kpi(g)} · ${g.trabajos.terminados} trabajo${g.trabajos.terminados === 1 ? '' : 's'} hecho${g.trabajos.terminados === 1 ? '' : 's'}${g.trabajos.en_curso ? ` · ahora en ${g.trabajos.en_curso.proyecto}` : ''}`)))))
+        : [h('p', { class: 'muted small' }, 'Ningún objetivo empresarial activo. Escribe el resultado que buscas («vender GEST7 por redes») y el director planifica, ejecuta, mide y sigue solo.'),
+          h('button', { class: 'btn primary small', type: 'button', disabled: data.pc.online === false, onclick: (e) => nui?.crear(e.currentTarget) }, '+ Nuevo objetivo de negocio')]);
+}
+
+// PRÓXIMOS TRABAJOS: horarios reales, colas, condiciones vigiladas y el SIGUIENTE de lo que está en marcha.
+const NEXT_ICON = { auto: '⏰', cola: '⏳', condicion: '🔭', siguiente: '→' };
+function paintNext(d) {
+  const items = d.proximos.slice(0, 7);
+  const sig = JSON.stringify([items, d.pausadas.map((a) => a.id)]);
+  const box = $('#s-next');
+  if (box.dataset.sig === sig) return;
+  box.dataset.sig = sig;
+  fill(box, sideHead('h-next', 'Próximos trabajos', items.length, ['Agentes', () => $('#b-autos').click()]),
+    items.length ? h('ul', { class: 'side-list' }, items.map((x) => h('li', {}, h('button', { class: 'side-item', type: 'button', onclick: () => actions.details({ id: x.id }) },
+      h('span', { class: 'ico', 'aria-hidden': 'true' }, NEXT_ICON[x.tipo]), h('b', {}, x.tipo === 'auto' ? `${hhmm(x.cuando)} · ${x.titulo}` : x.titulo),
+      h('small', { class: 'muted' }, x.tipo === 'siguiente' ? `${x.proyecto} · después de lo actual` : x.tipo === 'condicion' ? `${x.proyecto} · vigilado: sigue solo al cumplirse` : x.proyecto)))))
+      : h('p', { class: 'muted small' }, 'Nada programado ni en cola.'),
+    d.pausadas.length ? h('p', { class: 'muted small' }, `Con horario EN PAUSA: ${d.pausadas.map((a) => `${a.nombre.toLowerCase()} (${a.proyectoNombre}, ${a.programa.texto.toLowerCase()})`).join(' · ')}`) : null);
+}
+
+// TERMINADO Y COMPROBADO: objetivos cerrados (el motor sólo cierra con evidencia) y ejecuciones de agentes completadas.
+function paintDone(d) {
+  const sig = JSON.stringify([d.terminados.map((c) => [c.id, c.updated_at, c.ahora]), d.autosHechas.map((a) => [a.id, a.ultima.fin])]);
+  const box = $('#s-done');
+  if (box.dataset.sig === sig) return;
+  box.dataset.sig = sig;
+  const day = (iso) => new Date(iso).toLocaleDateString('es-ES', { day: '2-digit', month: 'short' });
+  fill(box, sideHead('h-done', 'Terminado y comprobado', null),
+    d.terminados.length || d.autosHechas.length ? h('ul', { class: 'side-list done' },
+      d.terminados.map((c) => h('li', {}, h('button', { class: 'side-item', type: 'button', onclick: () => actions.details(c) },
+        h('span', { class: 'ico ok', 'aria-hidden': 'true' }, '✓'), h('b', {}, c.nombre), h('small', { class: 'muted' }, `${day(c.updated_at)} · ${c.ahora || 'terminado'}`)))),
+      d.autosHechas.map((a) => h('li', {}, h('button', { class: 'side-item', type: 'button', onclick: () => $('#b-autos').click() },
+        h('span', { class: 'ico ok', 'aria-hidden': 'true' }, '⚙'), h('b', {}, `${a.nombre.toLowerCase()} · ${a.proyectoNombre}`),
+        h('small', { class: 'muted' }, `${day(a.ultima.fin)} · ${a.ultima.resultado?.resumen || 'completada'}`)))))
+      : h('p', { class: 'muted small' }, 'Aún no hay trabajos cerrados.'));
+}
+
+// Proyectos en reposo: una fila compacta (logo + nombre), plegada. Un toque abre su ficha.
+let idleOpen = false;
+function paintIdle(list) {
+  const box = $('#idle');
+  const sig = JSON.stringify([idleOpen, list.map((c) => [c.id, c.nombre, c.estado, c.logo])]);
+  if (box.dataset.sig === sig) return;
+  box.dataset.sig = sig;
+  box.replaceChildren(...(list.length ? [h('details', { class: 'fold idle-fold', open: idleOpen ? true : null, ontoggle: (e) => { idleOpen = e.currentTarget.open; box.dataset.sig = ''; } },
+    h('summary', {}, `En reposo · ${list.length}`, h('small', { class: 'muted' }, ' sin objetivo activo ni actividad reciente')),
+    h('div', { class: 'chips' }, list.map((c) => h('button', { class: 'pchip', type: 'button', 'data-id': c.id, title: `${c.nombre} · ${MOOD_LABEL[c.estado] || c.estado}`, onclick: () => actions.details(c) },
+      logo(c), h('span', {}, c.nombre), h('small', { class: 'muted' }, (MOOD_LABEL[c.estado] || c.estado).toLowerCase())))))] : []));
+}
+
+// Pestañas: la de arriba (PC) y la barra inferior (móvil) dicen dónde estás y cuántas cosas te esperan.
+function paintTabs(inboxN, negNeed) {
+  const bar = $('#tabbar');
+  const badge = (go, n) => { const b = bar.querySelector(`[data-go="${go}"] .badge`); b.hidden = !n; b.textContent = String(n); };
+  badge('inbox', inboxN);
+  badge('negocio', negNeed);
 }
 
 // CONDICIONES EN ESPERA (vista global, plegada por defecto): cada condición completa con su COPIAR, y COPIAR TODAS.
@@ -606,6 +759,8 @@ function paintConditions() {
   if (sig === condSig) return;
   condSig = sig;
   const n = list.length;
+  // Sin condiciones no se pinta nada (antes: «CONDICIONES EN ESPERA · 0», ruido en la pantalla principal).
+  if (!n) { $('#conds').replaceChildren(); return; }
   const estado = (x) => [x.principal ? 'Monitorizado' : `Otro objetivo del proyecto · el proyecto: ${MOOD_LABEL[x.estado] || x.estado}`,
     x.decide ? 'además te necesita (decisión pendiente)' : ''].filter(Boolean).join(' · ');
   $('#conds').replaceChildren(h('details', { class: 'fold cond-global', open: condOpen ? true : null,
@@ -653,7 +808,7 @@ function paintDecisions() {
   box.hidden = !n;
   // El número también en la pestaña/app: se ve sin abrir CEOPadre.
   document.title = n ? `(${n}) CEOPadre` : 'CEOPadre';
-  const sig = JSON.stringify(withDec.map((p) => [p.id, p.nombre, p.estado, p.trabajo, p.propuesta, p.recomendacion, p.consejo, p.propuestas, p.decisiones]));
+  const sig = JSON.stringify(withDec.map((p) => [p.id, p.nombre, p.estado, p.trabajo, p.propuesta, p.recomendacion, p.consejo, p.propuestas, p.decisiones, p.superada, p.objetivo, p._logo]));
   if (sig === decSig) return;
   decSig = sig;
   if (!n) { box.replaceChildren(); return; }
@@ -661,23 +816,23 @@ function paintDecisions() {
   box.replaceChildren(
     h('button', { class: 'icon-btn dec-copy', type: 'button', 'aria-label': `Copiar las ${n} decisiones pendientes`, title: 'Copiar todas las decisiones (para pegarlas en ChatGPT)',
       onclick: (e) => copyDecisions(e.currentTarget) }, h('span', { 'aria-hidden': 'true' }, '⧉')),
-    h('details', { class: 'fold dec-global', 'data-k': 'decisiones', open: decOpen ? true : null, ontoggle: (e) => { decOpen = e.currentTarget.open; } },
-      h('summary', {}, `⚠ ${n} ${n === 1 ? 'DECISIÓN PENDIENTE' : 'DECISIONES PENDIENTES'} · te ${n === 1 ? 'necesita' : 'necesitan'}`),
-      withDec.map((p) => h('section', { class: 'dec-proj', 'data-dec': p.id }, h('h3', {}, p.nombre),
+    // Siempre a la vista (antes iba plegado y se perdía entre lo demás): cada proyecto con su objetivo y qué se decide.
+    h('div', { class: 'dec-global', 'data-k': 'decisiones' },
+      h('p', { class: 'dec-title' }, `${n} ${n === 1 ? 'decisión pendiente' : 'decisiones pendientes'} · sólo tú puedes decidir`),
+      withDec.map((p) => h('section', { class: `dec-proj m-${mood(p)}`, 'data-dec': p.id },
+        h('header', { class: 'unit-head' }, logo(p), h('div', { class: 'title' }, h('h3', {}, p.nombre),
+          p.objetivo ? h('small', { class: 'muted goal1', title: p.objetivo }, p.objetivo) : null),
+          iconBtn('info', `Detalles de ${p.nombre}`, () => actions.details(p))),
         jobDecision(p),
         proposals(p, (id, que, b) => run(`canon.${que}`, { proyecto: p.id, id }, que === 'aprobar' ? 'Aprobado' : 'Rechazado', b), (ref, b) => actions.consult(p, ref, b)),
         pendingDecisions(p.decisiones, decisionHandlers(p), false)))));
   for (const x of box.querySelectorAll('details')) if (wasOpen.has(x.dataset.k)) x.open = true;
 }
 
-/** DECIDIR en un puesto: abre el aviso global y lleva al proyecto. */
+/** DECIDIR en un puesto: lleva a su decisión en «Necesita tu intervención». */
 function openDecisions(id) {
-  decOpen = true;
-  const d = $('#decisions details');
-  if (d) d.open = true;
   ($(`#decisions [data-dec="${CSS.escape(id)}"]`) || $('#decisions'))?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
-let decOpen = false;
 
 // Indicador de conexión: Operativo · PC desconectado · Sin internet. Con lo que ya hay (latido del PC y el navegador).
 let net = 'ok';
@@ -837,7 +992,7 @@ async function paintDetail(force) {
   const decide = (id, que, b) => run(`canon.${que}`, { proyecto: c.id, id }, que === 'aprobar' ? 'Aprobado' : 'Rechazado', b);
   const consult = (ref, b) => actions.consult(c, ref, b);
   const openMap = () => { $('#map-title').textContent = `Mapa · ${c.nombre}`; paintMap(d.mapa, decide, consult); $('#map').showModal(); };
-  body.replaceChildren(...[summaryPanel(c, d), revisionPanel(c), aui?.projectPanel(c), esperasPanel(c, d), mapPanel(d.mapa, { open: openMap, decide, ...decisionHandlers(c) }), writePanel(c, d), roundsPanel(d), techPanel(c, d)].filter(Boolean));
+  body.replaceChildren(...[summaryPanel(c, d), direccionPanel(c, d), revisionPanel(c), aui?.projectPanel(c), esperasPanel(c, d), mapPanel(d.mapa, { open: openMap, decide, ...decisionHandlers(c) }), writePanel(c, d), roundsPanel(d), techPanel(c, d)].filter(Boolean));
   if ($('#map').open) paintMap(d.mapa, decide, consult);
   for (const x of body.querySelectorAll('details')) if (wasOpen.has(x.dataset.k)) x.open = true;
 }
@@ -898,8 +1053,6 @@ function summaryPanel(c, d) {
         ceo.motivo ? h('li', {}, `Motivo: ${ceo.motivo}`) : null,
         ceo.vuelve ? h('li', {}, `Codex vuelve a probarse: ${when(ceo.vuelve)}`) : null,
         (ceo.proveedores || []).map((x) => h('li', {}, `${x.nombre}: ${future(x.hasta) ? `limitado (${x.motivo}) hasta aprox. ${hhmm(x.hasta)}` : 'disponible'}`)))) : null,
-    autonomiaFold(d.autonomia),
-    hasJob ? diagnosticoFold(d.diagnostico) : null,
     hasJob ? [
       h('p', { class: 'lbl' }, 'OBJETIVO ACTUAL'),
       h('p', { class: 'sum-goal' }, c.objetivo),
@@ -914,7 +1067,45 @@ function summaryPanel(c, d) {
         h('button', { class: 'link', type: 'button', onclick: () => viewReport(c.trabajo, r.ronda) }, 'Ver informe completo'),
         h('button', { class: 'link icon-text', type: 'button', 'aria-label': 'Copiar informe completo', title: 'Copiar informe completo',
           onclick: (e) => copiarInformeCompleto(c.trabajo, null, e.currentTarget) }, svg('copy'), 'Copiar'))) : null,
-    h('div', { class: 'actions' }, buttonsFor(c).filter((b) => b && b.getAttribute('aria-label') !== `Detalles de ${c.nombre}`)));
+    h('div', { class: 'actions' }, buttonsFor(c).filter((b) => b && b.getAttribute('aria-label') !== `Detalles de ${c.nombre}`)),
+    // Lo técnico del motor (proveedores, autonomía, diagnóstico), plegado: a mano cuando hace falta, sin ocupar la cabecera.
+    hasJob ? h('details', { class: 'fold motor', 'data-k': 'motor' }, h('summary', {}, 'Motor y diagnóstico'), autonomiaFold(d.autonomia), diagnosticoFold(d.diagnostico)) : null);
+}
+
+/** DIRECCIÓN DEL PROYECTO: objetivo, situación, conseguido, pendiente, comprobado, problemas y recomendaciones del CEO.
+ *  Sólo junta lo que ya existe: el mapa (canon), el objetivo en curso y la última revisión. Lo que falta se dice. */
+function direccionPanel(c, d) {
+  const m = d.mapa && !d.mapa.error ? d.mapa : null;
+  const e = m?.estado || { hecho: [], en_curso: [], falta: [], bloqueado: [] };
+  const rev = revCache.get(c.id)?.data?.resultado || null;
+  const txt = (x) => (typeof x === 'object' ? x.text || `${x.que} → ${x.resultado}` : x);
+  const verif = e.hecho.filter((x) => /VERIFIC|COMPROB/i.test(x.evidence || ''));
+  const comprobado = [...(rev?.comprobado || []).map((x) => `${x.que}: ${x.resultado}`), ...verif.map(txt)];
+  const problemas = [...e.bloqueado.map(txt), ...(rev?.bloqueos || []), ...(rev?.contradicho || []),
+    ['BLOQUEADO', 'ERROR'].includes(c.estado) && c.detalle ? c.detalle : null].filter(Boolean);
+  const recos = [...(rev?.prioridades || []).slice(0, 3).map((p) => `${p.objetivo}${p.requiere_antonio ? ' (necesita algo tuyo)' : ''}`),
+    c.siguiente && !['LIBRE', 'TERMINADO', 'CANCELADO'].includes(c.estado) ? `Siguiente paso: ${c.siguiente}` : null].filter(Boolean);
+  const box = (t, items, empty, cls = '') => h('div', { class: `dir-box ${cls}` }, h('p', { class: 'lbl' }, `${t}${items.length ? ` · ${items.length}` : ''}`),
+    items.length ? h('ul', { class: 'mlist' }, items.slice(0, 4).map((x) => h('li', {}, String(x).slice(0, 220))), items.length > 4 ? h('li', { class: 'more' }, `+${items.length - 4} más (mapa completo)`) : null)
+      : h('p', { class: 'muted small' }, empty));
+  const hasJob = !['LIBRE', 'CANCELADO'].includes(c.estado);
+  return h('section', { class: 'panel dir', 'aria-labelledby': 'h-dir' },
+    h('header', { class: 'dir-head' }, h('h4', { id: 'h-dir' }, 'Dirección del proyecto'),
+      c.fuera?.commits || c.fuera?.archivos ? h('small', { class: 'muted' }, `fuera de CEOPadre: ${[c.fuera.commits && `${c.fuera.commits} commit${c.fuera.commits === 1 ? '' : 's'}`, c.fuera.archivos && `${c.fuera.archivos} archivo${c.fuera.archivos === 1 ? '' : 's'}`].filter(Boolean).join(' · ')}`) : null),
+    h('div', { class: 'dir-top' },
+      h('div', {}, h('p', { class: 'lbl' }, 'OBJETIVO PRINCIPAL'), h('p', { class: 'dir-mission' }, m?.mision || m?.definicion?.resumen || 'Sin definir todavía: «Revisar proyecto» lo propone a partir del repositorio real.')),
+      h('div', {}, h('p', { class: 'lbl' }, 'SITUACIÓN ACTUAL'), h('p', {}, rev?.estado || c.ahora || (hasJob ? MOOD_LABEL[c.estado] : 'Sin objetivo en curso')),
+        rev ? h('small', { class: 'muted' }, 'según la última revisión') : null)),
+    h('div', { class: 'dir-grid' },
+      box('LO CONSEGUIDO', e.hecho.map(txt), 'Nada registrado en el mapa.', 'ok'),
+      box('LO PENDIENTE', [...e.en_curso.map(txt), ...e.falta.map(txt)], 'Nada pendiente en el mapa.'),
+      box('LO COMPROBADO', comprobado, 'Sin comprobaciones registradas: revisa el proyecto para separarlo de lo declarado.', 'ok'),
+      box('PROBLEMAS', problemas, 'Ninguno registrado.', 'bad'),
+      box('RECOMENDACIONES DEL CEO', recos, 'Sin recomendaciones: revisa el proyecto y el CEO propondrá las prioridades.', 'reco')),
+    h('div', { class: 'a-acts' },
+      h('button', { class: 'btn primary small', type: 'button', onclick: (e2) => (hasJob && c.estado !== 'TERMINADO' ? actions.instruct(c, e2.currentTarget) : actions.goal(c, e2.currentTarget)) },
+        hasJob && c.estado !== 'TERMINADO' ? 'Dar una instrucción' : 'Continuar el proyecto (nuevo objetivo)'),
+      m ? h('button', { class: 'btn ghost small', type: 'button', onclick: () => { $('#map-title').textContent = `Mapa · ${c.nombre}`; paintMap(d.mapa, (id, que, b) => run(`canon.${que}`, { proyecto: c.id, id }, 'Hecho', b), (ref, b) => actions.consult(c, ref, b)); $('#map').showModal(); } }, 'Ver mapa completo') : null));
 }
 
 // Diagnóstico del objetivo (plegado): por qué está como está, sin abrir logs.

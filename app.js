@@ -490,9 +490,11 @@ function canonDecisionLine(c) {
 }
 
 /** Puesto de trabajo (EN MARCHA): qué hace, qué sigue y, si hay que decidir, la decisión a mano. */
+// «última señal hace N»: la hora del último evento real del proceso (no un contador que avanza solo): lento ≠ parado.
+const signal = (c) => (c.ultima_actividad ? `última señal ${ago(c.ultima_actividad)}` : '');
 function desk(c) {
   const running = ['TRABAJANDO', 'SIN_ACTIVIDAD'].includes(c.estado);
-  const [ahora, siguiente] = WAITING.includes(c.estado) ? waitLines(c) : [running && c.actividad ? `${c.actividad} · ${c.ahora || ''}` : c.ahora, c.siguiente];
+  const [ahora, siguiente] = WAITING.includes(c.estado) ? waitLines(c) : [running && c.actividad ? `${c.actividad} · ${signal(c)}${c.ahora ? ` · ${c.ahora}` : ''}` : c.ahora, c.siguiente];
   const decision = jobDecision(c);
   return h('article', { class: `desk m-${mood(c)}`, 'data-id': c.id },
     h('header', { class: 'unit-head' }, logo(c),

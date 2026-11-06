@@ -1052,3 +1052,4 @@ details.z-projects[open] > summary { margin-bottom: 12px; }
 .road-step.some .road-n { background: var(--ok-bg); color: var(--ok); }
 .road-step.now .road-n { background: var(--work); color: var(--paper); }
 .road-step p { margin: 2px 0; }
+@media (pointer: coarse) { .home .btn.small, .autos .btn.small, .detail .btn.small, .side-item, .link { min-height: 44px; } }

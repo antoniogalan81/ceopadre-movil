@@ -652,7 +652,7 @@ function paintList() {
   const o = office(data.proyectos);
   const d = direccion(data.proyectos);
   const inboxN = data.proyectos.reduce((a, c) => a + (c.bandeja || []).filter((m) => ['PENDIENTE', 'BLOQUEADO', 'NO_CONFIRMADO', 'FALLIDO'].includes(m.estado)).length, 0);
-  const negNeed = data.negocio?.te_necesitan || 0;
+  const negNeed = (data.negocio?.te_necesitan || 0) + (data.negocio?.necesidades || 0);
   // Cosas que te esperan (no tarjetas): cada pregunta, cada puesto que te pide algo, las respuestas y los objetivos de negocio.
   const need = d.kpis.decisiones + d.necesita.filter((c) => !needsDecision(c)).length + d.tuyas.length + inboxN + negNeed;
   repaint($('#atender'), [...d.necesita.filter((c) => !needsDecision(c)).map(desk), ...d.tuyas.map(tuyaCard)]);
@@ -692,6 +692,7 @@ function paintList() {
 let briefSig = null;
 function paintBrief(d, need, inboxN) {
   const k = d.kpis, prox = k.proxima;
+  const negNext = (goals.list || []).find((o) => o.vista?.despues && ['ACTIVA', 'ESPERANDO_ANTONIO'].includes(o.estado));
   const first = d.necesita[0];
   const items = [
     ['need', '¿Qué necesita de mí?', need ? `${need} ${need === 1 ? 'cosa' : 'cosas'}` : 'Nada ahora',
@@ -700,6 +701,8 @@ function paintBrief(d, need, inboxN) {
       [d.trabajando[0] && `${d.trabajando[0].nombre}: ${d.trabajando[0].actividad || 'trabajando'}`, k.esperando && `${k.esperando} esperando algo externo`, k.problemas && `${k.problemas} con problemas`].filter(Boolean).join(' · ') || 'Dale un objetivo a un proyecto', () => scrollToId(k.trabajando ? 'h-marcha' : k.esperando ? 'z-wait' : 'h-marcha')],
     ['done', '¿Qué ha conseguido?', `${k.terminados7} ${k.terminados7 === 1 ? 'terminado' : 'terminados'}`,
       `esta semana, comprobados con evidencia${data.negocio?.abiertos ? ` · ${data.negocio.abiertos} objetivo${data.negocio.abiertos === 1 ? '' : 's'} de negocio en marcha` : ''}`, () => scrollToId('s-done')],
+    // Lo que el DIRECTOR decidió hacer después (objetivos de negocio) manda sobre los horarios.
+    negNext ? ['next', '¿Qué hará después?', cleanGoal(negNext.titulo).slice(0, 40), negNext.vista.despues.slice(0, 140), () => nui?.openOne(negNext.id)] :
     ['next', '¿Qué hará después?', prox ? hhmm(prox.programa.proxima) : 'Nada programado',
       prox ? `${prox.nombre.charAt(0)}${prox.nombre.slice(1).toLowerCase()} · ${prox.proyectoNombre}` : d.pausadas.length ? `${d.pausadas.length} con horario en pausa` : 'Programa un agente en Agentes', () => scrollToId('s-next')],
   ];
@@ -725,7 +728,7 @@ function paintGoals() {
     goals.busy = true;
     void api.cmd('negocio.lista', {}).then((r) => { if (r?.ok) { goals.list = r.data.objetivos; goals.at = Date.now(); } }).finally(() => { goals.busy = false; paintGoals(); });
   }
-  const list = n ? (goals.list || []).filter((g) => !['ALCANZADA', 'CANCELADA'].includes(g.estado)) : [];
+  const list = n ? (goals.list || []).filter((g) => !['ALCANZADA', 'CANCELADA', 'CERRADA'].includes(g.estado)) : [];
   const kpi = (g) => { const x = g.kpis.find((k) => k.disponible && k.valor != null); return x ? `${x.nombre}: ${x.valor}${x.unidad ? ` ${x.unidad}` : ''} de ${x.objetivo}` : g.kpis.length ? 'resultados aún sin medir' : 'sin indicadores aprobados'; };
   const sig = JSON.stringify([n, list.map((g) => [g.id, g.estado, kpi(g), g.trabajos.terminados, g.trabajos.en_curso?.ahora])]);
   const box = $('#s-goals');
@@ -991,7 +994,57 @@ async function openInforme(horas = 24) {
     hechos.every((n) => !n) && !x.negocio.length && !x.esperando.length ? h('p', { class: 'muted' }, 'Sin actividad en este periodo.') : null,
     h('p', { class: 'muted small' }, `Del ${new Date(x.desde).toLocaleString('es-ES', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })} a ahora · datos de CEOPadre, sin estimaciones.`));
 }
-const MOOD_NEGOCIO = { DEFINIENDO: 'Preparando el plan', ESPERANDO_APROBACION: 'Plan por aprobar', ACTIVA: 'En marcha', ESPERANDO_ANTONIO: 'Te necesita', PAUSADA: 'En pausa', ALCANZADA: 'Alcanzado', BLOQUEADA: 'Bloqueado' };
+// CONEXIONES Y PERMISOS: el secreto se escribe SÓLO en el PC (en el móvil viajaría por internet); allí se enseñan los pasos.
+async function openConexiones(foco = null) {
+  const box = $('#conex-body');
+  if (!$('#conexiones').open) $('#conexiones').showModal();
+  const r = await api.cmd('conexion.lista', {});
+  if (!r?.ok) { fill(box, h('p', { class: 'bad' }, r?.error || 'El PC no responde')); return; }
+  const x = r.data;
+  const nombreP = (id) => (data.proyectos || []).find((p) => p.id === id)?.nombre || 'todos los proyectos';
+  const reabrir = () => openConexiones(foco);
+  const conectar = async (sv, b) => {
+    const proys = (data.proyectos || []).filter((p) => p.tipo !== 'GESTION');
+    const manual = sv.comprobacion === 'manual';
+    const v = await ask({ title: `Conectar ${sv.nombre}`, ok: manual ? 'Ya existe: marcar como conectada' : 'Comprobar y guardar cifrado',
+      help: `${sv.pasos.map((p, i) => `${i + 1}. ${p}`).join(' ')} ${manual ? '' : 'El token se comprueba con el servicio oficial y se guarda CIFRADO en este PC (DPAPI): nunca va a los encargos, informes ni registros.'}`,
+      fields: [{ name: 'proyecto', label: 'Proyecto', type: 'choice', required: false, options: [{ value: '', label: 'Todos' }, ...proys.map((p) => ({ value: p.id, label: p.nombre }))], value: '' },
+        ...(manual ? [{ name: 'confirmo', label: 'Confirmo que la cuenta ya existe', type: 'checkbox' }, { name: 'cuenta', label: 'Nombre de la cuenta (opcional)', required: false }]
+          : [{ name: 'secreto', label: 'Token de acceso', type: 'password' }])] });
+    if (!v) return;
+    if (await run('conexion.guardar', { servicio: sv.id, proyecto: v.proyecto || null, secreto: v.secreto, confirmo: !!v.confirmo, cuenta: v.cuenta }, 'Conectada', b)) reabrir();
+  };
+  const autorizar = async (b) => {
+    const proys = (data.proyectos || []).filter((p) => p.tipo !== 'GESTION');
+    const v = await ask({ title: 'Nueva autorización para el CEO', ok: 'Autorizar',
+      help: 'Lo que el CEO puede hacer SOLO, con límite y caducidad. Nunca gastos, banca ni permisos. Puedes revocarla cuando quieras.',
+      fields: [{ name: 'accion', label: 'Qué puede hacer', type: 'choice', options: Object.entries(x.acciones).map(([value, label]) => ({ value, label })) },
+        { name: 'proyecto', label: 'Proyecto', type: 'choice', options: proys.map((p) => ({ value: p.id, label: p.nombre })) },
+        { name: 'servicio', label: 'Servicio (si aplica)', type: 'choice', required: false, options: [{ value: '', label: '—' }, ...x.servicios.filter((sv) => sv.id !== 'demo').map((sv) => ({ value: sv.id, label: sv.nombre }))], value: '' },
+        { name: 'limite_semana', label: 'Máximo por semana', value: '3' }, { name: 'dias', label: 'Durante (días)', value: '30' }] });
+    if (v && await run('autorizacion.crear', { ...v, limite_semana: Number(v.limite_semana), dias: Number(v.dias) }, 'Autorizado', b)) reabrir();
+  };
+  fill(box,
+    h('section', { class: 'inf-sec' }, h('h3', {}, 'Cuentas'), h('ul', {}, x.servicios.filter((sv) => sv.id !== 'demo' || x.conexiones.some((c) => c.servicio === 'demo')).map((sv) => {
+      const cs = x.conexiones.filter((c) => c.servicio === sv.id && c.estado !== 'REVOCADA');
+      return h('li', { class: foco === sv.id ? 'foco' : '' }, h('b', {}, sv.nombre),
+        cs.length ? cs.map((c) => h('small', { class: c.estado === 'CONECTADA' ? 'ok' : 'warn' }, `${c.estado === 'CONECTADA' ? '✓ Conectada' : 'Pendiente'} · ${nombreP(c.proyecto)}${c.cuenta ? ` · ${c.cuenta}` : ''}${c.verificacion ? ` · ${c.verificacion}` : ''}`)) : h('small', { class: 'muted' }, 'Sin conectar'),
+        h('div', { class: 'a-acts' },
+          LOCAL ? h('button', { class: 'btn small', type: 'button', onclick: (e) => conectar(sv, e.currentTarget) }, cs.some((c) => c.estado === 'CONECTADA') ? 'Volver a conectar' : 'Conectar')
+            : h('button', { class: 'btn ghost small', type: 'button', onclick: () => view(`Conectar ${sv.nombre}`, `${sv.pasos.map((p, i) => `${i + 1}. ${p}`).join('\n')}\n\nEl último paso se hace en el PC: la clave nunca viaja por internet. En cuanto esté, el CEO lo comprueba y sigue solo.`) }, 'Ver pasos'),
+          ...cs.filter((c) => c.estado === 'CONECTADA').map((c) => h('button', { class: 'btn ghost-danger small', type: 'button', onclick: (e) => run('conexion.revocar', { id: c.id }, 'Revocada', e.currentTarget).then(reabrir) }, 'Revocar'))));
+    }))),
+    h('section', { class: 'inf-sec' }, h('h3', {}, 'Lo que el CEO puede hacer solo'),
+      x.autorizaciones.filter((a) => a.estado === 'ACTIVA').length ? h('ul', {}, x.autorizaciones.filter((a) => a.estado === 'ACTIVA').map((a) => h('li', {}, a.texto,
+        h('small', { class: 'muted' }, `${a.usos_semana}/${a.limite_semana} esta semana · hasta ${a.hasta ? when(a.hasta) : 'sin fecha'}`),
+        h('div', { class: 'a-acts' }, h('button', { class: 'btn ghost-danger small', type: 'button', onclick: (e) => run('autorizacion.revocar', { id: a.id }, 'Revocada', e.currentTarget).then(reabrir) }, 'Revocar')))))
+        : h('p', { class: 'muted small' }, 'Nada: publicar, enviar o activar automatizaciones lo apruebas tú cada vez.'),
+      h('button', { class: 'btn small', type: 'button', onclick: (e) => autorizar(e.currentTarget) }, '+ Nueva autorización')));
+}
+window.addEventListener('ceo:conexiones', (e) => openConexiones(e.detail?.servicio || null));
+
+const MOOD_NEGOCIO = { DEFINIENDO: 'Preparando el plan', ESPERANDO_APROBACION: 'Plan por aprobar', ACTIVA: 'En marcha', ESPERANDO_ANTONIO: 'Te necesita', PAUSADA: 'En pausa', ALCANZADA: 'Alcanzado', BLOQUEADA: 'Bloqueado',
+  EN_SEGUIMIENTO: 'Hecho; resultado pendiente de acreditar', CERRADA: 'Cerrado sin acreditar' };
 
 function view(title, text, src = null) {
   $('#viewer-title').textContent = title;
@@ -1159,6 +1212,15 @@ function summaryPanel(c, d) {
 
 /** DIRECCIÓN DEL PROYECTO: objetivo, situación, conseguido, pendiente, comprobado, problemas y recomendaciones del CEO.
  *  Sólo junta lo que ya existe: el mapa (canon), el objetivo en curso y la última revisión. Lo que falta se dice. */
+// Etapas de la conciliación con lo hecho fuera de CEOPadre (V3.5): se ven siempre, con su motivo.
+const CONC = { DETECTADO: ['Cambios detectados fuera de CEOPadre', 'warn'], ANALIZANDO: ['Analizando los cambios', 'work'], ANALIZADO: ['Analizado, sin comprobar', 'warn'],
+  VERIFICADO: ['Verificado; falta incorporarlo al mapa', 'warn'], INCORPORADO: ['Mapa al día con lo comprobado', 'ok'], AL_DIA: ['Mapa al día', 'ok'] };
+function concChip(c) {
+  const k = c.conciliacion;
+  if (!k) return null;
+  const [t, tone] = CONC[k.etapa] || [k.etapa, 'idle'];
+  return h('p', { class: `conc conc-${tone}` }, h('b', {}, t), k.detalle && !k.detalle.startsWith(t) ? ` · ${k.detalle}` : k.detalle ? k.detalle.slice(t.length) : '', k.updated_at ? h('small', { class: 'muted' }, ` (${when(k.updated_at)})`) : null);
+}
 function direccionPanel(c, d) {
   const m = d.mapa && !d.mapa.error ? d.mapa : null;
   const e = m?.estado || { hecho: [], en_curso: [], falta: [], bloqueado: [] };
@@ -1192,15 +1254,28 @@ function direccionPanel(c, d) {
         vivo ? h('small', { class: 'muted' }, `Ahora: ${cleanGoal(c.objetivo)}`) : null),
       h('div', {}, h('p', { class: 'lbl' }, 'SITUACIÓN'), h('p', {}, rev?.estado || c.ahora || (hasJob ? MOOD_LABEL[c.estado] : 'Sin objetivo en curso')),
         rev ? h('small', { class: 'muted' }, 'según la última revisión') : null)),
+    // V3.5 · la ficha completa: realizado ≠ verificado ≠ publicado; decisiones vigentes; fecha y fuentes de la última revisión.
+    concChip(c),
     h('div', { class: 'dir-grid' },
-      box('CONSEGUIDO', [...comprobado, ...e.hecho.map(txt).filter((x) => !comprobado.includes(x))], 'Nada registrado todavía.', 'ok'),
-      box('PENDIENTE', [...e.en_curso.map(txt), ...e.falta.map(txt)], 'Nada pendiente registrado.'),
+      box('REALIZADO', e.hecho.map(txt), 'Nada registrado todavía.'),
+      box('VERIFICADO', comprobado, 'Nada comprobado todavía.', 'ok'),
+      box('PUBLICADO', rev?.publicado || [], 'Nada confirmado en producción todavía.', 'ok'),
+      box('TRABAJANDO', vivo ? [`${cleanGoal(c.objetivo)}${c.actividad ? ` · ${c.actividad}` : ''}`] : [], c.pausado ? 'Proyecto en pausa.' : 'Nada en marcha ahora.', 'reco'),
+      box('PENDIENTE', [...e.en_curso.map(txt), ...e.falta.map(txt), ...(rev?.pendiente || [])], 'Nada pendiente registrado.'),
+      box('PENDIENTE DE VERIFICAR', [...(c.conciliacion?.pendiente || []), ...(rev?.declarado_sin_verificar || [])], 'Nada.', 'warn'),
       box('PROBLEMAS', problemas, 'Ninguno registrado.', 'bad'),
-      box('SIGUIENTE PASO', recos, 'Sin propuesta todavía: pulsa «Revisar proyecto» y el CEO propondrá las prioridades.', 'reco')),
-    comprobado.length ? h('p', { class: 'muted small' }, `${comprobado.length} de lo conseguido está comprobado (por la revisión o con evidencia en el mapa).`) : null,
+      box('DECISIONES VIGENTES', (m?.decisiones || []).map((x) => `${x.texto}${x.fecha ? ` (${x.fecha})` : ''}${x.protegida ? ' 🔒' : ''}`), 'Ninguna registrada.'),
+      box('SIGUIENTES PRIORIDADES', recos, 'Sin propuesta todavía: la conciliación o «Revisar proyecto» las propone.', 'reco')),
+    h('p', { class: 'muted small dir-src' }, `Última revisión: ${revCache.get(c.id)?.data?.fin ? when(revCache.get(c.id).data.fin) : 'nunca'} · mapa actualizado: ${m?.actualizado ? when(m.actualizado) : '—'}${m?.fuentes?.length ? ` · fuentes: ${m.fuentes.slice(0, 4).join(', ')}` : ''}${revCache.get(c.id)?.data?.evidencia?.git?.ultimo_commit ? ` · git ${revCache.get(c.id).data.evidencia.git.ultimo_commit.hash}` : ''}`),
     h('div', { class: 'a-acts' },
       h('button', { class: 'btn primary', type: 'button', onclick: (e2) => seguir(e2.currentTarget) }, 'Continúa con la siguiente prioridad'),
       h('button', { class: 'btn ghost', type: 'button', onclick: (e2) => cambiar(e2.currentTarget) }, 'Quiero cambiar este objetivo'),
+      c.pausado ? h('button', { class: 'btn primary small', type: 'button', onclick: (e2) => run('proyecto.reanudar', { proyecto: c.id }, 'Proyecto reanudado', e2.currentTarget) }, '▶ Continuar el proyecto')
+        : h('button', { class: 'btn ghost small', type: 'button', title: 'Pausa TODO el proyecto: no empieza nada en él (ni horarios) y lo que trabaja se detiene sin perder lo hecho', onclick: async (e2) => {
+          const b = e2.currentTarget;
+          if (await ask({ title: `¿Pausar todo ${c.nombre}?`, help: 'Nada nuevo empezará en este proyecto (ni objetivos, ni horarios, ni objetivos de negocio) y lo que esté trabajando se detiene en un punto seguro. «Continuar el proyecto» lo retoma donde se quedó.', ok: 'Pausar el proyecto' })) await run('proyecto.pausar', { proyecto: c.id }, 'Proyecto en pausa', b);
+        } }, '⏸ Pausar el proyecto'),
+      c.conciliacion?.etapa === 'DETECTADO' ? h('button', { class: 'btn ghost small', type: 'button', onclick: (e2) => run('proyecto.conciliar', { proyecto: c.id }, 'Conciliando', e2.currentTarget) }, 'Conciliar ahora') : null,
       vivo ? h('button', { class: 'btn ghost small', type: 'button', onclick: (e2) => actions.instruct(c, e2.currentTarget) }, 'Dar una instrucción') : null,
       m ? h('button', { class: 'btn ghost small', type: 'button', onclick: () => { $('#map-title').textContent = `Mapa · ${c.nombre}`; paintMap(d.mapa, (id, que, b) => run(`canon.${que}`, { proyecto: c.id, id }, 'Hecho', b), (ref, b) => actions.consult(c, ref, b)); $('#map').showModal(); } }, 'Ver mapa completo') : null));
 }
@@ -1591,6 +1666,7 @@ function ajustesUi() {
   // `api` existe cuando start() termina de conectar (PC o Supabase): se espera a él.
   const listo = () => (api ? Promise.resolve() : new Promise((ok) => setTimeout(() => ok(listo()), 300)));
   $('#b-informe').addEventListener('click', () => openInforme(24));
+  $('#b-conex').addEventListener('click', () => listo().then(() => openConexiones()));
   if (new URLSearchParams(location.search).has('informe')) listo().then(() => openInforme(24)); // desde el aviso diario
   // AJUSTE «reanudar tras la cuota» (PC y móvil: es una orden más).
   {

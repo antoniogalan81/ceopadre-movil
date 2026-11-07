@@ -1067,3 +1067,25 @@ details.z-projects[open] > summary { margin-bottom: 12px; }
 .inf-sec.done li { border-color: var(--ok, #2e8b57); }
 .inf-sec li small.ok { color: var(--ok, #2e8b57); }
 .inf-sec li small.warn { color: var(--warn, #a46f00); }
+
+/* V3.5 — objetivo: HECHO · AHORA · DESPUÉS · TE NECESITO, necesidades, conciliación, conexiones */
+.q4-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; margin: 8px 0 12px; }
+.q4 { border: 1px solid var(--line); border-left-width: 4px; border-radius: 10px; padding: 8px 12px; background: var(--card, transparent); min-width: 0; }
+.q4 .lbl { margin: 0 0 4px; font-weight: 700; letter-spacing: .03em; font-size: 12px; }
+.q4 .mlist { margin: 0; padding-left: 16px; }
+.q4 p, .q4 li { overflow-wrap: anywhere; }
+.q4.ok { border-left-color: var(--ok); }
+.q4.work { border-left-color: var(--accent, var(--ink-3)); }
+.q4.next { border-left-color: var(--ink-3); }
+.q4.need { border-left-color: var(--warn); background: var(--warn-bg); }
+.q4-entendido, .q4-res { grid-column: 1 / -1; margin: 0; font-size: 13px; }
+.q4-res.ok { color: var(--ok); } .q4-res.warn { color: var(--warn); }
+.need-panel { border-color: var(--warn); }
+.need-card { border-top: 1px solid var(--line); padding: 10px 0; }
+.need-card:first-of-type { border-top: 0; }
+.need-t { margin: 0 0 6px; overflow-wrap: anywhere; }
+.conc { margin: 6px 0 10px; padding: 6px 10px; border-radius: 8px; font-size: 13px; overflow-wrap: anywhere; }
+.conc-ok { background: var(--ok-bg); } .conc-warn { background: var(--warn-bg); } .conc-work { background: var(--line); }
+.dir-src { margin-top: 6px; overflow-wrap: anywhere; }
+#conex-body li.foco { outline: 2px solid var(--warn); outline-offset: 4px; border-radius: 6px; }
+#conex-body small.ok { color: var(--ok); } #conex-body small.warn { color: var(--warn); }

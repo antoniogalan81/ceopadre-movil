@@ -71,6 +71,7 @@
           <span class="top-remotes" id="top-remotes"></span>
           <button class="btn small" id="b-create-project" type="button" title="Crea la carpeta E:\ECOAPP\&lt;nombre&gt; y la añade">+ Nuevo proyecto</button>
           <button class="btn small" id="b-new-project" type="button" aria-label="Vincular proyecto: conectar una carpeta existente">Vincular carpeta</button>
+          <button class="btn small" id="b-conex" type="button" title="Cuentas externas que usa el CEO y lo que le dejas hacer solo">🔌 Conexiones y permisos</button>
           <button class="btn small" id="b-cuota" type="button" title="Qué pasa cuando se agota la cuota de Claude o Codex">🔁 Reanudar tras cuota</button>
           <button class="btn small" id="b-avisos" type="button" hidden title="Avisos en este móvil cuando algo te necesite o termine">🔔 Avisos</button>
           <button class="btn small" id="b-install" type="button" hidden>Instalar CEOPadre</button>
@@ -242,6 +243,15 @@
   <form method="dialog" class="cmp-body">
     <header class="cmp-head"><h2 id="map-title">Mapa del proyecto</h2><button class="btn ghost small" value="close">Cerrar</button></header>
     <div class="map-body" id="map-body"></div>
+  </form>
+</dialog>
+
+<!-- CONEXIONES Y PERMISOS (V3.5): cuentas externas (secreto cifrado sólo en el PC) y autorizaciones delimitadas. -->
+<dialog id="conexiones" class="sheet composer" aria-labelledby="conex-title">
+  <form method="dialog" class="cmp-body">
+    <header class="cmp-head"><h2 id="conex-title">Conexiones y permisos</h2><span class="head-act">
+      <button class="btn ghost small" value="close">Cerrar</button></span></header>
+    <div class="inf-body" id="conex-body"><p class="muted">Cargando…</p></div>
   </form>
 </dialog>
 

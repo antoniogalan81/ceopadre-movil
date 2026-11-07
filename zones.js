@@ -171,7 +171,10 @@ export function decisionsText(cards, fecha = new Date()) {
 // También: guardar un procedimiento de automatización (texto que ejecutará Claude) y aprobar envíos a terceros (bandeja).
 export const HIGH_RISK = new Set(['objetivo.iniciar', 'objetivo.anadir', 'trabajo.instruccion', 'pendiente.editar', 'automatizacion.guardar', 'bandeja.aprobar',
   // Ponen a trabajar a Claude en el PC sin pulsar ▶ (horario, revisión, objetivos de negocio): las mismas garantías.
-  'automatizacion.programar', 'proyecto.revisar', 'negocio.crear', 'negocio.aprobar', 'negocio.responder', 'negocio.reanudar']);
+  'automatizacion.programar', 'proyecto.revisar', 'negocio.crear', 'negocio.aprobar', 'negocio.responder', 'negocio.reanudar',
+  // V3.5: también dan trabajo a Claude (instrucción en caliente, necesidad resuelta, reanudar un proyecto) o amplían lo que el
+  // CEO puede hacer solo (autorización delimitada).
+  'negocio.instruccion', 'negocio.necesidad', 'proyecto.reanudar', 'autorizacion.crear']);
 export const REAUTH_MS = 30 * 60_000;
 /** Hora (ms) de la última vez que esta sesión se abrió CON CONTRASEÑA, leída del token (amr). 0 si no consta. */
 export function passwordAt(accessToken) {

@@ -4,7 +4,10 @@
 import { h } from './dom.js';
 import { proyectosEn } from './zones.js';
 
-const TONE = { DEFINIENDO: 'work', ESPERANDO_APROBACION: 'ask', ACTIVA: 'work', ESPERANDO_ANTONIO: 'ask', PAUSADA: 'idle', ALCANZADA: 'ok', BLOQUEADA: 'bad', CANCELADA: 'idle' };
+const TONE = { DEFINIENDO: 'work', ESPERANDO_APROBACION: 'ask', ACTIVA: 'work', ESPERANDO_ANTONIO: 'ask', PAUSADA: 'idle', ALCANZADA: 'ok', BLOQUEADA: 'bad', CANCELADA: 'idle',
+  EN_SEGUIMIENTO: 'wait', CERRADA: 'idle' };
+const CLOSED = ['ALCANZADA', 'CANCELADA', 'CERRADA'];
+const TIPO_NEC = { CONEXION: 'Conectar una cuenta', DATO: 'Un dato', ACCION: 'Algo que sólo puedes hacer tú', DECISION: 'Una decisión' };
 const fecha = (iso) => (iso ? new Date(iso).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '');
 const chip = (label, tone) => h('span', { class: `a-chip t-${tone}` }, label);
 
@@ -41,6 +44,43 @@ export function negocioUi({ api, ask, toast, show, data, run, viewText }) {
   const trabajos = (o) => h('p', { class: 'ln' }, h('b', {}, 'HECHO'),
     ` ${o.trabajos.terminados} trabajo${o.trabajos.terminados === 1 ? '' : 's'} terminado${o.trabajos.terminados === 1 ? '' : 's'} y verificado${o.trabajos.terminados === 1 ? '' : 's'}${o.trabajos.cancelados ? ` · ${o.trabajos.cancelados} cancelado${o.trabajos.cancelados === 1 ? '' : 's'}` : ''}`,
     o.trabajos.en_curso ? h('span', {}, ` · AHORA en ${o.trabajos.en_curso.proyecto}: ${o.trabajos.en_curso.ahora || o.trabajos.en_curso.estado}`) : null);
+  // HECHO · AHORA · DESPUÉS · TE NECESITO (V3.5): lo que de verdad ha pasado, sin porcentajes ni barras inventadas.
+  function cuatro(o) {
+    const v = o.vista || {};
+    const linea = (t, cls, body) => h('div', { class: `q4 ${cls}` }, h('p', { class: 'lbl' }, t), body);
+    const lista = (xs, f, empty) => (xs?.length ? h('ul', { class: 'mlist' }, xs.slice(0, 3).map((x) => h('li', {}, f(x)))) : h('p', { class: 'muted small' }, empty));
+    return h('div', { class: 'q4-grid' },
+      linea('HECHO', 'ok', lista(v.hecho, (t) => `${t.proyecto}: ${t.objetivo.split('\n')[0].slice(0, 140)}${t.comprobado?.length ? ' ✓' : ''}`, 'Nada terminado todavía.')),
+      linea('AHORA', 'work', lista(v.ahora, (t) => `${t.proyecto}: ${t.pausado ? 'en pausa' : t.te_necesita ? 'esperando algo tuyo' : (t.ahora && t.ahora !== 'Aún no se ha hecho nada' ? t.ahora : t.objetivo.split('\n')[0]).slice(0, 140)}`, o.estado === 'PAUSADA' ? 'En pausa.' : 'Nada en marcha.')),
+      linea('DESPUÉS', 'next', h('p', {}, v.despues || (o.estado === 'EN_SEGUIMIENTO' ? `Medir el resultado ${o.proxima_revision ? `el ${fecha(o.proxima_revision)}` : 'periódicamente'} (sin IA).` : o.estado === 'ESPERANDO_APROBACION' ? 'Empieza al aprobar el plan.' : o.proxima_revision ? `El CEO revisa el ${fecha(o.proxima_revision)}.` : 'El CEO decide al terminar lo que hay en marcha.'))),
+      linea('TE NECESITO', v.te_necesito?.length || o.te_necesita ? 'need' : 'ok', v.te_necesito?.length ? lista(v.te_necesito, (n) => n.que, '') : h('p', { class: 'muted small' }, o.te_necesita ? 'Mira abajo.' : 'Nada ahora.')),
+      v.entendido ? h('p', { class: 'q4-entendido' }, h('b', {}, 'ÚLTIMO CAMBIO ENTENDIDO: '), v.entendido) : null,
+      v.resultado ? h('p', { class: `q4-res ${v.resultado === 'acreditado' ? 'ok' : 'warn'}` }, v.resultado === 'acreditado' ? 'Resultado empresarial ACREDITADO por sus indicadores.' : `Resultado empresarial: ${v.resultado}.`) : null);
+  }
+  // Lo que el CEO pidió a Antonio: qué, por qué, qué bloquea, qué sigue haciendo y cómo decirle que está hecho.
+  function necesidades(o) {
+    const xs = (o.necesidades || []).filter((n) => n.estado === 'PENDIENTE');
+    if (!xs.length) return null;
+    return h('section', { class: 'panel need-panel' }, h('h4', {}, `Necesito tu intervención (${xs.length})`), xs.map((n) => h('article', { class: 'need-card' },
+      h('p', { class: 'need-t' }, h('b', {}, TIPO_NEC[n.tipo] || 'Necesito'), ` — ${n.que}`),
+      h('dl', { class: 'wait-dl' },
+        n.por_que ? [h('dt', {}, 'Por qué'), h('dd', {}, n.por_que)] : null,
+        n.bloquea ? [h('dt', {}, 'Queda en espera'), h('dd', {}, n.bloquea)] : null,
+        n.mientras ? [h('dt', {}, 'Mientras, sigo con'), h('dd', {}, n.mientras)] : null,
+        n.como ? [h('dt', {}, 'Cómo'), h('dd', {}, n.como)] : null),
+      h('div', { class: 'a-acts' },
+        n.tipo === 'CONEXION' ? h('button', { class: 'btn primary small', type: 'button', onclick: () => window.dispatchEvent(new CustomEvent('ceo:conexiones', { detail: { servicio: n.conexion } })) }, `Conectar ${n.conexion || 'la cuenta'}`)
+          : h('button', { class: 'btn primary small', type: 'button', onclick: (e) => resolverNec(o, n, e.currentTarget) }, n.tipo === 'DECISION' || n.tipo === 'DATO' ? 'Responder' : 'Ya lo he hecho'),
+        h('button', { class: 'btn ghost small', type: 'button', onclick: (e) => descartarNec(o, n, e.currentTarget) }, 'No lo voy a hacer')))));
+  }
+  async function resolverNec(o, n, btn) {
+    const r = await ask({ title: n.que, help: n.como || '', ok: 'Enviar', fields: [{ name: 'respuesta', label: n.tipo === 'ACCION' ? 'Qué has hecho (opcional)' : 'Tu respuesta', type: 'textarea', required: n.tipo !== 'ACCION' }] });
+    if (r) await after(cmd('negocio.necesidad', { id: n.id, respuesta: r.respuesta || 'Hecho' }, 'Recibido: el CEO continúa', btn));
+  }
+  async function descartarNec(o, n, btn) {
+    const r = await ask({ title: `¿Descartar «${n.que}»?`, help: 'El CEO replanifica sin ello.', ok: 'Descartar', fields: [{ name: 'motivo', label: 'Motivo (opcional)', required: false }] });
+    if (r) await after(cmd('negocio.necesidad', { id: n.id, descartar: true, respuesta: r.motivo }, 'Descartada', btn));
+  }
   function needBox(o) {
     if (o.estado === 'ESPERANDO_APROBACION') return h('div', { class: 'decision' }, h('p', { class: 'ln' }, h('b', {}, 'TU APROBACIÓN'), ' El plan está listo: revísalo, responde las preguntas y apruébalo.'),
       h('div', { class: 'row' }, h('button', { class: 'btn primary small', type: 'button', onclick: () => openOne(o.id) }, 'REVISAR EL PLAN')));
@@ -51,13 +91,13 @@ export function negocioUi({ api, ask, toast, show, data, run, viewText }) {
     return null;
   }
   function actions(o) {
-    const closed = ['ALCANZADA', 'CANCELADA'].includes(o.estado);
+    const closed = CLOSED.includes(o.estado);
     return h('div', { class: 'a-acts' },
       mode === 'list' ? h('button', { class: 'btn ghost small', type: 'button', onclick: () => openOne(o.id) }, 'Ver todo') : null,
-      !closed ? h('button', { class: 'btn ghost small', type: 'button', onclick: (e) => instruir(o, e.currentTarget) }, 'Añadir información o cambiar prioridades') : null,
-      ['ACTIVA', 'ESPERANDO_ANTONIO', 'PAUSADA'].includes(o.estado) ? h('button', { class: 'btn ghost small', type: 'button', onclick: (e) => after(cmd('negocio.medir', { id: o.id }, 'Medido', e.currentTarget)) }, 'Medir ahora') : null,
-      o.estado === 'PAUSADA' ? h('button', { class: 'btn primary small', type: 'button', onclick: (e) => after(cmd('negocio.reanudar', { id: o.id }, 'Reanudado', e.currentTarget)) }, 'REANUDAR')
-        : !closed && o.estado !== 'BLOQUEADA' ? h('button', { class: 'btn ghost small', type: 'button', onclick: (e) => after(cmd('negocio.pausar', { id: o.id }, 'En pausa', e.currentTarget)) }, 'Pausar') : null,
+      !closed ? h('button', { class: 'btn primary small', type: 'button', onclick: (e) => instruir(o, e.currentTarget) }, 'Nueva instrucción o prioridad') : null,
+      ['ACTIVA', 'ESPERANDO_ANTONIO', 'PAUSADA', 'EN_SEGUIMIENTO'].includes(o.estado) ? h('button', { class: 'btn ghost small', type: 'button', onclick: (e) => after(cmd('negocio.medir', { id: o.id }, 'Medido', e.currentTarget)) }, 'Medir ahora') : null,
+      o.estado === 'PAUSADA' ? h('button', { class: 'btn primary small', type: 'button', onclick: (e) => after(cmd('negocio.reanudar', { id: o.id }, 'Continúa', e.currentTarget)) }, '▶ CONTINUAR ESTE OBJETIVO')
+        : !closed && o.estado !== 'BLOQUEADA' ? h('button', { class: 'btn ghost small', type: 'button', title: 'Pausa TODO este objetivo: no empieza nada nuevo y sus trabajos en marcha se detienen sin perder lo hecho', onclick: (e) => after(cmd('negocio.pausar', { id: o.id }, 'Objetivo en pausa', e.currentTarget)) }, '⏸ Pausar este objetivo') : null,
       !closed ? h('button', { class: 'btn ghost-danger small', type: 'button', onclick: (e) => cancelar(o, e.currentTarget) }, 'Cancelar') : null);
   }
   function card(o) {
@@ -95,8 +135,8 @@ export function negocioUi({ api, ask, toast, show, data, run, viewText }) {
     if (r) await after(cmd('negocio.responder', { id: o.id, respuesta: r.respuesta }, 'Respuesta enviada', btn));
   }
   async function instruir(o, btn) {
-    const r = await ask({ title: 'Añadir información o cambiar prioridades', help: 'Para corregir el rumbo sin empezar de cero: el CEO lo tiene en cuenta en su próxima decisión. El trabajo en marcha no se corta.', ok: 'Guardar', fields: [{ name: 'texto', label: 'Instrucción', type: 'textarea' }] });
-    if (r) await after(cmd('negocio.instruccion', { id: o.id, texto: r.texto }, 'Guardada', btn));
+    const r = await ask({ title: 'Nueva instrucción o prioridad', help: 'Llega YA a los trabajos en marcha (Claude la incorpora sin empezar de cero) y el CEO revisa el plan ahora mismo: verás qué ha entendido en «Último cambio entendido». Si algo en marcha queda contradicho, lo para sin perder lo hecho.', ok: 'Enviar', fields: [{ name: 'texto', label: 'Instrucción', type: 'textarea' }] });
+    if (r) await after(cmd('negocio.instruccion', { id: o.id, texto: r.texto }, 'Recibida: el CEO revisa el plan', btn));
   }
   async function cancelar(o, btn) {
     const r = await ask({ title: `¿Cancelar «${o.titulo}»?`, ok: 'Sí, cancelar', danger: true, help: 'El director deja de lanzar trabajos. No se revierte nada de lo hecho.',
@@ -104,8 +144,10 @@ export function negocioUi({ api, ask, toast, show, data, run, viewText }) {
     if (r) await after(cmd('negocio.cancelar', { id: o.id, confirmado: true, cancelar_trabajo: !!r.trabajo }, 'Cancelado', btn));
   }
   async function cerrar(o, btn) {
-    const r = await ask({ title: `¿Dar por alcanzado «${o.titulo}»?`, ok: 'Sí, cerrar', fields: [{ name: 'motivo', label: 'Motivo (opcional)', required: false }] });
-    if (r) await after(cmd('negocio.cerrar', { id: o.id, confirmado: true, motivo: r.motivo }, 'Cerrado', btn));
+    const r = await ask({ title: `¿Cerrar «${o.titulo}»?`, ok: 'Cerrar',
+      help: 'Sólo cuenta como ALCANZADO si los indicadores de resultado lo acreditan. Si no, queda EN SEGUIMIENTO (se sigue midiendo solo) salvo que marques cerrarlo sin acreditar.',
+      fields: [{ name: 'motivo', label: 'Motivo (opcional)', required: false }, { name: 'sin_acreditar', label: 'Cerrarlo aunque el resultado no esté acreditado (no contará como alcanzado)', type: 'checkbox' }] });
+    if (r) await after(cmd('negocio.cerrar', { id: o.id, confirmado: true, motivo: r.motivo, sin_acreditar: !!r.sin_acreditar }, 'Hecho', btn));
   }
   async function aprobar(o, btn) {
     const qs = o.plan?.preguntas || [];
@@ -142,10 +184,10 @@ export function negocioUi({ api, ask, toast, show, data, run, viewText }) {
     const hechos = o.trabajos_lista.filter((t) => t.estado === 'TERMINADO');
     const comprobado = hechos.flatMap((t) => (t.comprobado || []).map((x) => `${t.proyecto}: ${x}`));
     const medidos = o.kpis.filter((k) => k.disponible && k.valor != null);
-    const ahora = o.trabajos.en_curso;
     const box = (t, body, cls = '') => h('div', { class: `dir-box ${cls}` }, h('p', { class: 'lbl' }, t), body);
     const ul = (xs, empty) => (xs.length ? h('ul', { class: 'mlist' }, xs.slice(0, 4).map((x) => h('li', {}, String(x).slice(0, 220))), xs.length > 4 ? h('li', { class: 'more' }, `+${xs.length - 4} más (abajo)`) : null) : h('p', { class: 'muted small' }, empty));
     return h('section', { class: 'panel dir' }, h('div', { class: 'dir-head' }, h('h4', {}, o.titulo), chip(o.estado_texto, TONE[o.estado] || 'idle')),
+      cuatro(o), actions(o),
       needBox(o),
       h('div', { class: 'dir-grid' },
         box('QUÉ QUEREMOS CONSEGUIR', h('p', {}, p.resultado_buscado || o.texto)),
@@ -153,10 +195,7 @@ export function negocioUi({ api, ask, toast, show, data, run, viewText }) {
         box('RESULTADOS REALES', ul(medidos.map((k) => `${k.nombre}: ${k.valor}${k.unidad ? ` ${k.unidad}` : ''} (objetivo ${k.sentido} ${k.objetivo})${k.cumple ? ' ✓' : ''}`), o.kpis.length ? 'Aún sin medir: se mide solo, sin IA.' : 'Sin indicadores aprobados.'), 'ok'),
         box('REALIZADO', ul(hechos.map((t) => `${t.proyecto}: ${t.objetivo}`), 'Ningún trabajo terminado todavía.')),
         box('COMPROBADO', ul(comprobado, 'Nada comprobado todavía.'), 'ok'),
-        box('AHORA', ahora ? h('p', {}, `${ahora.proyecto}: ${ahora.ahora || ahora.objetivo}`) : h('p', { class: 'muted small' }, 'Nada en marcha.'), 'reco'),
-        box('DESPUÉS', h('p', {}, o.proxima_revision && o.estado === 'ACTIVA' ? `El CEO revisa los resultados el ${fecha(o.proxima_revision)} y decide el siguiente trabajo.` : o.estado === 'ESPERANDO_APROBACION' ? 'Empieza al aprobar el plan.' : o.estado_texto)),
-        p.riesgos?.length ? box('OBSTÁCULOS', ul(p.riesgos, ''), 'bad') : null),
-      actions(o));
+        p.riesgos?.length ? box('OBSTÁCULOS', ul(p.riesgos, ''), 'bad') : null));
   }
   // HOJA DE RUTA: las fases del plan en orden, con su proyecto y cuándo se da por cumplida. El estado de cada fase no se
   // inventa: se enseña cuántos trabajos de ese proyecto hay terminados y si el que está en marcha es de ella.
@@ -174,7 +213,7 @@ export function negocioUi({ api, ask, toast, show, data, run, viewText }) {
   }
   function one() {
     const o = viewing;
-    return [resumenOne(o), roadmap(o), planView(o),
+    return [resumenOne(o), necesidades(o), roadmap(o), planView(o),
       Object.keys(o.respuestas || {}).length ? h('section', { class: 'panel' }, h('h4', {}, 'Tus respuestas e instrucciones'), h('ul', { class: 'a-pend' }, Object.entries(o.respuestas).map(([k, v]) => h('li', {}, h('b', {}, k), ` · ${v}`)))) : null,
       h('section', { class: 'panel' }, h('h4', {}, `Trabajos (${o.trabajos_lista.length})`), o.trabajos_lista.length ? o.trabajos_lista.map((t) => h('article', { class: `a-runrow t-${t.estado === 'TERMINADO' ? 'ok' : ['CANCELADO'].includes(t.estado) ? 'idle' : 'work'}` },
         h('header', {}, h('b', {}, `${fecha(t.inicio)} · ${t.proyecto}`), chip(t.verificado ? 'Terminado y comprobado' : t.estado === 'CANCELADO' ? 'Cancelado' : 'En marcha', t.verificado ? 'ok' : 'work')),
@@ -195,7 +234,7 @@ export function negocioUi({ api, ask, toast, show, data, run, viewText }) {
     if (!force && (s === sig || document.querySelector('dialog[open]'))) return;
     sig = s;
     document.getElementById('n-title').textContent = mode === 'one' ? viewing.titulo : 'Objetivos de negocio';
-    document.getElementById('n-sub').textContent = mode === 'list' ? `${list.filter((o) => !['ALCANZADA', 'CANCELADA'].includes(o.estado)).length} abiertos · ${online() ? 'PC conectado' : 'PC desconectado'}` : viewing.estado_texto;
+    document.getElementById('n-sub').textContent = mode === 'list' ? `${list.filter((o) => !CLOSED.includes(o.estado)).length} abiertos · ${online() ? 'PC conectado' : 'PC desconectado'}` : viewing.estado_texto;
     document.getElementById('n-body').replaceChildren(...(mode === 'one' ? one() : [
       h('div', { class: 'a-top' }, h('button', { class: 'btn accent', type: 'button', disabled: !online(), onclick: (e) => crear(e.currentTarget) }, '+ Nuevo objetivo de negocio')),
       list.length ? h('div', { class: 'a-cards' }, list.map(card)) : h('p', { class: 'empty' }, 'Todavía no hay objetivos de negocio. Escribe el resultado que quieres conseguir («Quiero vender GEST7 por redes sociales») y CEOPadre preparará el plan.'),

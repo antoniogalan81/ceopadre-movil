@@ -71,6 +71,7 @@
           <span class="top-remotes" id="top-remotes"></span>
           <button class="btn small" id="b-create-project" type="button" title="Crea la carpeta E:\ECOAPP\&lt;nombre&gt; y la añade">+ Nuevo proyecto</button>
           <button class="btn small" id="b-new-project" type="button" aria-label="Vincular proyecto: conectar una carpeta existente">Vincular carpeta</button>
+          <button class="btn small" id="b-cuota" type="button" title="Qué pasa cuando se agota la cuota de Claude o Codex">🔁 Reanudar tras cuota</button>
           <button class="btn small" id="b-avisos" type="button" hidden title="Avisos en este móvil cuando algo te necesite o termine">🔔 Avisos</button>
           <button class="btn small" id="b-install" type="button" hidden>Instalar CEOPadre</button>
           <button class="btn small" id="b-logout" type="button" hidden>Salir</button>
@@ -83,6 +84,7 @@
 
   <!-- LAS CUATRO PREGUNTAS: qué necesita de mí · qué está haciendo · qué ha conseguido · qué hará después. -->
   <section class="brief" id="kpis" aria-label="Resumen"></section>
+  <p class="brief-more"><button class="link" type="button" id="b-informe">📋 Informe del día: qué se terminó, qué avanzó y qué viene</button></p>
 
   <div class="home-grid">
     <div class="home-main">
@@ -240,6 +242,16 @@
   <form method="dialog" class="cmp-body">
     <header class="cmp-head"><h2 id="map-title">Mapa del proyecto</h2><button class="btn ghost small" value="close">Cerrar</button></header>
     <div class="map-body" id="map-body"></div>
+  </form>
+</dialog>
+
+<!-- INFORME DEL DÍA (V3.4): datos reales de la base, sin IA (orden informe.ejecutivo). -->
+<dialog id="informe" class="sheet composer" aria-labelledby="informe-title">
+  <form method="dialog" class="cmp-body">
+    <header class="cmp-head"><h2 id="informe-title">Informe del día</h2><span class="head-act">
+      <button class="btn ghost small" type="button" id="informe-semana">Últimos 7 días</button>
+      <button class="btn ghost small" value="close">Cerrar</button></span></header>
+    <div class="inf-body" id="informe-body"><p class="muted">Cargando…</p></div>
   </form>
 </dialog>
 

@@ -1053,3 +1053,17 @@ details.z-projects[open] > summary { margin-bottom: 12px; }
 .road-step.now .road-n { background: var(--work); color: var(--paper); }
 .road-step p { margin: 2px 0; }
 @media (pointer: coarse) { .home .btn.small, .autos .btn.small, .detail .btn.small, .side-item, .link { min-height: 44px; } }
+
+/* V3.4 — informe del día */
+.brief-more { margin: 4px 0 12px; }
+.inf-body { overflow: auto; padding: 4px 2px 12px; display: grid; gap: 12px; }
+.inf-lead { font-weight: 600; margin: 0; }
+.inf-sec h3 { font-size: 13px; letter-spacing: .02em; text-transform: uppercase; margin: 0 0 6px; color: var(--ink-3); }
+.inf-sec ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.inf-sec li { border-left: 3px solid var(--line); padding: 4px 0 4px 10px; overflow-wrap: anywhere; }
+.inf-sec li small { display: block; margin-top: 2px; }
+.inf-sec.need li { border-color: var(--warn, #c98a00); }
+.inf-sec.bad li { border-color: var(--bad, #c0392b); }
+.inf-sec.done li { border-color: var(--ok, #2e8b57); }
+.inf-sec li small.ok { color: var(--ok, #2e8b57); }
+.inf-sec li small.warn { color: var(--warn, #a46f00); }

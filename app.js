@@ -142,7 +142,7 @@ async function strongConfirm(sb, op, params) {
 const STATES = {
   LIBRE: ['⚪', 'SIN OBJETIVO', 'idle'], EN_COLA: ['⏳', 'PRÓXIMO · EN COLA', 'wait'], TRABAJANDO: ['🟢', 'TRABAJANDO', 'work'],
   ESPERANDO_DECISION: ['🟡', 'NECESITA TU RESPUESTA', 'ask'], PAUSADO: ['⏸️', 'EN PAUSA', 'idle'],
-  ESPERANDO_CLAUDE: ['⏳', 'SIN CUOTA DE CLAUDE · PULSA CONTINUAR', 'wait'], ESPERANDO_CEO: ['⏳', 'SIN CUOTA DEL CEO · PULSA CONTINUAR', 'wait'],
+  ESPERANDO_CLAUDE: ['⏳', 'SIN CUOTA DE CLAUDE · ESPERANDO', 'wait'], ESPERANDO_CEO: ['⏳', 'SIN CUOTA DEL CEO · ESPERANDO', 'wait'],
   ESPERANDO_CONDICION: ['🔭', 'ESPERANDO ALGO EXTERNO', 'wait'], ESPERANDO_ANTONIO: ['✋', 'NECESITA QUE HAGAS ALGO', 'ask'],
   SIN_ACTIVIDAD: ['🟠', 'TRABAJANDO · SIN SEÑALES', 'warn'], BLOQUEADO: ['🔴', 'BLOQUEADO', 'bad'], ERROR: ['🔴', 'HAY UN PROBLEMA', 'bad'],
   LISTO: ['✅', 'TE TOCA: CONTINUAR', 'ok'], TERMINADO: ['✅', 'TERMINADO Y COMPROBADO', 'ok'], CANCELADO: ['⚪', 'CANCELADO', 'idle'],
@@ -157,6 +157,9 @@ const hhmm = (iso) => {
 };
 function waitLines(c) {
   const who = c.estado === 'ESPERANDO_CLAUDE' ? 'Claude' : 'un CEO';
+  // Reanudación automática (ajuste de Antonio): lo dice la tarjeta, y si ésta en concreto no se reanuda, por qué.
+  if (c.cuota?.auto) return [future(c.espera_hasta) ? `Esperando a ${who} hasta aproximadamente las ${hhmm(c.espera_hasta)}.` : `Esperando a que ${who} vuelva a estar disponible.`,
+    c.cuota.no_reanuda && !/vuelve hacia|sin cuota/.test(c.cuota.no_reanuda) ? `No se reanuda solo: ${c.cuota.no_reanuda}.` : 'Se reanuda solo cuando vuelva la cuota, con el mismo contexto. No tienes que hacer nada.'];
   if (future(c.espera_hasta)) return [`Esperando a ${who} hasta aproximadamente las ${hhmm(c.espera_hasta)}.`, 'Pulsa CONTINUAR cuando quieras reintentarlo.'];
   if (c.espera_hasta) return [`${c.estado === 'ESPERANDO_CLAUDE' ? 'Claude debería' : 'Debería haber un CEO'} estar disponible.`, 'Ya puedes continuar: pulsa CONTINUAR.'];
   return [`${c.estado === 'ESPERANDO_CLAUDE' ? 'Claude no está disponible' : 'Ningún CEO está disponible'} temporalmente (sin hora conocida).`, 'Pulsa CONTINUAR cuando quieras reintentarlo.'];
@@ -513,7 +516,7 @@ const jobDecision = (c) => (c.estado === 'ESPERANDO_DECISION' ? h('div', { class
 
 // Texto del estado en los puestos (lo que Antonio lee de un vistazo).
 const MOOD_LABEL = { ESPERANDO_DECISION: 'Necesita tu respuesta', ERROR: 'Hay un problema', BLOQUEADO: 'Bloqueado',
-  SIN_ACTIVIDAD: 'Trabajando (sin señales; se recupera solo)', TRABAJANDO: 'Trabajando', ESPERANDO_CLAUDE: 'Sin cuota de Claude · pulsa Continuar', ESPERANDO_CEO: 'Sin cuota del CEO · pulsa Continuar',
+  SIN_ACTIVIDAD: 'Trabajando (sin señales; se recupera solo)', TRABAJANDO: 'Trabajando', ESPERANDO_CLAUDE: 'Sin cuota de Claude · esperando', ESPERANDO_CEO: 'Sin cuota del CEO · esperando',
   ESPERANDO_CONDICION: 'Esperando algo externo', ESPERANDO_ANTONIO: 'Necesita que hagas algo', EN_COLA: 'Próximo: en cola', LIBRE: 'Sin objetivo', PAUSADO: 'En pausa', LISTO: 'Te toca: continuar', TERMINADO: 'Terminado y comprobado', CANCELADO: 'Cancelado' };
 // Una decisión pendiente de Antonio (del objetivo o del canon) manda sobre cualquier otro estado.
 const decisionLabel = (c) => { const n = decisionCount(c); return n > 1 ? `Necesita tu respuesta · ${n}` : 'Necesita tu respuesta'; };
@@ -960,6 +963,35 @@ function paintMap(m, decide, consult) {
   box.replaceChildren(...mapBody(m, decide, consult).filter(Boolean));
   box.scrollTop = y;
 }
+
+// INFORME DEL DÍA: secciones con datos reales (informe.ejecutivo). Lo vacío no ocupa sitio.
+async function openInforme(horas = 24) {
+  const box = $('#informe-body');
+  $('#informe-title').textContent = horas > 24 ? 'Informe de los últimos 7 días' : 'Informe del día';
+  $('#informe-semana').textContent = horas > 24 ? 'Últimas 24 horas' : 'Últimos 7 días';
+  $('#informe-semana').onclick = () => openInforme(horas > 24 ? 24 : 168);
+  if (!$('#informe').open) $('#informe').showModal();
+  fill(box, h('p', { class: 'muted' }, 'Cargando…'));
+  const r = await api.cmd('informe.ejecutivo', { horas });
+  if (!r?.ok) { fill(box, h('p', { class: 'bad' }, r?.error || 'El PC no responde')); return; }
+  const x = r.data;
+  const sec = (cls, title, items, row) => items.length ? h('section', { class: `inf-sec ${cls}` }, h('h3', {}, `${title} (${items.length})`), h('ul', {}, items.map((i) => h('li', {}, row(i))))) : null;
+  const kpi = (k) => `${k.nombre}: ${k.error ? 'sin medir' : k.valor ?? '—'}${k.unidad ? ` ${k.unidad}` : ''}${k.anterior != null && k.valor != null && k.anterior !== k.valor ? ` (antes ${k.anterior})` : ''} · objetivo ${k.sentido} ${k.objetivo}`;
+  const hechos = [x.necesita.length, x.problemas.length, x.trabajando.length, x.terminados.length];
+  fill(box,
+    h('p', { class: 'inf-lead' }, `${x.terminados.length} terminado${x.terminados.length === 1 ? '' : 's'} · ${x.trabajando.length} en marcha · ${x.necesita.length ? `${x.necesita.length} te necesita${x.necesita.length === 1 ? '' : 'n'}` : 'nada te necesita'} · ${x.problemas.length ? `${x.problemas.length} con problemas` : 'sin problemas'}`),
+    sec('need', 'Necesita tu intervención', x.necesita, (i) => [h('b', {}, i.proyecto), ` — ${i.que}`, i.detalle ? h('small', {}, i.detalle) : null]),
+    sec('bad', 'Problemas', x.problemas, (i) => [h('b', {}, i.proyecto), ` — ${i.que}`, i.detalle ? h('small', {}, i.detalle) : null]),
+    sec('done', 'Terminado y comprobado', x.terminados, (i) => [h('b', {}, i.proyecto), ` — ${i.objetivo}`, ...i.comprobado.map((c) => h('small', { class: 'ok' }, `✓ ${c}`)), ...i.sin_comprobar.map((c) => h('small', { class: 'warn' }, `Sin comprobar: ${c}`))]),
+    sec('goal', 'Objetivos de negocio', x.negocio, (m) => [h('b', {}, cleanGoal(m.titulo)), ` — ${(MOOD_NEGOCIO[m.estado] || m.estado).toLowerCase()}`, ...m.kpis.map((k) => h('small', {}, kpi(k))), ...m.avances.slice(0, 2).map((e) => h('small', { class: 'muted' }, e.texto))]),
+    sec('work', 'Trabajando ahora', x.trabajando, (i) => [h('b', {}, i.proyecto), ` — ${i.ahora || i.objetivo}`]),
+    sec('wait', 'Esperando algo externo', x.esperando, (i) => [h('b', {}, i.proyecto), ` — ${esperaHumana(i.que).titulo || i.que}`, i.comprobada_at ? h('small', { class: 'muted' }, `Última comprobación ${hhmm(i.comprobada_at)}`) : null]),
+    sec('next', 'Después', x.despues, (i) => [h('b', {}, i.cuando ? hhmm(i.cuando) : 'En cola'), ` — ${i.que} · ${i.proyecto}`]),
+    x.automatizaciones.length ? h('p', { class: 'muted' }, `Agentes ejecutados: ${x.automatizaciones.map((a) => `${a.n} ${a.estado.toLowerCase()}`).join(' · ')}`) : null,
+    hechos.every((n) => !n) && !x.negocio.length && !x.esperando.length ? h('p', { class: 'muted' }, 'Sin actividad en este periodo.') : null,
+    h('p', { class: 'muted small' }, `Del ${new Date(x.desde).toLocaleString('es-ES', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })} a ahora · datos de CEOPadre, sin estimaciones.`));
+}
+const MOOD_NEGOCIO = { DEFINIENDO: 'Preparando el plan', ESPERANDO_APROBACION: 'Plan por aprobar', ACTIVA: 'En marcha', ESPERANDO_ANTONIO: 'Te necesita', PAUSADA: 'En pausa', ALCANZADA: 'Alcanzado', BLOQUEADA: 'Bloqueado' };
 
 function view(title, text, src = null) {
   $('#viewer-title').textContent = title;
@@ -1554,5 +1586,33 @@ function pwa() {
   });
 }
 
+// Informe del día y ajuste de cuota: en el PC y en el móvil (pwa() sólo corre en el móvil).
+function ajustesUi() {
+  // `api` existe cuando start() termina de conectar (PC o Supabase): se espera a él.
+  const listo = () => (api ? Promise.resolve() : new Promise((ok) => setTimeout(() => ok(listo()), 300)));
+  $('#b-informe').addEventListener('click', () => openInforme(24));
+  if (new URLSearchParams(location.search).has('informe')) listo().then(() => openInforme(24)); // desde el aviso diario
+  // AJUSTE «reanudar tras la cuota» (PC y móvil: es una orden más).
+  {
+    const b = $('#b-cuota');
+    const pintar = (on) => { b.textContent = on ? '🔁 Reanudar tras cuota: SÍ' : '🔁 Reanudar tras cuota: NO'; };
+    listo().then(() => api.cmd('ajustes.ver', {})).then((x) => { if (x?.ok) pintar(x.data.reanudar_cuota); }).catch(() => {});
+    b.addEventListener('click', async () => {
+      const x = await api.cmd('ajustes.ver', {});
+      if (!x?.ok) { toast(x?.error || 'El PC no responde', 'bad'); return; }
+      const on = x.data.reanudar_cuota;
+      const parados = x.data.en_espera.map((e) => `${e.proyecto}${e.no_reanuda ? ` (${e.no_reanuda})` : ''}`).join(' · ');
+      const r = await ask({ title: 'Cuando se agota la cuota de Claude o Codex',
+        help: `${on ? 'Ahora: lo que estaba trabajando se reanuda solo cuando vuelve la cuota (un intento cada vez que el proveedor dice que hay cuota; nunca reintentos seguidos). Lo pausado, lo terminado y lo que espera tu decisión no se toca.' : 'Ahora: lo que se para por cuota espera a que pulses CONTINUAR.'}${parados ? ` En espera de cuota: ${parados}.` : ''}`,
+        ok: on ? 'Esperar a que yo pulse CONTINUAR' : 'Reanudar solo cuando vuelva' });
+      if (!r) return;
+      const g = await api.cmd('ajustes.guardar', { reanudar_cuota: !on });
+      if (g?.ok) pintar(g.data.reanudar_cuota);
+      toast(g?.ok ? g.data.mensaje : g?.error || 'No se pudo', g?.ok ? 'ok' : 'bad');
+    });
+  }
+
+}
+ajustesUi();
 pwa();
 start();

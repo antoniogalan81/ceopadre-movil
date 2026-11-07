@@ -7,7 +7,7 @@ import { proyectosEn } from './zones.js';
 const TONE = { DEFINIENDO: 'work', ESPERANDO_APROBACION: 'ask', ACTIVA: 'work', ESPERANDO_ANTONIO: 'ask', PAUSADA: 'idle', ALCANZADA: 'ok', BLOQUEADA: 'bad', CANCELADA: 'idle',
   EN_SEGUIMIENTO: 'wait', CERRADA: 'idle' };
 const CLOSED = ['ALCANZADA', 'CANCELADA', 'CERRADA'];
-const TIPO_NEC = { CONEXION: 'Conectar una cuenta', DATO: 'Un dato', ACCION: 'Algo que sólo puedes hacer tú', DECISION: 'Una decisión' };
+const TIPO_NEC = { CONEXION: 'Conectar una cuenta', DATO: 'Un dato', ACCION: 'Algo que sólo puedes hacer tú', DECISION: 'Una decisión', CAPACIDAD: 'Herramienta nueva para el catálogo', AUTOMATIZACION: 'Activar una automatización' };
 const fecha = (iso) => (iso ? new Date(iso).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '');
 const chip = (label, tone) => h('span', { class: `a-chip t-${tone}` }, label);
 
@@ -70,6 +70,8 @@ export function negocioUi({ api, ask, toast, show, data, run, viewText }) {
         n.como ? [h('dt', {}, 'Cómo'), h('dd', {}, n.como)] : null),
       h('div', { class: 'a-acts' },
         n.tipo === 'CONEXION' ? h('button', { class: 'btn primary small', type: 'button', onclick: () => window.dispatchEvent(new CustomEvent('ceo:conexiones', { detail: { servicio: n.conexion } })) }, `Conectar ${n.conexion || 'la cuenta'}`)
+          : n.tipo === 'AUTOMATIZACION' ? h('button', { class: 'btn primary small', type: 'button', onclick: (e) => after(cmd('negocio.necesidad', { id: n.id, respuesta: 'Aprobada' }, 'Automatización activada', e.currentTarget)) }, 'Activar la automatización')
+          : n.tipo === 'CAPACIDAD' ? h('button', { class: 'btn primary small', type: 'button', onclick: (e) => after(cmd('negocio.necesidad', { id: n.id, respuesta: 'Aprobada' }, 'Incorporada al catálogo', e.currentTarget)) }, 'Incorporar al catálogo')
           : h('button', { class: 'btn primary small', type: 'button', onclick: (e) => resolverNec(o, n, e.currentTarget) }, n.tipo === 'DECISION' || n.tipo === 'DATO' ? 'Responder' : 'Ya lo he hecho'),
         h('button', { class: 'btn ghost small', type: 'button', onclick: (e) => descartarNec(o, n, e.currentTarget) }, 'No lo voy a hacer')))));
   }

@@ -1028,7 +1028,7 @@ async function openConexiones(foco = null) {
     h('section', { class: 'inf-sec' }, h('h3', {}, 'Cuentas'), h('ul', {}, x.servicios.filter((sv) => sv.id !== 'demo' || x.conexiones.some((c) => c.servicio === 'demo')).map((sv) => {
       const cs = x.conexiones.filter((c) => c.servicio === sv.id && c.estado !== 'REVOCADA');
       return h('li', { class: foco === sv.id ? 'foco' : '' }, h('b', {}, sv.nombre),
-        cs.length ? cs.map((c) => h('small', { class: c.estado === 'CONECTADA' ? 'ok' : 'warn' }, `${c.estado === 'CONECTADA' ? '✓ Conectada' : 'Pendiente'} · ${nombreP(c.proyecto)}${c.cuenta ? ` · ${c.cuenta}` : ''}${c.verificacion ? ` · ${c.verificacion}` : ''}`)) : h('small', { class: 'muted' }, 'Sin conectar'),
+        cs.length ? cs.map((c) => h('small', { class: c.estado === 'CONECTADA' ? 'ok' : 'warn' }, `${c.estado === 'CONECTADA' ? '✓ Conectada' : c.estado === 'EXISTENTE' ? 'La cuenta existe (sin conectar a CEOPadre)' : 'Pendiente'} · ${nombreP(c.proyecto)}${c.cuenta ? ` · ${c.cuenta}` : ''}${c.verificacion ? ` · ${c.verificacion}` : ''}`)) : h('small', { class: 'muted' }, 'Sin conectar'),
         h('div', { class: 'a-acts' },
           LOCAL ? h('button', { class: 'btn small', type: 'button', onclick: (e) => conectar(sv, e.currentTarget) }, cs.some((c) => c.estado === 'CONECTADA') ? 'Volver a conectar' : 'Conectar')
             : h('button', { class: 'btn ghost small', type: 'button', onclick: () => view(`Conectar ${sv.nombre}`, `${sv.pasos.map((p, i) => `${i + 1}. ${p}`).join('\n')}\n\nEl último paso se hace en el PC: la clave nunca viaja por internet. En cuanto esté, el CEO lo comprueba y sigue solo.`) }, 'Ver pasos'),

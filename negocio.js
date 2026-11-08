@@ -28,6 +28,7 @@ export function negocioUi({ api, ask, toast, show, data, run, viewText }) {
     const v = await api.cmd('negocio.ver', { id });
     if (!v?.ok) { toast(v?.error || 'No se pudo abrir', 'bad'); return; }
     viewing = v.data; mode = 'one'; sig = ''; paint(true); window.scrollTo(0, 0);
+    window.dispatchEvent(new CustomEvent('ceo:nav', { detail: { objetivo: id } })); // enlace directo y botón Atrás
   }
   function back() { if (mode === 'one') { mode = 'list'; viewing = null; paint(true); return; } mode = null; clearInterval(timer); show('p-list'); }
   const after = async (ok) => { if (ok) await load(); return ok; };
@@ -97,6 +98,7 @@ export function negocioUi({ api, ask, toast, show, data, run, viewText }) {
     return h('div', { class: 'a-acts' },
       mode === 'list' ? h('button', { class: 'btn ghost small', type: 'button', onclick: () => openOne(o.id) }, 'Ver todo') : null,
       !closed ? h('button', { class: 'btn primary small', type: 'button', onclick: (e) => instruir(o, e.currentTarget) }, 'Nueva instrucción o prioridad') : null,
+      h('button', { class: 'btn ghost small', type: 'button', onclick: () => window.dispatchEvent(new CustomEvent('ceo:abrir', { detail: { ref: `meta:${o.id}` } })) }, '💬 Consultar al CEO'),
       ['ACTIVA', 'ESPERANDO_ANTONIO', 'PAUSADA', 'EN_SEGUIMIENTO'].includes(o.estado) ? h('button', { class: 'btn ghost small', type: 'button', onclick: (e) => after(cmd('negocio.medir', { id: o.id }, 'Medido', e.currentTarget)) }, 'Medir ahora') : null,
       o.estado === 'PAUSADA' ? h('button', { class: 'btn primary small', type: 'button', onclick: (e) => after(cmd('negocio.reanudar', { id: o.id }, 'Continúa', e.currentTarget)) }, '▶ CONTINUAR ESTE OBJETIVO')
         : !closed && o.estado !== 'BLOQUEADA' ? h('button', { class: 'btn ghost small', type: 'button', title: 'Pausa TODO este objetivo: no empieza nada nuevo y sus trabajos en marcha se detienen sin perder lo hecho', onclick: (e) => after(cmd('negocio.pausar', { id: o.id }, 'Objetivo en pausa', e.currentTarget)) }, '⏸ Pausar este objetivo') : null,

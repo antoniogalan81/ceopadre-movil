@@ -190,17 +190,47 @@ function toast(msg, kind = '') {
 
 // La barra de pestañas (móvil) y la pestaña de arriba (PC) dicen en qué sección estás.
 const TAB_OF = { 'p-list': 'home', 'p-detail': 'home', 'p-remote': 'home', 'p-negocio': 'negocio', 'p-autos': 'autos', 'p-bandeja': 'inbox' };
+/** Marca la sección actual en la cabecera y en la barra de abajo (Proyectos comparte pantalla con Dirección). */
+function marcarTab(go) {
+  for (const t of document.querySelectorAll('#appbar .tabs .tab, #tabbar button')) {
+    const de = t.dataset.tab || t.dataset.go || { 'b-negocio': 'negocio', 'b-autos': 'autos', 'b-inbox': 'inbox' }[t.id];
+    const on = de === go; t.classList.toggle('on', on); if (on) t.setAttribute('aria-current', 'page'); else t.removeAttribute('aria-current');
+  }
+}
 const show = (id) => {
   for (const s of ['p-login', 'p-list', 'p-detail', 'p-remote', 'p-autos', 'p-bandeja', 'p-negocio']) $('#' + s).hidden = s !== id;
   const bar = $('#tabbar');
   bar.hidden = id === 'p-login';
+  const fab = $('#b-ceo'); if (fab && id === 'p-login') fab.hidden = true;
+  $('#appbar').hidden = id === 'p-login';
+  marcarTab(TAB_OF[id]);
   for (const b of bar.querySelectorAll('button')) { const on = b.dataset.go === TAB_OF[id]; b.classList.toggle('on', on); if (on) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current'); }
 };
-function goTab(go) {
+function goTab(go, push = true) {
+  if (push) navPush({ v: go === 'home' ? null : go });
   if (go === 'home') { openId = null; show('p-list'); window.scrollTo(0, 0); return; }
-  if (go === 'proyectos') { openId = null; show('p-list'); const z = $('#z-projects'); z.open = true; z.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
+  if (go === 'proyectos') { openId = null; show('p-list'); marcarTab('proyectos'); const z = $('#z-projects'); z.open = true; z.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
   $({ negocio: '#b-negocio', autos: '#b-autos', inbox: '#b-inbox' }[go])?.click();
 }
+// NAVEGACIÓN (V3.6): cada sección, proyecto, objetivo o conversación tiene su dirección (?v= · ?proyecto= · ?objetivo= · ?ceo=):
+// el botón Atrás del navegador vuelve a la anterior y un enlace directo abre exactamente eso.
+function navPush(q) {
+  const u = new URL(location.href);
+  const nuevo = 'ceo' in q ? q : { v: null, proyecto: null, objetivo: null, ceo: null, ...q }; // cambiar de pantalla limpia lo demás; la conversación se superpone
+  for (const [k, v] of Object.entries(nuevo)) { if (v == null) u.searchParams.delete(k); else u.searchParams.set(k, v); }
+  u.searchParams.delete('informe');
+  if (u.search !== location.search) history.pushState({}, '', u.pathname + u.search);
+}
+function aplicarRuta() {
+  const q = new URLSearchParams(location.search);
+  if (q.get('ceo')) void openCeo(q.get('ceo'), { push: false }); else if ($('#ceo').open) cerrarCeo(false);
+  if (q.get('proyecto')) { const c = (data.proyectos || []).find((p) => p.id === q.get('proyecto')); if (c) { actions.details(c, false); return; } }
+  if (q.get('objetivo')) { nui?.openOne(q.get('objetivo')); return; }
+  if (!q.get('ceo') || q.get('v')) goTab(q.get('v') || 'home', false);
+}
+window.addEventListener('popstate', aplicarRuta);
+window.addEventListener('ceo:nav', (e) => navPush(e.detail || {}));
+window.addEventListener('ceo:abrir', (e) => { if (e.detail?.ref) void openCeo(e.detail.ref, { pregunta: e.detail.pregunta || null }); });
 document.addEventListener('click', (e) => {
   const t = e.target.closest?.('#tabbar [data-go], .tabs [data-tab]');
   if (t) goTab(t.dataset.go || t.dataset.tab);
@@ -439,13 +469,13 @@ const actions = {
   },
   reject: (c, b) => run('trabajo.rechazar', { trabajo: c.trabajo }, 'Rechazado', b),
   // ? PREGUNTAR A CODEX: sólo una recomendación (llega a la tarjeta en segundos). No aprueba ni rechaza nada.
-  consult: (c, ref, b) => run('decision.consultar', { proyecto: c.id, ref }, 'Codex lo está analizando…', b),
+  consult: (c, ref) => openCeo(`decision:${c.id}:${ref}`, { pregunta: '¿Qué recomiendas y por qué?' }),
   // Objetivo nuevo = sesión de Claude nueva y CEO AUTO por defecto.
   async goal(c, b) {
     const r = await compose({ title: `Nuevo objetivo · ${c.nombre}`, modo: 'AUTO', sesiones: false, ok: 'Iniciar', trabajo: c.trabajo });
     if (r && !(await run('objetivo.iniciar', { proyecto: c.id, texto: r.texto, tipo: r.tipo, modo: r.modo }, 'Objetivo iniciado', b))) draft = r.texto;
   },
-  details: (c) => { openId = c.id; paintDetail(true); show('p-detail'); window.scrollTo(0, 0); },
+  details: (c, push = true) => { openId = c.id; paintDetail(true); show('p-detail'); window.scrollTo(0, 0); if (push) navPush({ proyecto: c.id }); },
   unlink: (c, b) => unlink(c, b),
 };
 
@@ -590,8 +620,10 @@ function waitCard(x) {
       e ? [h('dt', {}, 'Última comprobación'), h('dd', {}, `${e.comprobada ? ago(e.comprobada) : 'aún no'}${e.error ? ' · no se pudo comprobar' : ' · todavía no ha llegado'} · se mira cada ${Math.round(e.cada_s / 60) || 1} min${hasta ? ` hasta el ${hasta}` : ''}`)] : null,
       h('dt', {}, 'Cuando llegue'), h('dd', {}, hum.luego)),
     h('div', { class: 'row' },
-      h('button', { class: 'btn ghost small', type: 'button', onclick: () => actions.details(c) }, 'Ver detalles'),
-      e ? h('button', { class: 'btn ghost small', type: 'button', onclick: (ev) => run('espera.comprobar', { id: e.id }, 'Comprobado', ev.currentTarget) }, 'Comprobar ahora') : null));
+      h('button', { class: 'btn small', type: 'button', onclick: () => openCeo(e ? `espera:${e.id}` : `trabajo:${x.trabajo}`, { pregunta: '¿Qué falta exactamente, para qué sirve y dónde debo dejarlo?' }) }, 'Ver qué falta'),
+      h('button', { class: 'btn ghost small', type: 'button', onclick: () => openCeo(e ? `espera:${e.id}` : `trabajo:${x.trabajo}`) }, '💬 Consultar al CEO'),
+      e ? h('button', { class: 'btn ghost small', type: 'button', onclick: (ev) => run('espera.comprobar', { id: e.id }, 'Comprobado', ev.currentTarget) }, 'Comprobar ahora') : null,
+      h('button', { class: 'link', type: 'button', onclick: () => actions.details(c) }, 'Ver detalles')));
 }
 
 /** Azulejo (EN ESPERA): logo, nombre, estado mínimo y las acciones de siempre (y, si espera, qué espera). */
@@ -994,6 +1026,107 @@ async function openInforme(horas = 24) {
     hechos.every((n) => !n) && !x.negocio.length && !x.esperando.length ? h('p', { class: 'muted' }, 'Sin actividad en este periodo.') : null,
     h('p', { class: 'muted small' }, `Del ${new Date(x.desde).toLocaleString('es-ES', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })} a ahora · datos de CEOPadre, sin estimaciones.`));
 }
+// CONSULTAR AL CEO: una conversación persistente por elemento (decisión, proyecto, objetivo, trabajo, espera, agente o
+// general). El CEO responde con el contexto ACTUAL; preguntar no aprueba nada; un cambio pedido se aplica con «Aplicar».
+const ceo = { conv: null, ref: null, timer: null, t0: 0 };
+const VUELTA = { proyecto: 'Ir al proyecto', objetivo: 'Ir al objetivo', agentes: 'Ir a Agentes', inicio: 'Ir a Dirección' };
+const draftKey = (ref) => `ceo-borrador:${ref}`;
+const borradorCEO = { get: (ref) => { try { return localStorage.getItem(draftKey(ref)) || ''; } catch { return ''; } }, set: (ref, v) => { try { if (v) localStorage.setItem(draftKey(ref), v); else localStorage.removeItem(draftKey(ref)); } catch { /* sin almacenamiento */ } } };
+async function openCeo(ref, { pregunta = null, push = true } = {}) {
+  if (!api) return;
+  const dlg = $('#ceo');
+  ceo.ref = ref;
+  if (!dlg.open) dlg.showModal();
+  if (push) navPush({ ceo: ref });
+  $('#ceo-title').textContent = 'Consultar al CEO';
+  $('#ceo-ctx').textContent = '';
+  fill($('#ceo-msgs'), h('p', { class: 'muted' }, 'Cargando la conversación…'));
+  const r = await api.cmd('ceo.conversacion', { ref });
+  if (ceo.ref !== ref) return;
+  if (!r?.ok) { fill($('#ceo-msgs'), h('p', { class: 'bad' }, r?.error || 'El PC no responde')); return; }
+  ceo.conv = r.data;
+  $('#ceo-input').value = borradorCEO.get(ref);
+  paintCeo();
+  if (pregunta && !r.data.mensajes.length && !r.data.pensando) await enviarCeo(pregunta);
+  else if (r.data.pensando) pollCeo();
+}
+function cerrarCeo(volverAtras = true) {
+  clearTimeout(ceo.timer);
+  if ($('#ceo').open) $('#ceo').close();
+  if (volverAtras && new URLSearchParams(location.search).has('ceo')) navPush({ ceo: null });
+}
+function ceoMsg(m, aplicados) {
+  if (m.rol === 'antonio') return h('div', { class: 'msg yo' }, h('p', {}, m.texto));
+  if (m.rol === 'sistema') return h('div', { class: 'msg sis' }, h('p', {}, m.texto));
+  const d = m.datos || {};
+  const fila = (t, v, cls = '') => (v ? [h('dt', { class: cls }, t), h('dd', { class: cls }, v)] : null);
+  return h('div', { class: 'msg ceo' },
+    h('p', { class: 'msg-who' }, d.proveedor === 'CLAUDE' ? 'CEO · Claude (sustituto)' : 'CEO'),
+    h('p', { class: 'msg-r' }, m.texto),
+    d.quiere_hacer || d.recomienda || d.por_que || d.riesgo || d.si_no ? h('dl', { class: 'msg-dl' },
+      fila('QUÉ QUIERE HACER', d.quiere_hacer), fila('QUÉ RECOMIENDA', d.recomienda, 'reco'), fila('POR QUÉ', d.por_que),
+      fila('QUÉ RIESGO EXISTE', d.riesgo, 'bad'), fila('SI NO LO HACEMOS', d.si_no)) : null,
+    d.hechos?.length ? h('details', { class: 'msg-more' }, h('summary', {}, `Comprobado (${d.hechos.length})${d.inciertos?.length ? ` · sin confirmar (${d.inciertos.length})` : ''}`),
+      h('ul', {}, d.hechos.map((x) => h('li', {}, x)), (d.inciertos || []).map((x) => h('li', { class: 'warn' }, `Sin confirmar: ${x}`)))) : d.inciertos?.length ? h('p', { class: 'small warn' }, `Sin confirmar: ${d.inciertos.join(' · ')}`) : null,
+    d.cambio ? h('div', { class: 'msg-cambio' }, h('p', {}, h('b', {}, 'CAMBIO PROPUESTO: '), d.cambio.resumen || d.cambio.texto),
+      aplicados.has(m.id) ? h('p', { class: 'small ok' }, '✓ Aplicado')
+        : h('button', { class: 'btn primary small', type: 'button', onclick: async (e) => { if (await run('ceo.aplicar', { mensaje: m.id }, 'Aplicado', e.currentTarget)) void refreshCeo(); } }, 'Aplicar este cambio')) : null);
+}
+function paintCeo() {
+  const c = ceo.conv;
+  if (!c) return;
+  $('#ceo-title').textContent = c.titulo || 'Hablar con el CEO';
+  $('#ceo-ctx').textContent = c.resumen || '';
+  const k = c.vuelta && Object.keys(c.vuelta).find((x) => c.vuelta[x]);
+  const vb = $('#ceo-volver');
+  vb.hidden = !k;
+  if (k) {
+    vb.textContent = c.ref.startsWith('decision:') ? 'Ir a la decisión' : VUELTA[k] || 'Volver';
+    vb.onclick = () => { cerrarCeo(false); if (k === 'proyecto') { const p = (data.proyectos || []).find((x) => x.id === c.vuelta.proyecto); if (p) actions.details(p); } else if (k === 'objetivo') nui?.openOne(c.vuelta.objetivo); else if (k === 'agentes') goTab('autos'); else goTab('home'); };
+  }
+  const aplicados = new Set(c.mensajes.filter((m) => m.rol === 'sistema').map((m) => Number((/^Aplicado \(#(\d+)\)/.exec(m.texto) || [])[1])).filter(Boolean));
+  const box = $('#ceo-msgs');
+  fill(box, c.mensajes.length ? c.mensajes.map((m) => ceoMsg(m, aplicados)) : h('p', { class: 'muted ceo-vacio' }, c.ref === 'general' ? 'Pregúntale lo que quieras sobre tus proyectos: «¿Qué es lo más importante que nos queda pendiente?»' : 'Pregúntale lo que quieras sobre esto. Responde con los datos actuales de CEOPadre.'),
+    c.pensando ? h('div', { class: 'msg ceo pensando', role: 'status' }, h('p', {}, h('span', { class: 'dots', 'aria-hidden': 'true' }, '• • •'), ' El CEO está respondiendo…')) : null);
+  $('#ceo-send').disabled = !!c.pensando;
+  box.scrollTop = box.scrollHeight;
+}
+async function refreshCeo() {
+  if (!ceo.conv) return;
+  const r = await api.cmd('ceo.conversacion', { ref: ceo.ref, id: ceo.conv.id });
+  if (r?.ok && ceo.ref === r.data.ref) { ceo.conv = r.data; paintCeo(); }
+  return r?.data;
+}
+function pollCeo() {
+  clearTimeout(ceo.timer);
+  ceo.t0 ||= Date.now();
+  ceo.timer = setTimeout(async () => {
+    const d = $('#ceo').open ? await refreshCeo() : null;
+    if (d?.pensando && Date.now() - ceo.t0 < 5 * 60_000) pollCeo(); else ceo.t0 = 0;
+  }, 1500);
+}
+async function enviarCeo(texto) {
+  const t = String(texto || '').trim();
+  if (!t || !ceo.conv) return;
+  const r = await api.cmd('ceo.preguntar', { conversacion: ceo.conv.id, texto: t });
+  if (!r?.ok) { toast(r?.error || 'No se pudo enviar', 'bad'); return; }
+  borradorCEO.set(ceo.ref, '');
+  $('#ceo-input').value = '';
+  ceo.conv = { ...ceo.conv, pensando: true, mensajes: [...ceo.conv.mensajes, { id: -1, rol: 'antonio', texto: t }] };
+  paintCeo();
+  ceo.t0 = Date.now();
+  pollCeo();
+}
+function ceoUi() {
+  $('#ceo-form').addEventListener('submit', (e) => { e.preventDefault(); void enviarCeo($('#ceo-input').value); });
+  $('#ceo-input').addEventListener('input', (e) => borradorCEO.set(ceo.ref, e.target.value));
+  $('#ceo-input').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && matchMedia('(pointer: fine)').matches) { e.preventDefault(); void enviarCeo(e.target.value); } });
+  $('#ceo-cerrar').addEventListener('click', () => cerrarCeo());
+  $('#ceo').addEventListener('cancel', (e) => { e.preventDefault(); cerrarCeo(); });
+  // «Hablar con el CEO»: con el contexto de donde estás (la ficha de un proyecto) o general.
+  $('#b-ceo').addEventListener('click', () => void openCeo(openId && !$('#p-detail').hidden ? `proyecto:${openId}` : 'general'));
+}
+
 // CONEXIONES Y PERMISOS: el secreto se escribe SÓLO en el PC (en el móvil viajaría por internet); allí se enseñan los pasos.
 async function openConexiones(foco = null) {
   const box = $('#conex-body');
@@ -1277,6 +1410,7 @@ function direccionPanel(c, d) {
         } }, '⏸ Pausar el proyecto'),
       c.conciliacion?.etapa === 'DETECTADO' ? h('button', { class: 'btn ghost small', type: 'button', onclick: (e2) => run('proyecto.conciliar', { proyecto: c.id }, 'Conciliando', e2.currentTarget) }, 'Conciliar ahora') : null,
       vivo ? h('button', { class: 'btn ghost small', type: 'button', onclick: (e2) => actions.instruct(c, e2.currentTarget) }, 'Dar una instrucción') : null,
+      h('button', { class: 'btn ghost small', type: 'button', onclick: () => openCeo(`proyecto:${c.id}`) }, '💬 Consultar al CEO'),
       m ? h('button', { class: 'btn ghost small', type: 'button', onclick: () => { $('#map-title').textContent = `Mapa · ${c.nombre}`; paintMap(d.mapa, (id, que, b) => run(`canon.${que}`, { proyecto: c.id, id }, 'Hecho', b), (ref, b) => actions.consult(c, ref, b)); $('#map').showModal(); } }, 'Ver mapa completo') : null));
 }
 
@@ -1545,6 +1679,8 @@ async function start() {
   nui ??= negocioUi({ api, ask, toast, show, data: () => data, run, viewText: (t, x) => view(t, x) });
   show('p-list');
   await refresh();
+  $('#b-ceo').hidden = false;
+  aplicarRuta(); // enlace directo (?v= · ?proyecto= · ?objetivo= · ?ceo=)
   api.watch(() => void refresh());
   $('#b-sync').onclick = () => void syncAll(true);
   if (!LOCAL) { $('#b-logout').hidden = false; $('#b-logout').onclick = logout; }
@@ -1663,6 +1799,13 @@ function pwa() {
 
 // Informe del día y ajuste de cuota: en el PC y en el móvil (pwa() sólo corre en el móvil).
 function ajustesUi() {
+  ceoUi();
+  // Altura REAL de la cabecera fija (cambia con el ancho, el zoom o el texto): lo que se queda fijo debajo y los saltos a
+  // una sección se apartan exactamente eso, para que la barra nunca tape títulos ni botones.
+  const ab = $('#appbar');
+  const medir = () => document.documentElement.style.setProperty('--appbar-h', `${Math.ceil(ab.getBoundingClientRect().height)}px`);
+  if ('ResizeObserver' in window) new ResizeObserver(medir).observe(ab); else addEventListener('resize', medir);
+  medir();
   // `api` existe cuando start() termina de conectar (PC o Supabase): se espera a él.
   const listo = () => (api ? Promise.resolve() : new Promise((ok) => setTimeout(() => ok(listo()), 300)));
   $('#b-informe').addEventListener('click', () => openInforme(24));

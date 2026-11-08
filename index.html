@@ -35,9 +35,9 @@
     <p class="error" id="l-err" hidden></p>
   </div>
 </section>
-<!-- CENTRO DE DIRECCIÓN (V3.2): de un vistazo qué te necesita, qué trabaja, qué viene, qué se terminó y qué resultados hay.
-     Los proyectos sin actividad van al final y plegados. Todo sale de los estados reales del motor. -->
-<section id="p-list" class="screen home" hidden>
+<!-- CABECERA DE LA APLICACIÓN (V3.6): una sola, fija arriba en TODAS las pantallas (marca, resumen, pestañas, estado,
+     cuota, actualizar y «Más»). Cambiar de sección sólo cambia el contenido de debajo. -->
+<div class="appbar home" id="appbar" hidden>
   <header class="bar">
     <div class="bar-brand">
       <img class="brand-logo" src="logo.png" alt="" width="42" height="42">
@@ -81,6 +81,11 @@
       </details>
     </div>
   </header>
+</div>
+
+<!-- CENTRO DE DIRECCIÓN (V3.2): de un vistazo qué te necesita, qué trabaja, qué viene, qué se terminó y qué resultados hay.
+     Los proyectos sin actividad van al final y plegados. Todo sale de los estados reales del motor. -->
+<section id="p-list" class="screen home" hidden>
   <p class="pcline" id="pc-line" hidden></p>
 
   <!-- LAS CUATRO PREGUNTAS: qué necesita de mí · qué está haciendo · qué ha conseguido · qué hará después. -->
@@ -135,7 +140,8 @@
   <p class="empty" id="empty" hidden>Todavía no hay proyectos. Abre <b>Más</b> y pulsa <b>+ Nuevo proyecto</b> o <b>Vincular carpeta</b>.</p>
 </section>
 
-<!-- Navegación del móvil (abajo, al alcance del pulgar). Mismos destinos que las pestañas de arriba. -->
+<button class="ceo-fab" id="b-ceo" type="button" hidden aria-label="Hablar con el CEO" title="Hablar con el CEO"><span aria-hidden="true">💬</span><span class="ceo-fab-t">Hablar con el CEO</span></button>
+<!-- Navegación principal: en el PC fija arriba en TODAS las pantallas; en el móvil, abajo (al alcance del pulgar). -->
 <nav class="tabbar" id="tabbar" aria-label="Secciones" hidden>
   <button type="button" data-go="home" class="on"><span aria-hidden="true">◎</span>Dirección</button>
   <button type="button" data-go="negocio"><span aria-hidden="true">◆</span>Objetivos<i class="badge" hidden></i></button>
@@ -244,6 +250,22 @@
     <header class="cmp-head"><h2 id="map-title">Mapa del proyecto</h2><button class="btn ghost small" value="close">Cerrar</button></header>
     <div class="map-body" id="map-body"></div>
   </form>
+</dialog>
+
+<!-- CONSULTAR AL CEO (V3.6): una conversación persistente por elemento; panel lateral en el PC, pantalla completa en el móvil. -->
+<dialog id="ceo" class="sheet ceo-chat" aria-labelledby="ceo-title">
+  <div class="ceo-body">
+    <header class="ceo-head">
+      <div class="ceo-head-t"><p class="lbl">CONSULTAR AL CEO</p><h2 id="ceo-title">Hablar con el CEO</h2><p class="muted small" id="ceo-ctx"></p></div>
+      <span class="head-act"><button class="btn ghost small" type="button" id="ceo-volver" hidden></button><button class="btn ghost small" type="button" id="ceo-cerrar">Cerrar</button></span>
+    </header>
+    <div class="ceo-msgs" id="ceo-msgs" role="log" aria-live="polite" aria-label="Conversación con el CEO"></div>
+    <form class="ceo-form" id="ceo-form">
+      <textarea id="ceo-input" rows="2" placeholder="Pregunta lo que quieras al CEO…" aria-label="Tu pregunta al CEO" enterkeyhint="send"></textarea>
+      <button class="btn primary" type="submit" id="ceo-send">Enviar</button>
+    </form>
+    <p class="muted small ceo-nota">Consultar no aprueba ni cambia nada. Si pides un cambio, verás «Aplicar».</p>
+  </div>
 </dialog>
 
 <!-- CONEXIONES Y PERMISOS (V3.5): cuentas externas (secreto cifrado sólo en el PC) y autorizaciones delimitadas. -->

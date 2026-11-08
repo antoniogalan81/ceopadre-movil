@@ -21,21 +21,21 @@ const short = (t, n) => { const s = String(t || '').replace(/\s+/g, ' ').trim();
 const dbtn = (glyph, label, onclick, cls) => h('button', { class: `dbtn ${cls}`, type: 'button', 'aria-label': label, title: label, onclick },
   h('span', { 'aria-hidden': 'true' }, glyph), h('span', { class: 'dbtn-l', 'aria-hidden': 'true' }, label));
 
-/** ✓ ✕ ? de una decisión. `ask` (Preguntar a Codex) es consultivo: nunca aprueba ni rechaza. */
+/** ✓ ✕ ? de una decisión. `ask` (Consultar al CEO) es consultivo: nunca aprueba ni rechaza. */
 export function decideRow({ yes, no, ask, yesLabel = 'Aprobar', noLabel = 'Rechazar' }) {
   return h('div', { class: 'dec-btns', role: 'group', 'aria-label': 'Decidir' },
-    dbtn('✓', yesLabel, yes, 'yes'), dbtn('✕', noLabel, no, 'no'), ask ? dbtn('?', 'Preguntar a Codex', ask, 'ask') : null);
+    dbtn('✓', yesLabel, yes, 'yes'), dbtn('✕', noLabel, no, 'no'), ask ? dbtn('?', 'Consultar al CEO', ask, 'ask') : null);
 }
 
 const VEREDICTO = { APROBAR: ['✓', 'APROBAR', 'yes'], RECHAZAR: ['✕', 'RECHAZAR', 'no'], RESPONDER: ['✎', 'RESPONDER', 'ans'] };
 /** Recomendación de Codex en la propia tarjeta: «CODEX · ✓ APROBAR» + una frase (+ riesgo sólo si lo hay). Antonio decide. */
 export function advice(c) {
   if (!c) return null;
-  if (c.estado === 'PENDIENTE') return h('p', { class: 'advice v-wait', role: 'status' }, h('b', {}, 'CODEX'), ' · analizando…');
-  if (c.estado === 'ERROR') return h('p', { class: 'advice v-err', role: 'status' }, h('b', {}, 'CODEX'), ` · no se pudo consultar: ${c.error || 'error'}`);
+  if (c.estado === 'PENDIENTE') return h('p', { class: 'advice v-wait', role: 'status' }, h('b', {}, 'CEO'), ' · analizando…');
+  if (c.estado === 'ERROR') return h('p', { class: 'advice v-err', role: 'status' }, h('b', {}, 'CEO'), ` · no se pudo consultar: ${c.error || 'error'}`);
   const [g, t, k] = VEREDICTO[c.veredicto] || ['?', c.veredicto || '', 'ans'];
   return h('div', { class: `advice v-${k}`, role: 'status' },
-    h('p', { class: 'advice-head' }, h('b', {}, 'CODEX'), ` · ${g} ${t}`),
+    h('p', { class: 'advice-head' }, h('b', {}, 'CEO'), ` · ${g} ${t}`),
     c.respuesta ? h('p', { class: 'advice-ans' }, c.respuesta) : null,
     c.motivo ? h('p', {}, c.motivo) : null,
     c.riesgo ? h('p', { class: 'advice-risk' }, h('b', {}, 'RIESGO'), ' ', c.riesgo) : null);
@@ -43,7 +43,7 @@ export function advice(c) {
 
 /**
  * CAMBIOS PROPUESTOS a lo protegido. Primero QUÉ CAMBIA (y el impacto si lo hay) y ✓ ✕ ?; el antes/después completo y el
- * motivo, plegados en «Detalles» (se entiende desde el móvil en segundos). `consult(ref, btn)` = Preguntar a Codex.
+ * motivo, plegados en «Detalles» (se entiende desde el móvil en segundos). `consult(ref, btn)` = Consultar al CEO (abre la conversación).
  */
 export function proposals(m, decide, consult = null) {
   if (!m.propuestas?.length) return null;
@@ -73,7 +73,7 @@ export function pendingDecisions(list, { answer, postpone, consult = null }, tit
       h('div', { class: 'dec-btns', role: 'group', 'aria-label': 'Decidir' },
         dbtn('✎', 'Responder', (e) => answer(d, e.currentTarget), 'yes'),
         dbtn('⏱', 'Posponer 7 días', (e) => postpone(d, e.currentTarget), 'no'),
-        consult && d.ref ? dbtn('?', 'Preguntar a Codex', (e) => consult(d.ref, e.currentTarget), 'ask') : null)))));
+        consult && d.ref ? dbtn('?', 'Consultar al CEO', (e) => consult(d.ref, e.currentTarget), 'ask') : null)))));
 }
 
 /** Vista de 20 segundos: qué queremos, dónde estamos, qué sigue y qué no se toca. */

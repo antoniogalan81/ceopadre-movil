@@ -107,6 +107,7 @@ export function autoUi({ api, ask, toast, show, data, run, viewText, ai }) {
     out.push(h('button', { class: 'btn ghost small', type: 'button', onclick: (e) => schedule(a, e.currentTarget) }, a.programa ? 'Horario' : 'Programar'));
     out.push(h('button', { class: 'btn ghost small', type: 'button', onclick: () => openEditor(a) }, 'Editar'));
     out.push(h('button', { class: 'btn ghost small', type: 'button', onclick: () => openRuns(a) }, 'Actividad'));
+    out.push(h('button', { class: 'btn ghost small', type: 'button', onclick: () => window.dispatchEvent(new CustomEvent('ceo:abrir', { detail: { ref: `automatizacion:${a.id}` } })) }, '💬 Consultar al CEO'));
     if (pausar) out.push(pausar);
     out.push(h('details', { class: 'a-more' }, h('summary', { class: 'btn ghost small' }, 'Más'), h('div', { class: 'a-menu' },
       a.programa ? h('button', { class: 'btn ghost small', type: 'button', onclick: (e) => cmd('automatizacion.programar', { id: a.id, programa: null }, 'Sin programación', e.currentTarget) }, 'Quitar horario') : null,

@@ -174,7 +174,9 @@ export const HIGH_RISK = new Set(['objetivo.iniciar', 'objetivo.anadir', 'trabaj
   'automatizacion.programar', 'proyecto.revisar', 'negocio.crear', 'negocio.aprobar', 'negocio.responder', 'negocio.reanudar',
   // V3.5: también dan trabajo a Claude (instrucción en caliente, necesidad resuelta, reanudar un proyecto) o amplían lo que el
   // CEO puede hacer solo (autorización delimitada).
-  'negocio.instruccion', 'negocio.necesidad', 'proyecto.reanudar', 'autorizacion.crear']);
+  'negocio.instruccion', 'negocio.necesidad', 'proyecto.reanudar', 'autorizacion.crear',
+  // V3.6: aplicar un cambio pedido en la conversación con el CEO (da trabajo a Claude).
+  'ceo.aplicar']);
 export const REAUTH_MS = 30 * 60_000;
 /** Hora (ms) de la última vez que esta sesión se abrió CON CONTRASEÑA, leída del token (amr). 0 si no consta. */
 export function passwordAt(accessToken) {

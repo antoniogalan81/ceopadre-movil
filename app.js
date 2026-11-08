@@ -465,9 +465,11 @@ const actions = {
   // ✓ en una autorización de GASTO (regla 0 €) sigue pidiendo un SÍ explícito: es dinero.
   async approve(c, b) {
     if (esGasto(c) && !(await ask({ title: '¿Autorizas este gasto?', help: c.recomendacion || c.propuesta, ok: 'SÍ, AUTORIZO ESTE GASTO', danger: true }))) return;
-    await run('trabajo.aprobar', { trabajo: c.trabajo }, 'Aprobado', b);
+    await (c.version ? run('decision.resolver', { proyecto: c.id, ref: c.ref, version: c.version, accion: 'APROBAR' }, 'Aprobado', b) : run('trabajo.aprobar', { trabajo: c.trabajo }, 'Aprobado', b));
   },
-  reject: (c, b) => run('trabajo.rechazar', { trabajo: c.trabajo }, 'Rechazado', b),
+  reject: (c, b) => (c.version ? run('decision.resolver', { proyecto: c.id, ref: c.ref, version: c.version, accion: 'RECHAZAR' }, 'Rechazado', b) : run('trabajo.rechazar', { trabajo: c.trabajo }, 'Rechazado', b)),
+  // ↺ La alternativa del CEO para ESTA versión de la decisión (el PC ejecuta el texto que guardó, no el de la pantalla).
+  alternativa: (c, b) => run('decision.alternativa', { proyecto: c.id, ref: c.ref, version: c.version }, 'Alternativa en marcha', b),
   // ? PREGUNTAR A CODEX: sólo una recomendación (llega a la tarjeta en segundos). No aprueba ni rechaza nada.
   consult: (c, ref) => openCeo(`decision:${c.id}:${ref}`, { pregunta: '¿Qué recomiendas y por qué?' }),
   // Objetivo nuevo = sesión de Claude nueva y CEO AUTO por defecto.
@@ -539,7 +541,8 @@ const conseq = (c) => (esGasto(c) ? null : h('p', { class: 'ln conseq' }, h('b',
 const jobDecision = (c) => (c.estado === 'ESPERANDO_DECISION' ? h('div', { class: 'decision' }, superadaBox(c), ...decisionLines(c), advice(c.consejo), conseq(c),
   decideRow({ yes: (e) => actions.approve(c, e.currentTarget), no: (e) => actions.reject(c, e.currentTarget),
     ask: c.ref ? (e) => actions.consult(c, c.ref, e.currentTarget) : null,
-    yesLabel: esGasto(c) ? 'Sí, autorizo este gasto' : 'Aprobar', noLabel: esGasto(c) ? 'No autorizo este gasto' : 'Rechazar' }),
+    alt: c.consejo?.alternativa && c.version ? (e) => actions.alternativa(c, e.currentTarget) : null, altLabel: c.consejo?.alternativa?.etiqueta, rec: c.consejo?.veredicto,
+    yesLabel: esGasto(c) ? 'Sí, autorizo este gasto' : c.consejo?.aprobar || 'Aprobar la propuesta', noLabel: esGasto(c) ? 'No autorizo este gasto' : c.consejo?.rechazar || 'Rechazar la propuesta' }),
   h('button', { class: 'link', type: 'button', onclick: (e) => actions.instruct(c, e.currentTarget) }, 'Responder otra cosa o pedir una aclaración')) : null);
 
 // ------------------------------------------------------------------ la oficina
@@ -870,8 +873,13 @@ function paintConditions() {
 
 // DECISIONES PENDIENTES (vista global): las preguntas que sólo contesta Antonio, agrupadas por proyecto. Sin IA: salen
 // tal cual del canon de cada tarjeta. RESPONDER guarda la respuesta como decisión del canon; POSPONER la aparca 7 días.
+/** ✓ ✕ ↺ de un cambio protegido del mapa: con la versión vista (si cambió, el PC no ejecuta nada). */
+const decideCanon = (pid) => (id, que, b, x = null) => (que === 'alternativa' ? run('decision.alternativa', { proyecto: pid, ref: `propuesta:${id}`, version: x?.version }, 'Alternativa en marcha', b)
+  : x?.version ? run('decision.resolver', { proyecto: pid, ref: `propuesta:${id}`, version: x.version, accion: que === 'aprobar' ? 'APROBAR' : 'RECHAZAR' }, que === 'aprobar' ? 'Aprobado' : 'Rechazado', b)
+    : run(`canon.${que}`, { proyecto: pid, id }, que === 'aprobar' ? 'Aprobado' : 'Rechazado', b));
 function decisionHandlers(p) {
   return {
+    alternativa: (d, b) => run('decision.alternativa', { proyecto: p.id, ref: d.ref, version: d.version }, 'Respondida', b),
     async answer(d, b) {
       const r = await ask({ title: `Decidir · ${p.nombre}`, help: d.pregunta, ok: 'Guardar decisión',
         fields: [{ name: 'respuesta', label: 'Tu decisión', type: 'textarea', value: d.consejo?.respuesta || '', placeholder: 'Escribe la respuesta tal como quieres que la sigan Codex y Claude' }] });
@@ -915,7 +923,7 @@ function paintDecisions() {
           p.objetivo ? h('small', { class: 'muted goal1', title: p.objetivo }, cleanGoal(p.objetivo)) : null),
           iconBtn('info', `Detalles de ${p.nombre}`, () => actions.details(p))),
         jobDecision(p),
-        proposals(p, (id, que, b) => run(`canon.${que}`, { proyecto: p.id, id }, que === 'aprobar' ? 'Aprobado' : 'Rechazado', b), (ref, b) => actions.consult(p, ref, b)),
+        proposals(p, decideCanon(p.id), (ref, b) => actions.consult(p, ref, b)),
         pendingDecisions(p.decisiones, decisionHandlers(p), false)))));
   for (const x of box.querySelectorAll('details')) if (wasOpen.has(x.dataset.k)) x.open = true;
 }
@@ -1005,6 +1013,7 @@ async function openInforme(horas = 24) {
   $('#informe-title').textContent = horas > 24 ? 'Informe de los últimos 7 días' : 'Informe del día';
   $('#informe-semana').textContent = horas > 24 ? 'Últimas 24 horas' : 'Últimos 7 días';
   $('#informe-semana').onclick = () => openInforme(horas > 24 ? 24 : 168);
+  $('#informe-ceo').onclick = () => { $('#informe').close(); void openCeo('general', { pregunta: horas > 24 ? '¿Qué es lo más importante de esta semana y qué recomiendas?' : '¿Qué es lo más importante del día y qué recomiendas?' }); };
   if (!$('#informe').open) $('#informe').showModal();
   fill(box, h('p', { class: 'muted' }, 'Cargando…'));
   const r = await api.cmd('informe.ejecutivo', { horas });
@@ -1049,11 +1058,37 @@ async function openCeo(ref, { pregunta = null, push = true } = {}) {
   paintCeo();
   if (pregunta && !r.data.mensajes.length && !r.data.pensando) await enviarCeo(pregunta);
   else if (r.data.pensando) pollCeo();
+  // Con historial no se pregunta solo: la pregunta sugerida queda escrita, lista para enviar o cambiar.
+  else if (pregunta && !$('#ceo-input').value) $('#ceo-input').value = pregunta;
 }
 function cerrarCeo(volverAtras = true) {
   clearTimeout(ceo.timer);
   if ($('#ceo').open) $('#ceo').close();
   if (volverAtras && new URLSearchParams(location.search).has('ceo')) navPush({ ceo: null });
+}
+const ACC = { APROBAR: 'Aprobar la propuesta', RECHAZAR: 'Rechazar la propuesta' };
+/** Decidir desde la conversación (barra de la decisión o un mensaje del CEO): con la versión que se ve. */
+async function decidirCeo(accion, b, mensaje = null, version = null) {
+  const d = ceo.conv?.decision;
+  if (!d) return;
+  if (accion === 'APROBAR' && d.gasto && !(await ask({ title: '¿Autorizas este gasto?', help: d.recomendacion || d.propuesta, ok: 'SÍ, AUTORIZO ESTE GASTO', danger: true }))) return;
+  const op = accion === 'ALTERNATIVA' ? 'decision.alternativa' : 'decision.resolver';
+  const ok = await run(op, { proyecto: d.proyecto, ref: d.ref, version: version || d.version, accion, ...(mensaje ? { mensaje } : {}) }, accion === 'ALTERNATIVA' ? 'Alternativa en marcha' : accion === 'APROBAR' ? 'Aprobado' : 'Rechazado', b);
+  if (ok) void refreshCeo();
+}
+/** QUÉ SE DECIDE, qué hace cada botón y qué recomienda el CEO, sin salir de la conversación. */
+function ceoDecision(c) {
+  const d = c.decision;
+  if (!d) return null; // resuelta o cambiada: lo dice ya la cabecera de la conversación
+  const altB = d.alternativa ? { alt: (e) => decidirCeo('ALTERNATIVA', e.currentTarget), altLabel: d.tipo === 'pregunta' ? `Responder: ${d.alternativa.etiqueta}` : d.alternativa.etiqueta } : {};
+  const recTxt = d.recomienda === 'APROBAR' ? d.aprobar || ACC.APROBAR : d.recomienda === 'RECHAZAR' ? d.rechazar || ACC.RECHAZAR : d.recomienda === 'ALTERNATIVA' ? d.alternativa?.etiqueta : null;
+  return h('section', { class: 'ceo-dec', 'aria-label': 'La decisión' },
+    h('p', { class: 'ln' }, h('b', {}, d.tipo === 'pregunta' ? 'PREGUNTA ' : 'PROPUESTA ORIGINAL '), d.propuesta),
+    d.si_apruebo ? h('p', { class: 'ln small' }, h('b', {}, 'SI APRUEBAS '), d.si_apruebo, ' ', h('b', {}, 'SI RECHAZAS '), d.si_rechazo) : null,
+    recTxt ? h('p', { class: 'ln reco' }, h('b', {}, 'EL CEO RECOMIENDA '), recTxt, d.motivo ? ` — ${d.motivo}` : '') : null,
+    d.riesgo ? h('p', { class: 'ln bad small' }, h('b', {}, 'RIESGO '), d.riesgo) : null,
+    decideRow({ yes: d.tipo === 'pregunta' ? null : (e) => decidirCeo('APROBAR', e.currentTarget), no: d.tipo === 'pregunta' ? null : (e) => decidirCeo('RECHAZAR', e.currentTarget),
+      yesLabel: d.gasto ? 'Sí, autorizo este gasto' : d.aprobar || ACC.APROBAR, noLabel: d.gasto ? 'No autorizo este gasto' : d.rechazar || ACC.RECHAZAR, rec: d.recomienda, ...altB }));
 }
 function ceoMsg(m, aplicados) {
   if (m.rol === 'antonio') return h('div', { class: 'msg yo' }, h('p', {}, m.texto));
@@ -1064,13 +1099,28 @@ function ceoMsg(m, aplicados) {
     h('p', { class: 'msg-who' }, d.proveedor === 'CLAUDE' ? 'CEO · Claude (sustituto)' : 'CEO'),
     h('p', { class: 'msg-r' }, m.texto),
     d.quiere_hacer || d.recomienda || d.por_que || d.riesgo || d.si_no ? h('dl', { class: 'msg-dl' },
-      fila('QUÉ QUIERE HACER', d.quiere_hacer), fila('QUÉ RECOMIENDA', d.recomienda, 'reco'), fila('POR QUÉ', d.por_que),
-      fila('QUÉ RIESGO EXISTE', d.riesgo, 'bad'), fila('SI NO LO HACEMOS', d.si_no)) : null,
+      fila('RECOMIENDO', d.recomienda, 'reco'), fila('POR QUÉ', d.por_que), fila('RIESGO', d.riesgo, 'bad'),
+      fila('PROPUESTA ORIGINAL', d.quiere_hacer), fila('SI NO LO HACEMOS', d.si_no)) : null,
     d.hechos?.length ? h('details', { class: 'msg-more' }, h('summary', {}, `Comprobado (${d.hechos.length})${d.inciertos?.length ? ` · sin confirmar (${d.inciertos.length})` : ''}`),
       h('ul', {}, d.hechos.map((x) => h('li', {}, x)), (d.inciertos || []).map((x) => h('li', { class: 'warn' }, `Sin confirmar: ${x}`)))) : d.inciertos?.length ? h('p', { class: 'small warn' }, `Sin confirmar: ${d.inciertos.join(' · ')}`) : null,
-    d.cambio ? h('div', { class: 'msg-cambio' }, h('p', {}, h('b', {}, 'CAMBIO PROPUESTO: '), d.cambio.resumen || d.cambio.texto),
-      aplicados.has(m.id) ? h('p', { class: 'small ok' }, '✓ Aplicado')
-        : h('button', { class: 'btn primary small', type: 'button', onclick: async (e) => { if (await run('ceo.aplicar', { mensaje: m.id }, 'Aplicado', e.currentTarget)) void refreshCeo(); } }, 'Aplicar este cambio')) : null);
+    d.cambio ? cambioBox(m, d, aplicados) : null);
+}
+const CAMBIO_T = { ALTERNATIVA: 'ALTERNATIVA DEL CEO', APROBAR: 'APROBAR LA PROPUESTA (lo pediste)', RECHAZAR: 'RECHAZAR LA PROPUESTA (lo pediste)', PAUSAR: 'PAUSAR', REANUDAR: 'REANUDAR', INSTRUCCION: 'INSTRUCCIÓN', OBJETIVO_NUEVO: 'OBJETIVO NUEVO' };
+/** El cambio que el CEO identificó: qué se ejecutará exactamente y el botón que lo autoriza (o por qué ya no vale). */
+function cambioBox(m, d, aplicados) {
+  const k = d.cambio.tipo;
+  const decide = ['APROBAR', 'RECHAZAR', 'ALTERNATIVA'].includes(k);
+  const cur = ceo.conv?.decision;
+  const vieja = decide && (!cur || cur.version !== d.version);
+  return h('div', { class: `msg-cambio${k === 'ALTERNATIVA' ? ' alt' : ''}` },
+    h('p', {}, h('b', {}, `${CAMBIO_T[k] || 'CAMBIO PROPUESTO'}: `), d.cambio.resumen || d.cambio.texto),
+    k === 'ALTERNATIVA' && d.cambio.texto ? h('details', { class: 'msg-more' }, h('summary', {}, 'Qué se ejecutará exactamente'), h('p', {}, d.cambio.texto)) : null,
+    aplicados.has(m.id) ? h('p', { class: 'small ok' }, '✓ Aplicado')
+      : vieja ? h('p', { class: 'small muted' }, cur ? 'Propuesto para una versión anterior de la decisión: vuelve a preguntar.' : 'La decisión ya no está pendiente.')
+        : h('button', { class: 'btn primary small', type: 'button', onclick: async (e) => {
+          if (decide) { await decidirCeo(k, e.currentTarget, m.id, d.version); return; }
+          if (await run('ceo.aplicar', { mensaje: m.id }, 'Aplicado', e.currentTarget)) void refreshCeo();
+        } }, k === 'ALTERNATIVA' ? `Elegir: ${d.cambio.resumen || 'la alternativa'}` : k === 'APROBAR' ? (cur?.aprobar || ACC.APROBAR) : k === 'RECHAZAR' ? (cur?.rechazar || ACC.RECHAZAR) : 'Aplicar este cambio'));
 }
 function paintCeo() {
   const c = ceo.conv;
@@ -1085,6 +1135,11 @@ function paintCeo() {
     vb.onclick = () => { cerrarCeo(false); if (k === 'proyecto') { const p = (data.proyectos || []).find((x) => x.id === c.vuelta.proyecto); if (p) actions.details(p); } else if (k === 'objetivo') nui?.openOne(c.vuelta.objetivo); else if (k === 'agentes') goTab('autos'); else goTab('home'); };
   }
   const aplicados = new Set(c.mensajes.filter((m) => m.rol === 'sistema').map((m) => Number((/^Aplicado \(#(\d+)\)/.exec(m.texto) || [])[1])).filter(Boolean));
+  fill($('#ceo-dec'), ceoDecision(c));
+  const sel = $('#ceo-otras');
+  sel.hidden = !c.anteriores?.length;
+  if (c.anteriores?.length) fill(sel, h('option', { value: '' }, `Anteriores (${c.anteriores.length})`),
+    c.anteriores.map((x) => h('option', { value: x.id }, `${new Date(x.updated_at).toLocaleString('es-ES', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })} · ${x.n} mensajes`)));
   const box = $('#ceo-msgs');
   fill(box, c.mensajes.length ? c.mensajes.map((m) => ceoMsg(m, aplicados)) : h('p', { class: 'muted ceo-vacio' }, c.ref === 'general' ? 'Pregúntale lo que quieras sobre tus proyectos: «¿Qué es lo más importante que nos queda pendiente?»' : 'Pregúntale lo que quieras sobre esto. Responde con los datos actuales de CEOPadre.'),
     c.pensando ? h('div', { class: 'msg ceo pensando', role: 'status' }, h('p', {}, h('span', { class: 'dots', 'aria-hidden': 'true' }, '• • •'), ' El CEO está respondiendo…')) : null);
@@ -1122,6 +1177,21 @@ function ceoUi() {
   $('#ceo-input').addEventListener('input', (e) => borradorCEO.set(ceo.ref, e.target.value));
   $('#ceo-input').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && matchMedia('(pointer: fine)').matches) { e.preventDefault(); void enviarCeo(e.target.value); } });
   $('#ceo-cerrar').addEventListener('click', () => cerrarCeo());
+  // Panel ancho en escritorio (respuestas largas y alternativas): se recuerda en este navegador.
+  const ancho = (on) => { $('#ceo').classList.toggle('ancho', on); $('#ceo-ancho').setAttribute('aria-pressed', String(on)); $('#ceo-ancho').textContent = on ? '⤡ Estrechar' : '⤢ Ampliar'; try { localStorage.setItem('ceo-ancho', on ? '1' : ''); } catch { /* sin almacenamiento */ } };
+  let a0 = false; try { a0 = localStorage.getItem('ceo-ancho') === '1'; } catch { /* sin almacenamiento */ }
+  ancho(a0);
+  $('#ceo-ancho').addEventListener('click', () => ancho(!$('#ceo').classList.contains('ancho')));
+  // El asunto cambió: conversación nueva sobre lo mismo; las anteriores siguen guardadas y se pueden reabrir.
+  $('#ceo-nueva').addEventListener('click', async () => {
+    const r = await api.cmd('ceo.conversacion', { ref: ceo.ref, nueva: true });
+    if (r?.ok) { ceo.conv = r.data; paintCeo(); toast('Conversación nueva (las anteriores quedan guardadas)'); } else toast(r?.error || 'No se pudo', 'bad');
+  });
+  $('#ceo-otras').addEventListener('change', async (e) => {
+    if (!e.target.value) return;
+    const r = await api.cmd('ceo.conversacion', { ref: ceo.ref, id: e.target.value });
+    if (r?.ok) { ceo.conv = r.data; paintCeo(); if (r.data.pensando) pollCeo(); }
+  });
   $('#ceo').addEventListener('cancel', (e) => { e.preventDefault(); cerrarCeo(); });
   // «Hablar con el CEO»: con el contexto de donde estás (la ficha de un proyecto) o general.
   $('#b-ceo').addEventListener('click', () => void openCeo(openId && !$('#p-detail').hidden ? `proyecto:${openId}` : 'general'));
@@ -1260,7 +1330,7 @@ async function paintDetail(force) {
   const wasOpen = new Set([...body.querySelectorAll('details[open]')].map((x) => x.dataset.k));
   // replaceChildren() pintaría «null» como texto: sólo nodos.
   // Canon: decidir un cambio propuesto (sólo Antonio). El mapa completo se repinta si está abierto.
-  const decide = (id, que, b) => run(`canon.${que}`, { proyecto: c.id, id }, que === 'aprobar' ? 'Aprobado' : 'Rechazado', b);
+  const decide = decideCanon(c.id);
   const consult = (ref, b) => actions.consult(c, ref, b);
   const openMap = () => { $('#map-title').textContent = `Mapa · ${c.nombre}`; paintMap(d.mapa, decide, consult); $('#map').showModal(); };
   body.replaceChildren(...[summaryPanel(c, d), direccionPanel(c, d), revisionPanel(c), aui?.projectPanel(c), esperasPanel(c, d), mapPanel(d.mapa, { open: openMap, decide, ...decisionHandlers(c) }), writePanel(c, d), roundsPanel(d), techPanel(c, d)].filter(Boolean));
@@ -1314,7 +1384,8 @@ function summaryPanel(c, d) {
   return h('section', { class: `panel sum m-${mood(c)}` },
     h('div', { class: 'sum-head' }, h('span', { class: `pill tone-${needsDecision(c) ? 'ask' : tone}` }, needsDecision(c) ? decisionLabel(c) : label),
       c.pendientes ? h('span', { class: 'chip' }, `Pendientes ${c.pendientes}`) : null,
-      c.anadidos ? h('span', { class: 'chip' }, `Añadidos sin incorporar ${c.anadidos}`) : null),
+      c.anadidos ? h('span', { class: 'chip' }, `Añadidos sin incorporar ${c.anadidos}`) : null,
+      hasJob && c.trabajo ? h('button', { class: 'btn ghost small', type: 'button', onclick: () => openCeo(`trabajo:${c.trabajo}`, ['ERROR', 'BLOQUEADO'].includes(c.estado) ? { pregunta: '¿Qué ha fallado y qué recomiendas?' } : {}) }, '💬 Consultar al CEO') : null),
     hasJob && c.estado !== 'CANCELADO' ? h('div', { class: 'sum-ceo' },
       seg(`modo-${c.trabajo}`, 'CEO', [['AUTO', 'AUTO', MODO_HELP.AUTO], ['MANUAL', 'MANUAL', MODO_HELP.MANUAL]], modo,
         (v) => run('trabajo.modo', { trabajo: c.trabajo, modo: v }, v)),
@@ -1324,6 +1395,13 @@ function summaryPanel(c, d) {
         ceo.motivo ? h('li', {}, `Motivo: ${ceo.motivo}`) : null,
         ceo.vuelve ? h('li', {}, `Codex vuelve a probarse: ${when(ceo.vuelve)}`) : null,
         (ceo.proveedores || []).map((x) => h('li', {}, `${x.nombre}: ${future(x.hasta) ? `limitado (${x.motivo}) hasta aprox. ${hhmm(x.hasta)}` : 'disponible'}`)))) : null,
+    // V3.7: sesiones de Claude que el CEO gestiona solo (sólo informativo: no hay nada que hacer aquí).
+    hasJob && d.sesiones ? fold('sesiones', `Sesiones de Claude: ${d.sesiones.total} · la actual lleva ${d.sesiones.rondas_actual} ronda(s)`,
+      h('ul', { class: 'kv' },
+        h('li', {}, `Contexto medido en su última llamada: ${d.sesiones.contexto ? `${fmt(d.sesiones.contexto)} tokens (con ${fmt(d.sesiones.limite)} se abre una sesión limpia)` : 'sin medir todavía'}`),
+        d.sesiones.ceo ? h('li', {}, `Última decisión del CEO: ${d.sesiones.ceo}`) : null,
+        d.sesiones.proxima ? h('li', {}, `Próxima ronda: ${d.sesiones.proxima}`) : null,
+        d.sesiones.cambios.map((x) => h('li', {}, `${new Date(x.at).toLocaleString('es-ES', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })} · sesión ${x.sesion} desde la ronda ${x.desde_ronda}: ${x.motivo}`)))) : null,
     hasJob ? [
       h('p', { class: 'lbl' }, 'OBJETIVO ACTUAL'),
       h('p', { class: 'sum-goal' }, c.objetivo),
@@ -1536,7 +1614,7 @@ function techPanel(c, d) {
       h('ul', { class: 'notes' }, d.notas.map((n) => h('li', {}, h('b', {}, n.kind === 'instruccion' ? `${TIPO[n.tipo] || n.tipo} · CONSUMIDA` : n.kind), ' ',
         n.text, n.chars > n.text.length ? '…' : '')))) : null,
     d.trabajos?.length > 1 ? fold('objetivos', `Objetivos de este proyecto (${d.trabajos.length})`,
-      h('ul', { class: 'notes' }, d.trabajos.map((t) => h('li', {}, h('b', {}, (STATES[t.estado] || [])[1] || t.estado), ' · ', t.objetivo)))) : null,
+      h('ul', { class: 'notes' }, d.trabajos.map((t) => h('li', {}, h('b', {}, (STATES[t.estado] || [])[1] || t.estado), ' · ', t.objetivo, ' ', h('button', { class: 'link', type: 'button', onclick: () => openCeo(`trabajo:${t.id}`) }, 'Consultar al CEO'))))) : null,
     fold('proyecto', c.tipo === 'GESTION' ? 'Gestión' : 'Proyecto',
       h('p', { class: 'mono' }, d.proyecto?.ruta || c.ruta),
       c.componentes?.length ? h('p', { class: 'ln' }, h('b', {}, 'COMPONENTES'), ' ', c.componentes.join(' · ')) : null,

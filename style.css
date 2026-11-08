@@ -1145,3 +1145,35 @@ dialog.ceo-chat::backdrop { background: oklch(0 0 0 / .25); }
 .appbar.home .quota > summary { white-space: nowrap; }
 .appbar.home .bar-sub { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 260px; }
 @media (max-width: 1180px) { .appbar.home .bar .bar-sub { display: none; } }
+
+/* V3.7 — DECISIONES SIN AMBIGÜEDAD Y CONVERSACIÓN CÓMODA */
+.dbtn.alt { border-color: var(--accent); color: var(--accent); }
+.dbtn.alt:hover { background: color-mix(in srgb, var(--accent) 12%, var(--paper)); }
+.dbtn.rec { box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 45%, transparent); }
+.dbtn .rec-tag { font-size: 10px; font-weight: 850; letter-spacing: .06em; padding: 2px 6px; border-radius: 999px; background: var(--ok); color: #fff; }
+.advice.v-alt { border-left-color: var(--accent); } .advice.v-alt .advice-head { color: var(--accent); }
+.advice-alt { font-size: 13.5px; }
+.msg-cambio.alt { border-style: solid; background: color-mix(in srgb, var(--accent) 6%, var(--paper)); }
+.ceo-tools { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+.ceo-tools select { max-width: 13rem; }
+#ceo-dec { flex: 0 0 auto; display: grid; } #ceo-dec:empty { display: none; }
+.ceo-dec { border: 1px solid var(--line); border-left: 4px solid var(--accent); border-radius: 12px; padding: 10px 12px; display: grid; gap: 6px; background: var(--card, var(--paper));
+  max-height: 42vh; overflow-y: auto; overscroll-behavior: contain; }
+.ceo-dec .ln { margin: 0; overflow-wrap: anywhere; } .ceo-dec .ln b { font-size: 10.5px; letter-spacing: .05em; }
+.ceo-dec .reco { font-weight: 650; } .ceo-dec.done { border-left-color: var(--ink-3); color: var(--ink-2); }
+.ceo-dec .dec-btns { margin-top: 2px; }
+.ceo-head { flex-wrap: wrap; }
+@media (min-width: 761px) {
+  dialog.ceo-chat { transition: width .18s ease; }
+  dialog.ceo-chat.ancho { width: min(980px, 94vw); }
+  dialog.ceo-chat.ancho .msg { max-width: 78%; }
+}
+@media (max-width: 760px) { .ceo-ancho { display: none; } .ceo-dec { max-height: 36vh; } }
+@media (prefers-reduced-motion: reduce) { dialog.ceo-chat { transition: none; } }
+@media (max-width: 760px) {
+  .ceo-head .lbl, .m-hide { display: none; }
+  .ceo-head { align-items: center; }
+  .ceo-head h2 { font-size: 17px; }
+  .ceo-head .head-act { flex-wrap: nowrap; }
+  .ceo-head .head-act .btn { padding: 0 12px; }
+}

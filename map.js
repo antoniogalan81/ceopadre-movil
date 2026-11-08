@@ -21,21 +21,34 @@ const short = (t, n) => { const s = String(t || '').replace(/\s+/g, ' ').trim();
 const dbtn = (glyph, label, onclick, cls) => h('button', { class: `dbtn ${cls}`, type: 'button', 'aria-label': label, title: label, onclick },
   h('span', { 'aria-hidden': 'true' }, glyph), h('span', { class: 'dbtn-l', 'aria-hidden': 'true' }, label));
 
-/** ✓ ✕ ? de una decisión. `ask` (Consultar al CEO) es consultivo: nunca aprueba ni rechaza. */
-export function decideRow({ yes, no, ask, yesLabel = 'Aprobar', noLabel = 'Rechazar' }) {
+/**
+ * ✓ ✕ ↺ ? de una decisión. V3.7: cada botón dice la ACCIÓN REAL que autoriza (texto del CEO para esta versión de la
+ * decisión, o «Aprobar la propuesta» si aún no habló); ↺ = la alternativa del CEO; el recomendado se marca. `ask`
+ * (Consultar al CEO) es consultivo: nunca aprueba ni rechaza.
+ */
+export function decideRow({ yes, no, ask, alt = null, altLabel = '', rec = null, yesLabel = 'Aprobar la propuesta', noLabel = 'Rechazar la propuesta' }) {
+  const b = (g, l, fn, cls, k) => {
+    const x = dbtn(g, l, fn, `${cls}${rec === k ? ' rec' : ''}`);
+    if (rec === k) { x.setAttribute('aria-label', `${l} (recomendado por el CEO)`); x.title = `${l} — lo recomienda el CEO`; x.append(h('span', { class: 'rec-tag', 'aria-hidden': 'true' }, 'RECOMENDADO')); }
+    return x;
+  };
   return h('div', { class: 'dec-btns', role: 'group', 'aria-label': 'Decidir' },
-    dbtn('✓', yesLabel, yes, 'yes'), dbtn('✕', noLabel, no, 'no'), ask ? dbtn('?', 'Consultar al CEO', ask, 'ask') : null);
+    yes ? b('✓', yesLabel, yes, 'yes', 'APROBAR') : null, no ? b('✕', noLabel, no, 'no', 'RECHAZAR') : null,
+    alt ? b('↺', altLabel || 'Hacer la alternativa del CEO', alt, 'alt', 'ALTERNATIVA') : null, ask ? dbtn('?', 'Consultar al CEO', ask, 'ask') : null);
 }
 
-const VEREDICTO = { APROBAR: ['✓', 'APROBAR', 'yes'], RECHAZAR: ['✕', 'RECHAZAR', 'no'], RESPONDER: ['✎', 'RESPONDER', 'ans'] };
+const VEREDICTO = { APROBAR: ['✓', 'APROBAR', 'yes'], RECHAZAR: ['✕', 'RECHAZAR', 'no'], RESPONDER: ['✎', 'RESPONDER', 'ans'], ALTERNATIVA: ['↺', 'OTRA VÍA', 'alt'] };
 /** Recomendación de Codex en la propia tarjeta: «CODEX · ✓ APROBAR» + una frase (+ riesgo sólo si lo hay). Antonio decide. */
 export function advice(c) {
   if (!c) return null;
   if (c.estado === 'PENDIENTE') return h('p', { class: 'advice v-wait', role: 'status' }, h('b', {}, 'CEO'), ' · analizando…');
   if (c.estado === 'ERROR') return h('p', { class: 'advice v-err', role: 'status' }, h('b', {}, 'CEO'), ` · no se pudo consultar: ${c.error || 'error'}`);
   const [g, t, k] = VEREDICTO[c.veredicto] || ['?', c.veredicto || '', 'ans'];
+  // Lo recomendado, dicho con la acción real (no sólo «APROBAR»): el texto del botón que el CEO recomienda pulsar.
+  const que = c.veredicto === 'APROBAR' ? c.aprobar : c.veredicto === 'RECHAZAR' ? c.rechazar : c.veredicto === 'ALTERNATIVA' ? c.alternativa?.etiqueta : null;
   return h('div', { class: `advice v-${k}`, role: 'status' },
-    h('p', { class: 'advice-head' }, h('b', {}, 'CEO'), ` · ${g} ${t}`),
+    h('p', { class: 'advice-head' }, h('b', {}, 'EL CEO RECOMIENDA'), ` · ${g} ${que || t}`),
+    c.veredicto === 'ALTERNATIVA' && c.alternativa?.texto ? h('p', { class: 'advice-alt' }, c.alternativa.texto) : null,
     c.respuesta ? h('p', { class: 'advice-ans' }, c.respuesta) : null,
     c.motivo ? h('p', {}, c.motivo) : null,
     c.riesgo ? h('p', { class: 'advice-risk' }, h('b', {}, 'RIESGO'), ' ', c.riesgo) : null);
@@ -59,12 +72,14 @@ export function proposals(m, decide, consult = null) {
         p.motivo ? h('p', { class: 'ln' }, h('b', {}, 'MOTIVO'), ' ', p.motivo) : null,
         p.impacto && p.impacto.length > 200 ? h('p', { class: 'ln' }, h('b', {}, 'IMPACTO'), ' ', p.impacto) : null),
       advice(p.consejo),
-      decideRow({ yes: (e) => decide(p.id, 'aprobar', e.currentTarget), no: (e) => decide(p.id, 'rechazar', e.currentTarget),
+      decideRow({ yes: (e) => decide(p.id, 'aprobar', e.currentTarget, p), no: (e) => decide(p.id, 'rechazar', e.currentTarget, p),
+        yesLabel: p.consejo?.aprobar || 'Aplicar el cambio propuesto', noLabel: p.consejo?.rechazar || 'Dejar el mapa como está',
+        alt: p.consejo?.alternativa ? (e) => decide(p.id, 'alternativa', e.currentTarget, p) : null, altLabel: p.consejo?.alternativa?.etiqueta, rec: p.consejo?.veredicto,
         ask: consult && p.ref ? (e) => consult(p.ref, e.currentTarget) : null }))));
 }
 
 /** DECISIONES PENDIENTES de un proyecto: preguntas que sólo contesta Antonio: ✎ responder, ⏱ posponer, ? preguntar a Codex. */
-export function pendingDecisions(list, { answer, postpone, consult = null }, title = true) {
+export function pendingDecisions(list, { answer, postpone, consult = null, alternativa = null }, title = true) {
   if (!list?.length) return null;
   return h('div', { class: 'dec-pend' }, title ? lbl(`DECISIONES PENDIENTES (${list.length})`) : null,
     h('ul', { class: 'mlist' }, list.map((d) => h('li', { class: 'dec-item', 'data-ref': d.ref || null },
@@ -73,6 +88,7 @@ export function pendingDecisions(list, { answer, postpone, consult = null }, tit
       h('div', { class: 'dec-btns', role: 'group', 'aria-label': 'Decidir' },
         dbtn('✎', 'Responder', (e) => answer(d, e.currentTarget), 'yes'),
         dbtn('⏱', 'Posponer 7 días', (e) => postpone(d, e.currentTarget), 'no'),
+        alternativa && d.consejo?.alternativa && d.version ? dbtn('↺', `Responder: ${d.consejo.alternativa.etiqueta}`, (e) => alternativa(d, e.currentTarget), 'alt rec') : null,
         consult && d.ref ? dbtn('?', 'Consultar al CEO', (e) => consult(d.ref, e.currentTarget), 'ask') : null)))));
 }
 

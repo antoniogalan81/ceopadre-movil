@@ -176,7 +176,9 @@ export const HIGH_RISK = new Set(['objetivo.iniciar', 'objetivo.anadir', 'trabaj
   // CEO puede hacer solo (autorización delimitada).
   'negocio.instruccion', 'negocio.necesidad', 'proyecto.reanudar', 'autorizacion.crear',
   // V3.6: aplicar un cambio pedido en la conversación con el CEO (da trabajo a Claude).
-  'ceo.aplicar']);
+  'ceo.aplicar',
+  // V3.7: elegir la alternativa del CEO en una decisión (da trabajo nuevo a Claude). Aprobar/rechazar siguen como en la tarjeta.
+  'decision.alternativa']);
 export const REAUTH_MS = 30 * 60_000;
 /** Hora (ms) de la última vez que esta sesión se abrió CON CONTRASEÑA, leída del token (amr). 0 si no consta. */
 export function passwordAt(accessToken) {

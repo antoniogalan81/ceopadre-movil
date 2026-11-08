@@ -1229,3 +1229,74 @@ dialog.alq-doc h2 { margin: 0 0 4px; font-size: 18px; }
 .alq-doc-img img { display: block; width: 100%; height: auto; }
 .alq-doc-btns { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 10px; }
 .alq-doc-btns .btn { min-height: 44px; }
+
+/* ---------------------------------------------------------------- V3.9 · AGENTES Y OBJETIVOS COMPACTOS
+   Tarjeta compacta: nombre, proyecto, qué hace (2 líneas), estado y UNA acción. Toda la tarjeta abre la ficha. */
+.ag-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 14px; }
+.ag-search { flex: 1 1 200px; min-width: 0; max-width: 360px; min-height: 40px; padding: 0 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); color: var(--ink); font: inherit; }
+.ag-grid { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 250px), 1fr)); }
+.ag-mini { display: grid; grid-template-rows: auto auto 1fr auto; gap: 4px; min-width: 0; padding: 11px 12px 10px; cursor: pointer;
+  background: var(--paper); border: 1px solid var(--line); border-left: 4px solid var(--idle); border-radius: 12px;
+  transition: border-color .15s var(--ease), box-shadow .15s var(--ease), transform .15s var(--ease); }
+.ag-mini:hover { box-shadow: 0 4px 14px -8px oklch(0.3 0.05 240 / .35); transform: translateY(-1px); }
+.ag-mini:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+.ag-mini.t-work { border-left-color: var(--work); } .ag-mini.t-ask { border-left-color: var(--ask); } .ag-mini.t-bad { border-left-color: var(--bad); }
+.ag-mini.t-warn { border-left-color: var(--warn); } .ag-mini.t-ok { border-left-color: var(--ok); } .ag-mini.t-wait { border-left-color: var(--wait); }
+.ag-mini-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; min-width: 0; }
+.ag-mini h3 { margin: 0; font-size: 15px; line-height: 1.25; overflow-wrap: anywhere; }
+.ag-mini .a-chip { font-size: 11.5px; padding: 1px 8px; flex: none; }
+.ag-mini-proj { margin: 0; font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ag-mini-desc { margin: 0; font-size: 13.5px; color: var(--ink-2); display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.ag-mini-act { display: flex; justify-content: flex-end; margin-top: 4px; }
+.ag-mini-act .btn { min-width: 112px; }
+.ag-ficha .a-card { border-left-width: 5px; }
+.ag-mas { margin-top: 18px; }
+.obj-cuenta { display: flex; flex-wrap: wrap; gap: 4px 10px; margin: 0; font-size: 12.5px; color: var(--ink-3); }
+.obj-cuenta .t-ok { color: var(--ok); } .obj-cuenta .t-work { color: var(--work); } .obj-cuenta .t-ask { color: var(--ask); font-weight: 700; }
+@media (pointer: coarse) { .ag-mini-act .btn, .ag-bar .btn, .ag-search { min-height: 44px; } }
+@media (prefers-reduced-motion: reduce) { .ag-mini { transition: none; } .ag-mini:hover { transform: none; } }
+
+/* Crear / modificar un objetivo: tres cosas y crear. */
+dialog.obj-new { padding: 20px 16px calc(16px + env(safe-area-inset-bottom)); width: min(560px, 100%); }
+.obj-new textarea { width: 100%; font: inherit; }
+.obj-q { font-size: 12px; font-weight: 800; letter-spacing: .05em; color: var(--ink-2); }
+.obj-modos { border: 0; padding: 0; margin: 12px 0 6px; display: grid; gap: 8px; }
+.obj-modo { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; cursor: pointer; }
+.obj-modo:has(input:checked) { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+.obj-modo input { margin-top: 3px; width: 18px; height: 18px; flex: none; }
+.obj-modo span { display: grid; gap: 2px; }
+.obj-manual { display: grid; gap: 8px; }
+.obj-manual input[type=search] { min-height: 40px; padding: 0 12px; border: 1px solid var(--line); border-radius: 10px; font: inherit; background: var(--paper); color: var(--ink); }
+.obj-proys { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 170px), 1fr)); gap: 2px 10px; max-height: 38vh; overflow: auto; padding: 4px 2px; }
+.obj-proy { min-height: 36px; align-items: center; }
+.obj-new .row { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+@media (pointer: coarse) { .obj-proy { min-height: 44px; } .obj-new .row .btn { min-height: 44px; flex: 1 1 auto; } }
+.obj-acts .a-menu .btn { justify-content: flex-start; }
+
+/* Hoja de ruta viva: objetivo final → fases → tareas, con su estado real y edición en línea. */
+.road-goal { margin: 6px 0 12px; padding: 10px 12px; border-radius: 10px; background: var(--bg); box-shadow: inset 3px 0 0 var(--accent); font-weight: 650; }
+.road-f { display: grid; gap: 6px; position: relative; padding: 0 0 16px 46px; }
+.road-f:not(:last-child)::before { content: ""; position: absolute; left: 16px; top: 34px; bottom: 0; width: 2px; background: var(--line); }
+.road-f-head { display: flex; gap: 10px; align-items: flex-start; margin-left: -46px; }
+.road-f-t { flex: 1; min-width: 0; }
+.road-f-t p { margin: 2px 0; }
+.road-f.some .road-n { background: var(--ok-bg); color: var(--ok); }
+.road-f.done .road-n { background: var(--ok); color: var(--paper); }
+.road-f.now .road-n { background: var(--work); color: var(--paper); }
+.road-ts { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.road-t { display: flex; align-items: center; gap: 8px; padding: 8px 8px 8px 10px; border: 1px solid var(--line); border-left: 3px solid var(--idle); border-radius: 10px; background: var(--paper); min-width: 0; }
+.road-t.t-ok { border-left-color: var(--ok); } .road-t.t-work { border-left-color: var(--work); background: var(--work-bg); } .road-t.t-ask { border-left-color: var(--ask); background: var(--ask-bg); }
+.road-t-main { flex: 1; min-width: 0; display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; align-items: baseline; }
+.road-t-main small { grid-column: 2; }
+.road-t-txt { overflow-wrap: anywhere; font-size: 14px; }
+.road-t.t-idle .road-t-txt { color: var(--ink-2); }
+.road-t-acts { display: flex; gap: 2px; flex: none; }
+.t-ico { min-width: 34px; padding: 0 8px; font-size: 15px; }
+.t-ico.t-del { color: var(--bad); }
+.road-add { justify-self: start; }
+@media (max-width: 560px) {
+  .road-f { padding-left: 0; } .road-f-head { margin-left: 0; } .road-f:not(:last-child)::before { display: none; }
+  .road-t { flex-wrap: wrap; } .road-t-acts { width: 100%; justify-content: flex-end; }
+}
+@media (pointer: coarse) { .t-ico { min-width: 44px; min-height: 44px; } }
+.obj-proys-line { margin: 0; }

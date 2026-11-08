@@ -1,15 +1,23 @@
 // OBJETIVOS DE NEGOCIO en el PC y en el móvil (la misma pantalla). Pinta lo que devuelven las órdenes negocio.* y deja
 // órdenes de la lista cerrada; no decide nada. Separa siempre lo HECHO (trabajos) de lo CONSEGUIDO (indicadores medidos).
 // Sin porcentajes ni estimaciones: sólo valores medidos, con su fecha, y su objetivo.
+// V3.9: crear = «qué quieres conseguir» + proyectos (los identifica el CEO o los eliges); después el CEO trabaja solo.
+// Un objetivo abierto enseña primero lo esencial (hecho · ahora · después · te necesito) y la HOJA DE RUTA VIVA, que se
+// edita aquí mismo (añadir, modificar, quitar, reordenar tareas y fases) sin rehacer el objetivo.
 import { h } from './dom.js';
 import { proyectosEn } from './zones.js';
 
 const TONE = { DEFINIENDO: 'work', ESPERANDO_APROBACION: 'ask', ACTIVA: 'work', ESPERANDO_ANTONIO: 'ask', PAUSADA: 'idle', ALCANZADA: 'ok', BLOQUEADA: 'bad', CANCELADA: 'idle',
   EN_SEGUIMIENTO: 'wait', CERRADA: 'idle' };
 const CLOSED = ['ALCANZADA', 'CANCELADA', 'CERRADA'];
-const TIPO_NEC = { CONEXION: 'Conectar una cuenta', DATO: 'Un dato', ACCION: 'Algo que sólo puedes hacer tú', DECISION: 'Una decisión', CAPACIDAD: 'Herramienta nueva para el catálogo', AUTOMATIZACION: 'Activar una automatización' };
+const TIPO_NEC = { CONEXION: 'Conectar una cuenta', DATO: 'Un dato', ACCION: 'Algo que sólo puedes hacer tú', DECISION: 'Una decisión', CAPACIDAD: 'Herramienta nueva para el catálogo', AUTOMATIZACION: 'Activar una automatización',
+  KPI: 'Revisar un comando de medición' };
+// Estado de una tarea de la hoja tal como lo ve Antonio.
+const TAREA = { PENDIENTE: ['Pendiente', 'idle'], EN_CURSO: ['Ahora', 'work'], BLOQUEADA: ['Te necesita', 'ask'], PAUSADA: ['En pausa', 'idle'], HECHA: ['Hecho', 'ok'],
+  ELIMINADA: ['Quitada', 'idle'], DESCARTADA: ['Descartada por el CEO', 'idle'] };
 const fecha = (iso) => (iso ? new Date(iso).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '');
 const chip = (label, tone) => h('span', { class: `a-chip t-${tone}` }, label);
+const corto = (s, n = 140) => { const t = String(s || '').split('\n')[0]; return t.length > n ? `${t.slice(0, n - 1)}…` : t; };
 
 export function negocioUi({ api, ask, toast, show, data, run, viewText }) {
   let mode = null, list = [], viewing = null, sig = '', timer = null;
@@ -32,6 +40,68 @@ export function negocioUi({ api, ask, toast, show, data, run, viewText }) {
   }
   function back() { if (mode === 'one') { mode = 'list'; viewing = null; paint(true); return; } mode = null; clearInterval(timer); show('p-list'); }
   const after = async (ok) => { if (ok) await load(); return ok; };
+  const B = (txt, on, cls = 'ghost', extra = {}) => h('button', { class: `btn ${cls} small`, type: 'button', onclick: (e) => on(e.currentTarget), ...extra }, txt);
+
+  // ------------------------------------------------------------ crear / editar (una sola ventana sencilla)
+  // Qué quieres conseguir · proyectos (el CEO los identifica, por defecto, o los eliges con búsqueda) · Crear. Lo escrito
+  // se conserva si la ventana se cierra sin crear (fuera, Escape o Volver).
+  let borradorCrear = null;
+  function ventanaObjetivo({ titulo, ok, texto = '', modo = 'AUTO', elegidos = [] }) {
+    return new Promise((resolve) => {
+      const ps = [...projects()].sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+      const sel = new Set(elegidos);
+      const dlg = h('dialog', { class: 'sheet obj-new', 'aria-labelledby': 'obj-new-t' });
+      const ta = h('textarea', { rows: 4, placeholder: 'Quiero conseguir clientes para GEST7 mediante redes sociales', 'aria-label': 'Qué quieres conseguir' });
+      ta.value = texto;
+      const radio = (v, label, help) => { const r = h('input', { type: 'radio', name: 'obj-modo', value: v, checked: modo === v }); r.addEventListener('change', () => { modo = v; pintar(); });
+        return h('label', { class: 'obj-modo' }, r, h('span', {}, h('b', {}, label), h('small', { class: 'muted' }, help))); };
+      const buscar = h('input', { type: 'search', placeholder: 'Buscar proyecto', 'aria-label': 'Buscar proyecto' });
+      const lista = h('div', { class: 'obj-proys', role: 'group', 'aria-label': 'Proyectos' });
+      const cuenta = h('p', { class: 'muted small', 'aria-live': 'polite' });
+      const zona = h('div', { class: 'obj-manual' }, buscar, lista, cuenta);
+      const crearB = h('button', { class: 'btn primary', type: 'button' }, ok);
+      const pintar = () => {
+        zona.hidden = modo !== 'MANUAL';
+        const q = buscar.value.trim().toLowerCase();
+        // Al escribir el objetivo se marcan solos los proyectos que nombra (sólo si aún no has elegido ninguno).
+        lista.replaceChildren(...ps.filter((p) => !q || p.nombre.toLowerCase().includes(q) || sel.has(p.id)).map((p) => {
+          const c = h('input', { type: 'checkbox', checked: sel.has(p.id) });
+          c.addEventListener('change', () => { if (c.checked) sel.add(p.id); else sel.delete(p.id); pintar(); });
+          return h('label', { class: 'check obj-proy' }, c, ' ', p.nombre);
+        }));
+        cuenta.textContent = sel.size ? `${sel.size} elegido${sel.size === 1 ? '' : 's'}: dan contexto inicial; el CEO puede sumar otros si los necesita.` : 'Elige uno o varios.';
+        crearB.disabled = ta.value.trim().length < 10 || (modo === 'MANUAL' && !sel.size);
+      };
+      ta.addEventListener('input', () => { if (modo === 'MANUAL' && !sel.size) for (const id of proyectosEn(ta.value, ps)) sel.add(id); pintar(); });
+      buscar.addEventListener('input', pintar);
+      let hecho = false;
+      const fin = (v) => { hecho = true; if (dlg.open) dlg.close(); dlg.remove(); resolve(v); };
+      crearB.addEventListener('click', () => fin({ texto: ta.value.trim(), modo, proyectos: [...sel] }));
+      dlg.addEventListener('close', () => { if (!hecho) { borradorCrear = { texto: ta.value, modo, elegidos: [...sel] }; dlg.remove(); resolve(null); } });
+      dlg.append(h('h2', { id: 'obj-new-t' }, titulo),
+        h('label', { class: 'field' }, h('span', { class: 'obj-q' }, 'QUÉ QUIERES CONSEGUIR'), ta,
+          h('small', { class: 'muted' }, 'El resultado, no la tarea. No hace falta decir qué agentes ni programas usar.')),
+        h('fieldset', { class: 'obj-modos' }, h('legend', { class: 'obj-q' }, 'PROYECTOS IMPLICADOS'),
+          radio('AUTO', 'Que el CEO los identifique', 'Recomendado: mira el mapa de tus proyectos y el HUB y elige lo necesario.'),
+          radio('MANUAL', 'Elegirlos yo', 'Le dan contexto inicial y ahorran investigación; no le limitan.'), zona),
+        h('p', { class: 'muted small' }, 'Al crearlo, el CEO investiga, prepara la hoja de ruta y empieza a trabajar solo. Sólo te pregunta lo imprescindible. Gasto 0 € y nada sale a terceros sin ti.'),
+        h('div', { class: 'row' }, h('button', { class: 'btn ghost', type: 'button', onclick: () => dlg.close() }, 'Volver'), crearB));
+      document.body.append(dlg);
+      pintar();
+      dlg.showModal();
+      ta.focus();
+    });
+  }
+  async function crear(btn) {
+    if (!projects().length) { toast('Primero vincula algún proyecto', 'bad'); return; }
+    const r = await ventanaObjetivo({ titulo: 'Nuevo objetivo', ok: 'Crear objetivo', ...(borradorCrear || {}) });
+    if (!r) return;
+    if (await after(cmd('negocio.crear', { texto: r.texto, modo: r.modo, proyectos: r.modo === 'MANUAL' ? r.proyectos : [] }, 'Creado: el CEO se organiza', btn))) borradorCrear = null;
+  }
+  async function editarObjetivo(o, btn) {
+    const r = await ventanaObjetivo({ titulo: 'Modificar el objetivo', ok: 'Guardar', texto: o.texto, modo: o.seleccion?.modo || 'MANUAL', elegidos: (o.seleccion?.elegidos || []).map((x) => x.id) });
+    if (r) await after(cmd('negocio.editar', { id: o.id, texto: r.texto, modo: r.modo, proyectos: r.proyectos }, 'Guardado', btn));
+  }
 
   // ------------------------------------------------------------ piezas
   function kpiRow(k) {
@@ -40,23 +110,29 @@ export function negocioUi({ api, ask, toast, show, data, run, viewText }) {
     return h('li', { class: `kpi t-${tone}` }, h('b', {}, k.nombre), ` · ${val}`, h('small', { class: 'muted' },
       ` · objetivo ${k.sentido} ${k.objetivo}${k.anterior != null && k.valor != null ? ` · antes ${k.anterior}` : ''}${k.medido_at ? ` · medido ${fecha(k.medido_at)}` : ''}${!k.disponible && k.nota ? ` · ${k.nota}` : ''}`));
   }
-  const kpis = (o) => h('div', {}, h('p', { class: 'lbl' }, 'RESULTADO (indicadores medidos por CEOPadre, sin IA)'),
-    o.kpis.length ? h('ul', { class: 'a-pend kpis' }, o.kpis.map(kpiRow)) : h('p', { class: 'muted' }, 'Sin indicadores aprobados todavía.'));
-  const trabajos = (o) => h('p', { class: 'ln' }, h('b', {}, 'HECHO'),
-    ` ${o.trabajos.terminados} trabajo${o.trabajos.terminados === 1 ? '' : 's'} terminado${o.trabajos.terminados === 1 ? '' : 's'} y verificado${o.trabajos.terminados === 1 ? '' : 's'}${o.trabajos.cancelados ? ` · ${o.trabajos.cancelados} cancelado${o.trabajos.cancelados === 1 ? '' : 's'}` : ''}`,
-    o.trabajos.en_curso ? h('span', {}, ` · AHORA en ${o.trabajos.en_curso.proyecto}: ${o.trabajos.en_curso.ahora || o.trabajos.en_curso.estado}`) : null);
-  // HECHO · AHORA · DESPUÉS · TE NECESITO (V3.5): lo que de verdad ha pasado, sin porcentajes ni barras inventadas.
+  const resultados = (o) => h('section', { class: 'panel' }, h('h4', {}, 'Resultados'),
+    h('p', { class: 'muted small' }, 'Medidos por CEOPadre sin IA. Un trabajo terminado no es un resultado conseguido.'),
+    o.kpis.length ? h('ul', { class: 'a-pend kpis' }, o.kpis.map(kpiRow)) : h('p', { class: 'muted' }, 'Sin indicadores todavía.'),
+    o.vista?.resultado ? h('p', { class: `q4-res ${o.vista.resultado === 'acreditado' ? 'ok' : 'warn'}` }, o.vista.resultado === 'acreditado' ? 'Resultado ACREDITADO por sus indicadores.' : `Resultado: ${o.vista.resultado}.`) : null);
+
+  // LO ESENCIAL: qué ha hecho · qué está haciendo · qué hará después · qué necesita de mí (resumido; detalle debajo).
   function cuatro(o) {
     const v = o.vista || {};
+    const hj = o.hoja || { tareas: [] };
     const linea = (t, cls, body) => h('div', { class: `q4 ${cls}` }, h('p', { class: 'lbl' }, t), body);
-    const lista = (xs, f, empty) => (xs?.length ? h('ul', { class: 'mlist' }, xs.slice(0, 3).map((x) => h('li', {}, f(x)))) : h('p', { class: 'muted small' }, empty));
+    const lista = (xs, f, empty) => (xs?.length ? h('ul', { class: 'mlist' }, xs.slice(0, 3).map((x) => h('li', {}, f(x))), xs.length > 3 ? h('li', { class: 'more' }, `+${xs.length - 3} más`) : null) : h('p', { class: 'muted small' }, empty));
+    const hechas = hj.tareas.filter((t) => t.estado === 'HECHA');
+    const ahora = v.ahora || [];
+    const despues = hj.tareas.filter((t) => t.estado === 'PENDIENTE');
+    const necesito = [...(v.te_necesito || []).map((n) => n.que), ...(o.pregunta && ['ESPERANDO_ANTONIO', 'BLOQUEADA'].includes(o.estado) ? [o.pregunta] : []),
+      ...ahora.filter((t) => t.te_necesita).map((t) => `${t.proyecto}: un trabajo espera algo tuyo`)];
     return h('div', { class: 'q4-grid' },
-      linea('HECHO', 'ok', lista(v.hecho, (t) => `${t.proyecto}: ${t.objetivo.split('\n')[0].slice(0, 140)}${t.comprobado?.length ? ' ✓' : ''}`, 'Nada terminado todavía.')),
-      linea('AHORA', 'work', lista(v.ahora, (t) => `${t.proyecto}: ${t.pausado ? 'en pausa' : t.te_necesita ? 'esperando algo tuyo' : (t.ahora && t.ahora !== 'Aún no se ha hecho nada' ? t.ahora : t.objetivo.split('\n')[0]).slice(0, 140)}`, o.estado === 'PAUSADA' ? 'En pausa.' : 'Nada en marcha.')),
-      linea('DESPUÉS', 'next', h('p', {}, v.despues || (o.estado === 'EN_SEGUIMIENTO' ? `Medir el resultado ${o.proxima_revision ? `el ${fecha(o.proxima_revision)}` : 'periódicamente'} (sin IA).` : o.estado === 'ESPERANDO_APROBACION' ? 'Empieza al aprobar el plan.' : o.proxima_revision ? `El CEO revisa el ${fecha(o.proxima_revision)}.` : 'El CEO decide al terminar lo que hay en marcha.'))),
-      linea('TE NECESITO', v.te_necesito?.length || o.te_necesita ? 'need' : 'ok', v.te_necesito?.length ? lista(v.te_necesito, (n) => n.que, '') : h('p', { class: 'muted small' }, o.te_necesita ? 'Mira abajo.' : 'Nada ahora.')),
-      v.entendido ? h('p', { class: 'q4-entendido' }, h('b', {}, 'ÚLTIMO CAMBIO ENTENDIDO: '), v.entendido) : null,
-      v.resultado ? h('p', { class: `q4-res ${v.resultado === 'acreditado' ? 'ok' : 'warn'}` }, v.resultado === 'acreditado' ? 'Resultado empresarial ACREDITADO por sus indicadores.' : `Resultado empresarial: ${v.resultado}.`) : null);
+      linea('QUÉ HA HECHO', 'ok', lista(hechas.length ? hechas : v.hecho, (t) => `${t.texto ? corto(t.texto) : `${t.proyecto}: ${corto(t.objetivo)}`} ✓`, 'Nada terminado todavía.')),
+      linea('QUÉ ESTÁ HACIENDO', 'work', lista(ahora, (t) => `${t.proyecto}: ${t.pausado ? 'en pausa' : t.te_necesita ? 'esperando algo tuyo' : corto(t.ahora && t.ahora !== 'Aún no se ha hecho nada' ? t.ahora : t.objetivo)}${t.ultima_actividad ? '' : ''}`,
+        o.estado === 'PAUSADA' ? 'En pausa.' : o.estado === 'DEFINIENDO' ? 'Investigando y preparando la hoja de ruta.' : 'Nada en marcha ahora.')),
+      linea('QUÉ HARÁ DESPUÉS', 'next', despues.length ? lista(despues, (t) => corto(t.texto), '') : h('p', { class: 'small' }, v.despues || (o.estado === 'EN_SEGUIMIENTO' ? `Medir el resultado ${o.proxima_revision ? `el ${fecha(o.proxima_revision)}` : 'periódicamente'} (sin IA).` : 'El CEO decide al terminar lo que hay en marcha.'))),
+      linea('QUÉ NECESITA DE TI', necesito.length ? 'need' : 'ok', necesito.length ? lista(necesito, (x) => corto(x, 160), '') : h('p', { class: 'muted small' }, 'Nada ahora.')),
+      v.entendido ? h('p', { class: 'q4-entendido' }, h('b', {}, 'ÚLTIMO CAMBIO ENTENDIDO: '), v.entendido) : null);
   }
   // Lo que el CEO pidió a Antonio: qué, por qué, qué bloquea, qué sigue haciendo y cómo decirle que está hecho.
   function necesidades(o) {
@@ -68,13 +144,14 @@ export function negocioUi({ api, ask, toast, show, data, run, viewText }) {
         n.por_que ? [h('dt', {}, 'Por qué'), h('dd', {}, n.por_que)] : null,
         n.bloquea ? [h('dt', {}, 'Queda en espera'), h('dd', {}, n.bloquea)] : null,
         n.mientras ? [h('dt', {}, 'Mientras, sigo con'), h('dd', {}, n.mientras)] : null,
-        n.como ? [h('dt', {}, 'Cómo'), h('dd', {}, n.como)] : null),
+        n.como ? [h('dt', {}, n.tipo === 'KPI' ? 'Comando' : 'Cómo'), h('dd', {}, n.tipo === 'KPI' ? h('code', {}, n.como) : n.como)] : null),
       h('div', { class: 'a-acts' },
-        n.tipo === 'CONEXION' ? h('button', { class: 'btn primary small', type: 'button', onclick: () => window.dispatchEvent(new CustomEvent('ceo:conexiones', { detail: { servicio: n.conexion } })) }, `Conectar ${n.conexion || 'la cuenta'}`)
-          : n.tipo === 'AUTOMATIZACION' ? h('button', { class: 'btn primary small', type: 'button', onclick: (e) => after(cmd('negocio.necesidad', { id: n.id, respuesta: 'Aprobada' }, 'Automatización activada', e.currentTarget)) }, 'Activar la automatización')
-          : n.tipo === 'CAPACIDAD' ? h('button', { class: 'btn primary small', type: 'button', onclick: (e) => after(cmd('negocio.necesidad', { id: n.id, respuesta: 'Aprobada' }, 'Incorporada al catálogo', e.currentTarget)) }, 'Incorporar al catálogo')
-          : h('button', { class: 'btn primary small', type: 'button', onclick: (e) => resolverNec(o, n, e.currentTarget) }, n.tipo === 'DECISION' || n.tipo === 'DATO' ? 'Responder' : 'Ya lo he hecho'),
-        h('button', { class: 'btn ghost small', type: 'button', onclick: (e) => descartarNec(o, n, e.currentTarget) }, 'No lo voy a hacer')))));
+        n.tipo === 'CONEXION' ? B(`Conectar ${n.conexion || 'la cuenta'}`, () => window.dispatchEvent(new CustomEvent('ceo:conexiones', { detail: { servicio: n.conexion } })), 'primary')
+          : n.tipo === 'AUTOMATIZACION' ? B('Activar la automatización', (b) => after(cmd('negocio.necesidad', { id: n.id, respuesta: 'Aprobada' }, 'Automatización activada', b)), 'primary')
+          : n.tipo === 'CAPACIDAD' ? B('Incorporar al catálogo', (b) => after(cmd('negocio.necesidad', { id: n.id, respuesta: 'Aprobada' }, 'Incorporada al catálogo', b)), 'primary')
+          : n.tipo === 'KPI' ? B('Aprobar este comando', (b) => after(cmd('negocio.necesidad', { id: n.id, respuesta: 'Aprobada' }, 'Aprobado', b)), 'primary')
+          : B(n.tipo === 'DECISION' || n.tipo === 'DATO' ? 'Responder' : 'Ya lo he hecho', (b) => resolverNec(o, n, b), 'primary'),
+        B('No lo voy a hacer', (b) => descartarNec(o, n, b))))));
   }
   async function resolverNec(o, n, btn) {
     const r = await ask({ title: n.que, help: n.como || '', ok: 'Enviar', fields: [{ name: 'respuesta', label: n.tipo === 'ACCION' ? 'Qué has hecho (opcional)' : 'Tu respuesta', type: 'textarea', required: n.tipo !== 'ACCION' }] });
@@ -85,61 +162,53 @@ export function negocioUi({ api, ask, toast, show, data, run, viewText }) {
     if (r) await after(cmd('negocio.necesidad', { id: n.id, descartar: true, respuesta: r.motivo }, 'Descartada', btn));
   }
   function needBox(o) {
-    if (o.estado === 'ESPERANDO_APROBACION') return h('div', { class: 'decision' }, h('p', { class: 'ln' }, h('b', {}, 'TU APROBACIÓN'), ' El plan está listo: revísalo, responde las preguntas y apruébalo.'),
-      h('div', { class: 'row' }, h('button', { class: 'btn primary small', type: 'button', onclick: () => openOne(o.id) }, 'REVISAR EL PLAN')));
+    if (o.estado === 'ESPERANDO_APROBACION') return h('div', { class: 'decision' }, h('p', { class: 'ln' }, h('b', {}, 'TU APROBACIÓN'), ' Este objetivo se creó pidiendo revisar el plan: revísalo y apruébalo.'),
+      h('div', { class: 'row' }, B('REVISAR EL PLAN', () => openOne(o.id), 'primary')));
     if (o.estado === 'ESPERANDO_ANTONIO' || o.estado === 'BLOQUEADA') return h('div', { class: 'decision' }, h('p', { class: 'ln' }, h('b', {}, o.estado === 'BLOQUEADA' ? 'BLOQUEADO' : 'TE NECESITA'), ` ${o.pregunta || o.evaluacion || ''}`),
-      h('div', { class: 'row' }, o.estado === 'ESPERANDO_ANTONIO' ? h('button', { class: 'btn primary small', type: 'button', onclick: (e) => responder(o, e.currentTarget) }, 'RESPONDER') : null,
-        o.categoria === 'CIERRE' ? h('button', { class: 'btn ghost small', type: 'button', onclick: (e) => cerrar(o, e.currentTarget) }, 'Sí, darlo por alcanzado') : null,
-        ['BLOQUEADA', 'ESPERANDO_ANTONIO'].includes(o.estado) ? h('button', { class: 'btn ghost small', type: 'button', onclick: (e) => after(cmd('negocio.reanudar', { id: o.id }, 'Reanudado', e.currentTarget)) }, 'REANUDAR') : null));
+      h('div', { class: 'row' }, o.estado === 'ESPERANDO_ANTONIO' ? B('RESPONDER', (b) => responder(o, b), 'primary') : null,
+        o.categoria === 'CIERRE' ? B('Sí, darlo por alcanzado', (b) => cerrar(o, b)) : null,
+        B('REANUDAR', (b) => after(cmd('negocio.reanudar', { id: o.id }, 'Reanudado', b)))));
     return null;
   }
+  // Acciones del objetivo: una principal a la vista; el resto, en «Más».
   function actions(o) {
     const closed = CLOSED.includes(o.estado);
-    return h('div', { class: 'a-acts' },
-      mode === 'list' ? h('button', { class: 'btn ghost small', type: 'button', onclick: () => openOne(o.id) }, 'Ver todo') : null,
-      !closed ? h('button', { class: 'btn primary small', type: 'button', onclick: (e) => instruir(o, e.currentTarget) }, 'Nueva instrucción o prioridad') : null,
-      h('button', { class: 'btn ghost small', type: 'button', onclick: () => window.dispatchEvent(new CustomEvent('ceo:abrir', { detail: { ref: `meta:${o.id}` } })) }, '💬 Consultar al CEO'),
-      ['ACTIVA', 'ESPERANDO_ANTONIO', 'PAUSADA', 'EN_SEGUIMIENTO'].includes(o.estado) ? h('button', { class: 'btn ghost small', type: 'button', onclick: (e) => after(cmd('negocio.medir', { id: o.id }, 'Medido', e.currentTarget)) }, 'Medir ahora') : null,
-      o.estado === 'PAUSADA' ? h('button', { class: 'btn primary small', type: 'button', onclick: (e) => after(cmd('negocio.reanudar', { id: o.id }, 'Continúa', e.currentTarget)) }, '▶ CONTINUAR ESTE OBJETIVO')
-        : !closed && o.estado !== 'BLOQUEADA' ? h('button', { class: 'btn ghost small', type: 'button', title: 'Pausa TODO este objetivo: no empieza nada nuevo y sus trabajos en marcha se detienen sin perder lo hecho', onclick: (e) => after(cmd('negocio.pausar', { id: o.id }, 'Objetivo en pausa', e.currentTarget)) }, '⏸ Pausar este objetivo') : null,
-      !closed ? h('button', { class: 'btn ghost-danger small', type: 'button', onclick: (e) => cancelar(o, e.currentTarget) }, 'Cancelar') : null);
+    return h('div', { class: 'a-acts obj-acts' },
+      !closed ? B('Nueva instrucción', (b) => instruir(o, b), 'primary') : null,
+      o.estado === 'PAUSADA' ? B('▶ Continuar', (b) => after(cmd('negocio.reanudar', { id: o.id }, 'Continúa', b)), 'primary')
+        : !closed && o.estado !== 'BLOQUEADA' ? B('⏸ Pausar', (b) => after(cmd('negocio.pausar', { id: o.id }, 'Objetivo en pausa', b)), 'ghost', { title: 'Pausa TODO el objetivo: no empieza nada nuevo y lo que está en marcha se detiene sin perder lo hecho' }) : null,
+      B('💬 Consultar al CEO', () => window.dispatchEvent(new CustomEvent('ceo:abrir', { detail: { ref: `meta:${o.id}` } }))),
+      h('details', { class: 'a-more' }, h('summary', { class: 'btn ghost small' }, 'Más'), h('div', { class: 'a-menu' },
+        !closed ? B('Modificar el objetivo o los proyectos', (b) => editarObjetivo(o, b)) : null,
+        ['ACTIVA', 'ESPERANDO_ANTONIO', 'PAUSADA', 'EN_SEGUIMIENTO'].includes(o.estado) ? B('Medir ahora', (b) => after(cmd('negocio.medir', { id: o.id }, 'Medido', b))) : null,
+        ['ACTIVA', 'ESPERANDO_ANTONIO', 'PAUSADA', 'BLOQUEADA', 'EN_SEGUIMIENTO'].includes(o.estado) ? B('Darlo por terminado', (b) => cerrar(o, b)) : null,
+        !closed ? B('Cancelar el objetivo', (b) => cancelar(o, b), 'ghost-danger') : null)));
   }
+  // TARJETA COMPACTA de la lista: título, estado, lo que hace ahora, cuánto lleva y la acción principal.
   function card(o) {
-    return h('article', { class: `a-card t-${TONE[o.estado] || 'idle'}`, 'data-id': `meta-${o.id}` },
-      h('header', {}, h('h3', {}, o.titulo), chip(o.estado_texto, TONE[o.estado] || 'idle')),
-      h('p', { class: 'a-desc' }, o.texto),
-      h('p', { class: 'a-meta muted' }, `${o.proyectos.map((p) => p.nombre).join(' · ')}${o.proxima_revision && o.estado === 'ACTIVA' ? ` · próxima revisión ${fecha(o.proxima_revision)}` : ''}`),
-      needBox(o), kpis(o), trabajos(o),
-      o.evaluacion ? h('p', { class: 'ln' }, h('b', {}, 'ÚLTIMA VALORACIÓN'), ` ${o.evaluacion}`) : null,
-      o.estado === 'ACTIVA' || o.estado === 'ESPERANDO_ANTONIO' ? h('p', { class: 'a-meta muted' }, `Revisiones sin mejora: ${o.ciclos_sin_avance} de ${o.sin_avance_max} · trabajos esta semana: ${o.presupuesto.semana} de ${o.presupuesto.maximo}`) : null,
-      actions(o));
+    const hj = o.hoja?.cuenta;
+    const ahora = o.vista?.ahora?.[0];
+    const necesita = o.te_necesita;
+    const abrir = () => openOne(o.id);
+    const el = h('article', { class: `ag-mini obj-mini t-${necesita ? 'ask' : TONE[o.estado] || 'idle'}`, 'data-id': `meta-${o.id}`, tabindex: '0', role: 'button', 'aria-label': `${o.titulo} · ${o.estado_texto}. Abrir` },
+      h('div', { class: 'ag-mini-top' }, h('h3', {}, o.titulo), chip(necesita && !['ESPERANDO_ANTONIO', 'BLOQUEADA', 'ESPERANDO_APROBACION'].includes(o.estado) ? 'Te necesita' : o.estado_texto, necesita ? 'ask' : TONE[o.estado] || 'idle')),
+      h('p', { class: 'ag-mini-proj muted' }, o.proyectos.map((p) => p.nombre).join(' · ') || (o.seleccion?.modo === 'AUTO' ? 'El CEO elige los proyectos' : '')),
+      h('p', { class: 'ag-mini-desc' }, ahora ? `Ahora · ${ahora.proyecto}: ${corto(ahora.ahora && ahora.ahora !== 'Aún no se ha hecho nada' ? ahora.ahora : ahora.objetivo, 120)}` : o.evaluacion || corto(o.texto, 160)),
+      hj ? h('p', { class: 'obj-cuenta' }, h('span', { class: 't-ok' }, `${hj.hechas} hecho`), h('span', { class: 't-work' }, `${hj.en_curso} ahora`), h('span', {}, `${hj.pendientes} pendiente${hj.pendientes === 1 ? '' : 's'}`),
+        hj.bloqueadas ? h('span', { class: 't-ask' }, `${hj.bloqueadas} bloqueada${hj.bloqueadas === 1 ? '' : 's'}`) : null) : null,
+      h('div', { class: 'ag-mini-act' }, B(necesita ? 'Resolver' : 'Ver', (b) => abrir(b), necesita ? 'primary' : 'ghost')));
+    el.addEventListener('click', (e) => { if (!e.target.closest('button, a, input, select, summary')) abrir(); });
+    el.addEventListener('keydown', (e) => { if ((e.key === 'Enter' || e.key === ' ') && e.target === el) { e.preventDefault(); abrir(); } });
+    return el;
   }
 
   // ------------------------------------------------------------ acciones
-  async function crear(btn) {
-    const ps = projects();
-    if (!ps.length) { toast('Primero vincula algún proyecto', 'bad'); return; }
-    // Paso 1: sólo la frase. Paso 2: el proyecto que nombra ya elegido, y sólo se ofrecen los proyectos con actividad.
-    const t = await ask({ title: 'Nuevo objetivo de negocio', ok: 'Siguiente',
-      help: 'Escribe el resultado que quieres conseguir, no la tarea. El CEO lo analiza, te pregunta lo imprescindible y te trae un plan con indicadores medibles; nada se ejecuta hasta que lo apruebes. Gasto 0 € y nada sale a terceros sin ti.',
-      fields: [{ name: 'texto', label: 'Qué quieres conseguir', type: 'textarea', placeholder: 'Quiero conseguir clientes para GEST7 mediante redes sociales' }] });
-    if (!t?.texto) return;
-    const nombrados = proyectosEn(t.texto, ps);
-    const vivos = ps.filter((p) => nombrados.includes(p.id) || (p.automatizaciones || []).length || !['LIBRE', 'CANCELADO'].includes(p.estado));
-    const r = await ask({ title: 'Proyectos implicados', ok: 'Crear objetivo',
-      help: nombrados.length ? `He reconocido: ${ps.filter((p) => nombrados.includes(p.id)).map((p) => p.nombre).join(', ')}. Cámbialo si hace falta.` : 'Elige el proyecto principal.',
-      fields: [{ name: 'principal', label: 'Proyecto principal', type: 'choice', value: nombrados[0] || '', options: ps.map((p) => ({ value: p.id, label: p.nombre })) },
-        ...vivos.map((p) => ({ name: `p_${p.id}`, label: `También ${p.nombre}`, type: 'checkbox', value: nombrados.slice(1).includes(p.id) }))] });
-    if (!r) return;
-    const ids = [r.principal, ...vivos.filter((p) => r[`p_${p.id}`]).map((p) => p.id)].filter((x, i, a) => x && a.indexOf(x) === i);
-    await after(cmd('negocio.crear', { texto: t.texto, proyectos: ids, principal: r.principal }, 'Creado: el CEO prepara el plan', btn));
-  }
   async function responder(o, btn) {
     const r = await ask({ title: 'Responder', help: o.pregunta || '', ok: 'Enviar respuesta', fields: [{ name: 'respuesta', label: 'Tu respuesta', type: 'textarea' }] });
     if (r) await after(cmd('negocio.responder', { id: o.id, respuesta: r.respuesta }, 'Respuesta enviada', btn));
   }
   async function instruir(o, btn) {
-    const r = await ask({ title: 'Nueva instrucción o prioridad', help: 'Llega YA a los trabajos en marcha (Claude la incorpora sin empezar de cero) y el CEO revisa el plan ahora mismo: verás qué ha entendido en «Último cambio entendido». Si algo en marcha queda contradicho, lo para sin perder lo hecho.', ok: 'Enviar', fields: [{ name: 'texto', label: 'Instrucción', type: 'textarea' }] });
+    const r = await ask({ title: 'Nueva instrucción o cambio de estrategia', help: 'Llega YA a los trabajos en marcha (la incorporan sin empezar de cero) y el CEO replanifica: verás qué ha entendido en «Último cambio entendido». Si algo en marcha queda contradicho, lo para sin perder lo hecho.', ok: 'Enviar', fields: [{ name: 'texto', label: 'Instrucción', type: 'textarea' }] });
     if (r) await after(cmd('negocio.instruccion', { id: o.id, texto: r.texto }, 'Recibida: el CEO revisa el plan', btn));
   }
   async function cancelar(o, btn) {
@@ -148,7 +217,7 @@ export function negocioUi({ api, ask, toast, show, data, run, viewText }) {
     if (r) await after(cmd('negocio.cancelar', { id: o.id, confirmado: true, cancelar_trabajo: !!r.trabajo }, 'Cancelado', btn));
   }
   async function cerrar(o, btn) {
-    const r = await ask({ title: `¿Cerrar «${o.titulo}»?`, ok: 'Cerrar',
+    const r = await ask({ title: `¿Dar por terminado «${o.titulo}»?`, ok: 'Terminar',
       help: 'Sólo cuenta como ALCANZADO si los indicadores de resultado lo acreditan. Si no, queda EN SEGUIMIENTO (se sigue midiendo solo) salvo que marques cerrarlo sin acreditar.',
       fields: [{ name: 'motivo', label: 'Motivo (opcional)', required: false }, { name: 'sin_acreditar', label: 'Cerrarlo aunque el resultado no esté acreditado (no contará como alcanzado)', type: 'checkbox' }] });
     if (r) await after(cmd('negocio.cerrar', { id: o.id, confirmado: true, motivo: r.motivo, sin_acreditar: !!r.sin_acreditar }, 'Hecho', btn));
@@ -156,7 +225,7 @@ export function negocioUi({ api, ask, toast, show, data, run, viewText }) {
   async function aprobar(o, btn) {
     const qs = o.plan?.preguntas || [];
     const r = await ask({ title: 'Aprobar el plan', ok: 'Aprobar y empezar',
-      help: 'Al aprobar, CEOPadre ejecutará los comandos de medición que ves en el plan (sólo lectura) y el director empezará a lanzar trabajos, de uno en uno.',
+      help: 'Al aprobar, CEOPadre ejecutará los comandos de medición del plan (sólo lectura) y el CEO empezará a trabajar solo.',
       fields: qs.map((q) => ({ name: q.id, label: `${q.id} · ${q.pregunta}${q.por_que ? ` (${q.por_que})` : ''}`, type: 'textarea' })) });
     if (!r) return;
     if (await cmd('negocio.aprobar', { id: o.id, plan_hash: o.plan_hash, respuestas: r }, 'Plan aprobado', btn)) { await openOne(o.id); }
@@ -166,83 +235,134 @@ export function negocioUi({ api, ask, toast, show, data, run, viewText }) {
     if (r && await cmd('negocio.corregir_plan', { id: o.id, motivo: r.motivo }, 'Rehaciendo el plan', btn)) await openOne(o.id);
   }
 
+  // ------------------------------------------------------------ HOJA DE RUTA VIVA (editable desde el PC o el móvil)
+  const hojaCmd = async (o, p, okMsg, btn) => { if (await cmd('negocio.hoja', { id: o.id, ...p }, okMsg, btn)) await openOne(o.id); };
+  const faseOpts = (o) => o.hoja.fases.map((f) => ({ value: f.id, label: f.nombre }));
+  async function anadirTarea(o, fase, btn) {
+    const r = await ask({ title: 'Añadir una tarea', ok: 'Añadir', help: 'El CEO la tiene en cuenta desde ya. Si la marcas como prioritaria, será lo siguiente que haga.',
+      fields: [{ name: 'texto', label: 'Qué hay que hacer', type: 'textarea' }, ...(o.hoja.fases.length ? [{ name: 'fase', label: 'Fase', type: 'choice', value: fase || o.hoja.tareas.find((t) => t.id === o.hoja.siguiente)?.fase || o.hoja.fases.at(-1).id, options: faseOpts(o) }] : []),
+        { name: 'primera', label: 'Prioritaria (lo siguiente)', type: 'checkbox' }] });
+    if (r) await hojaCmd(o, { op: 'añadir', texto: r.texto, fase: r.fase, primera: r.primera }, 'Tarea añadida', btn);
+  }
+  async function editarTarea(o, t, btn) {
+    const r = await ask({ title: `Modificar ${t.id}`, ok: 'Guardar', help: t.estado === 'EN_CURSO' ? 'Está en marcha: el cambio le llega ahora y lo ajusta sin rehacer lo que siga valiendo.' : '',
+      fields: [{ name: 'texto', label: 'Qué hay que hacer', type: 'textarea', value: t.texto }, ...(o.hoja.fases.length ? [{ name: 'fase', label: 'Fase', type: 'choice', value: t.fase || '', options: faseOpts(o) }] : [])] });
+    if (r) await hojaCmd(o, { op: 'editar', tarea: t.id, texto: r.texto, fase: r.fase }, 'Tarea modificada', btn);
+  }
+  async function quitarTarea(o, t, btn) {
+    const viva = t.estado === 'EN_CURSO';
+    const r = await ask({ title: `¿Quitar «${corto(t.texto, 80)}»?`, ok: 'Quitar', danger: true,
+      help: viva ? 'Está en marcha. Por defecto termina en un punto seguro, sin acciones externas nuevas, y no se repite. Lo hecho se conserva.' : 'No se lanzará. El CEO no la volverá a crear.',
+      fields: viva ? [{ name: 'detener', label: 'Detenerla ya (en vez de dejarla terminar en un punto seguro)', type: 'checkbox' }] : [] });
+    if (r) await hojaCmd(o, { op: 'eliminar', tarea: t.id, detener: !!r.detener }, 'Tarea quitada', btn);
+  }
+  async function editarFase(o, f, btn) {
+    const r = await ask({ title: `Fase · ${f.nombre}`, ok: 'Guardar', fields: [{ name: 'nombre', label: 'Nombre', value: f.nombre }, { name: 'objetivo', label: 'Qué se consigue en esta fase', type: 'textarea', value: f.objetivo, required: false },
+      { name: 'criterio', label: 'Cuándo está cumplida', value: f.criterio, required: false }, { name: 'quitar', label: 'Quitar esta fase (y sus tareas pendientes)', type: 'checkbox' }] });
+    if (!r) return;
+    if (r.quitar) await hojaCmd(o, { op: 'fase_eliminar', fase: f.id }, 'Fase quitada', btn);
+    else await hojaCmd(o, { op: 'fase_editar', fase: f.id, nombre: r.nombre, objetivo: r.objetivo, criterio: r.criterio }, 'Fase modificada', btn);
+  }
+  async function anadirFase(o, btn) {
+    const r = await ask({ title: 'Añadir una fase', ok: 'Añadir', fields: [{ name: 'nombre', label: 'Nombre' }, { name: 'objetivo', label: 'Qué se consigue', type: 'textarea', required: false }] });
+    if (r) await hojaCmd(o, { op: 'fase_añadir', nombre: r.nombre, objetivo: r.objetivo }, 'Fase añadida', btn);
+  }
+  function tareaRow(o, t, editable) {
+    const [label, tone] = TAREA[t.visible] || TAREA[t.estado] || [t.estado, 'idle'];
+    const abierta = ['PENDIENTE', 'EN_CURSO'].includes(t.estado);
+    const ico = (txt, aria, on, cls = '') => h('button', { class: `btn ghost small t-ico ${cls}`, type: 'button', 'aria-label': aria, title: aria, onclick: (e) => on(e.currentTarget) }, txt);
+    return h('li', { class: `road-t t-${tone}`, 'data-tarea': t.id },
+      h('div', { class: 'road-t-main' }, chip(label, tone),
+        h('span', { class: 'road-t-txt' }, t.texto),
+        h('small', { class: 'muted' }, [t.quien ? `${t.quien}` : t.proyecto, t.origen !== 'CEO' ? 'tuya' : null, t.estado === 'EN_CURSO' && t.ahora && t.ahora !== 'Aún no se ha hecho nada' ? corto(t.ahora, 90) : null, t.nota && !abierta ? t.nota : null].filter(Boolean).join(' · '))),
+      editable && abierta ? h('div', { class: 'road-t-acts' },
+        t.estado === 'PENDIENTE' ? ico('↑', `Subir prioridad de ${t.id}`, (b) => hojaCmd(o, { op: 'mover', tarea: t.id, a: 'arriba' }, 'Prioridad cambiada', b)) : null,
+        t.estado === 'PENDIENTE' ? ico('↓', `Bajar prioridad de ${t.id}`, (b) => hojaCmd(o, { op: 'mover', tarea: t.id, a: 'abajo' }, 'Prioridad cambiada', b)) : null,
+        ico('✎', `Modificar ${t.id}`, (b) => editarTarea(o, t, b)),
+        ico('✕', `Quitar ${t.id}`, (b) => quitarTarea(o, t, b), 't-del')) : null);
+  }
+  function hojaView(o) {
+    const hj = o.hoja;
+    if (!hj || (!hj.fases.length && !hj.tareas.length)) {
+      return h('section', { class: 'panel' }, h('h4', {}, 'Hoja de ruta'), h('p', { class: 'muted' }, o.estado === 'DEFINIENDO' ? 'El CEO está investigando y la preparará en cuanto termine.' : 'Sin hoja de ruta todavía.'));
+    }
+    const editable = !CLOSED.includes(o.estado);
+    const vivas = (t) => !['ELIMINADA', 'DESCARTADA'].includes(t.estado);
+    const quitadas = hj.tareas.filter((t) => !vivas(t));
+    const sinFase = hj.tareas.filter((t) => vivas(t) && !hj.fases.some((f) => f.id === t.fase));
+    const fase = (f, i) => {
+      const ts = hj.tareas.filter((t) => t.fase === f.id && vivas(t));
+      const hechas = ts.filter((t) => t.estado === 'HECHA').length;
+      const enMarcha = ts.some((t) => t.estado === 'EN_CURSO');
+      return h('li', { class: `road-f${enMarcha ? ' now' : ts.length && hechas === ts.length ? ' done' : hechas ? ' some' : ''}` },
+        h('div', { class: 'road-f-head' }, h('span', { class: 'road-n', 'aria-hidden': 'true' }, String(i + 1)),
+          h('div', { class: 'road-f-t' }, h('b', {}, f.nombre), f.objetivo ? h('p', { class: 'small' }, f.objetivo) : null,
+            h('small', { class: 'muted' }, [f.proyecto, f.criterio ? `cumplida cuando ${f.criterio}` : null, ts.length ? `${hechas} de ${ts.length} tareas hechas` : null].filter(Boolean).join(' · '))),
+          editable ? h('button', { class: 'btn ghost small t-ico', type: 'button', 'aria-label': `Modificar la fase ${f.nombre}`, title: 'Modificar la fase', onclick: (e) => editarFase(o, f, e.currentTarget) }, '✎') : null),
+        h('ol', { class: 'road-ts' }, ts.map((t) => tareaRow(o, t, editable))),
+        editable ? h('button', { class: 'btn ghost small road-add', type: 'button', onclick: (e) => anadirTarea(o, f.id, e.currentTarget) }, '+ Tarea') : null);
+    };
+    return h('section', { class: 'panel road-panel' },
+      h('div', { class: 'dir-head' }, h('h4', {}, 'Hoja de ruta'), h('small', { class: 'muted' }, 'El orden es la prioridad. El CEO la sigue y la ajusta; tus cambios mandan.')),
+      o.plan?.resultado_buscado ? h('p', { class: 'road-goal' }, h('span', { class: 'lbl' }, 'OBJETIVO FINAL'), ' ', o.plan.resultado_buscado) : null,
+      h('ol', { class: 'road' }, hj.fases.map(fase)),
+      sinFase.length ? h('div', {}, h('p', { class: 'lbl' }, 'OTRAS TAREAS'), h('ol', { class: 'road-ts' }, sinFase.map((t) => tareaRow(o, t, editable)))) : null,
+      editable ? h('div', { class: 'a-acts' }, B('+ Añadir tarea', (b) => anadirTarea(o, null, b)), B('+ Añadir fase', (b) => anadirFase(o, b))) : null,
+      quitadas.length ? h('details', { class: 'fold' }, h('summary', {}, `Quitadas o descartadas (${quitadas.length})`), h('ol', { class: 'road-ts' }, quitadas.map((t) => tareaRow(o, t, false)))) : null);
+  }
+
   // ------------------------------------------------------------ un objetivo entero
   function planView(o) {
     const p = o.plan;
-    if (!p) return h('section', { class: 'panel' }, h('h4', {}, 'Plan'), h('p', { class: 'muted' }, o.estado === 'DEFINIENDO' ? 'El diagnóstico lo está preparando.' : 'Sin plan.'));
-    return h('section', { class: 'panel' }, h('h4', {}, 'Plan'),
-      p.resultado_buscado ? h('p', { class: 'ln' }, h('b', {}, 'RESULTADO BUSCADO'), ` ${p.resultado_buscado}`) : null,
+    if (!p) return null;
+    return h('details', { class: 'panel fold' }, h('summary', {}, 'Plan del diagnóstico (situación, cómo se mide, riesgos)'),
       p.estado_actual ? h('p', { class: 'a-desc' }, p.estado_actual) : null,
-      p.hoja_de_ruta?.length ? [h('p', { class: 'lbl' }, 'HOJA DE RUTA'), h('ol', { class: 'a-steps' }, p.hoja_de_ruta.map((f) => h('li', {}, h('b', {}, f.fase), ` (${f.proyecto}) · ${f.objetivo}`, h('small', { class: 'muted' }, ` · cumplido si ${f.criterio}`))))] : null,
-      p.kpis?.length ? [h('p', { class: 'lbl' }, 'CÓMO SE MIDE (lo ejecuta CEOPadre al aprobar)'), h('ul', { class: 'a-pend' }, p.kpis.map((k) => h('li', {}, h('b', {}, k.nombre), ` · objetivo ${k.sentido} ${k.objetivo}${k.unidad ? ` ${k.unidad}` : ''} · `,
-        k.comprobar ? h('code', {}, k.comprobar.cmd) : h('i', {}, 'no medible todavía'), k.fuente ? h('small', { class: 'muted' }, ` · ${k.fuente}`) : null, k.nota ? h('small', { class: 'muted' }, ` · ${k.nota}`) : null)))] : null,
-      p.riesgos?.length ? [h('p', { class: 'lbl' }, 'RIESGOS'), h('ul', { class: 'a-pend' }, p.riesgos.map((x) => h('li', {}, x)))] : null,
-      o.estado === 'ESPERANDO_APROBACION' ? h('div', { class: 'a-acts' }, h('button', { class: 'btn primary', type: 'button', disabled: !online(), onclick: (e) => aprobar(o, e.currentTarget) }, 'RESPONDER Y APROBAR'),
-        h('button', { class: 'btn ghost small', type: 'button', onclick: (e) => corregir(o, e.currentTarget) }, 'Corregir el plan')) : null);
+      p.kpis?.length ? [h('p', { class: 'lbl' }, 'CÓMO SE MIDE'), h('ul', { class: 'a-pend' }, p.kpis.map((k) => h('li', {}, h('b', {}, k.nombre), ` · objetivo ${k.sentido} ${k.objetivo}${k.unidad ? ` ${k.unidad}` : ''} · `,
+        k.comprobar ? h('code', {}, k.comprobar.cmd) : h('i', {}, 'no medible todavía'), k.nota ? h('small', { class: 'muted' }, ` · ${k.nota}`) : null)))] : null,
+      p.riesgos?.length ? [h('p', { class: 'lbl' }, 'RIESGOS'), h('ul', { class: 'a-pend' }, p.riesgos.map((x) => h('li', {}, x)))] : null);
   }
-  // UN OBJETIVO (V3.3): primero las respuestas (qué queremos, cómo, qué se hizo, qué se comprobó, qué resultados hay,
-  // qué hace ahora, qué viene, qué necesita de ti); después la hoja de ruta por fases y el detalle. HECHO ≠ CONSEGUIDO:
-  // los trabajos dicen lo hecho; sólo los indicadores medidos dicen el resultado.
-  function resumenOne(o) {
-    const p = o.plan || {};
-    const hechos = o.trabajos_lista.filter((t) => t.estado === 'TERMINADO');
-    const comprobado = hechos.flatMap((t) => (t.comprobado || []).map((x) => `${t.proyecto}: ${x}`));
-    const medidos = o.kpis.filter((k) => k.disponible && k.valor != null);
-    const box = (t, body, cls = '') => h('div', { class: `dir-box ${cls}` }, h('p', { class: 'lbl' }, t), body);
-    const ul = (xs, empty) => (xs.length ? h('ul', { class: 'mlist' }, xs.slice(0, 4).map((x) => h('li', {}, String(x).slice(0, 220))), xs.length > 4 ? h('li', { class: 'more' }, `+${xs.length - 4} más (abajo)`) : null) : h('p', { class: 'muted small' }, empty));
-    return h('section', { class: 'panel dir' }, h('div', { class: 'dir-head' }, h('h4', {}, o.titulo), chip(o.estado_texto, TONE[o.estado] || 'idle')),
-      cuatro(o), actions(o),
-      needBox(o),
-      h('div', { class: 'dir-grid' },
-        box('QUÉ QUEREMOS CONSEGUIR', h('p', {}, p.resultado_buscado || o.texto)),
-        box('ESTRATEGIA', p.hoja_de_ruta?.length ? h('p', {}, p.hoja_de_ruta.map((f) => f.fase).join(' → ')) : h('p', { class: 'muted small' }, o.estado === 'DEFINIENDO' ? 'El CEO la está preparando.' : 'Sin plan todavía.')),
-        box('RESULTADOS REALES', ul(medidos.map((k) => `${k.nombre}: ${k.valor}${k.unidad ? ` ${k.unidad}` : ''} (objetivo ${k.sentido} ${k.objetivo})${k.cumple ? ' ✓' : ''}`), o.kpis.length ? 'Aún sin medir: se mide solo, sin IA.' : 'Sin indicadores aprobados.'), 'ok'),
-        box('REALIZADO', ul(hechos.map((t) => `${t.proyecto}: ${t.objetivo}`), 'Ningún trabajo terminado todavía.')),
-        box('COMPROBADO', ul(comprobado, 'Nada comprobado todavía.'), 'ok'),
-        p.riesgos?.length ? box('OBSTÁCULOS', ul(p.riesgos, ''), 'bad') : null));
-  }
-  // HOJA DE RUTA: las fases del plan en orden, con su proyecto y cuándo se da por cumplida. El estado de cada fase no se
-  // inventa: se enseña cuántos trabajos de ese proyecto hay terminados y si el que está en marcha es de ella.
-  function roadmap(o) {
-    const fases = o.plan?.hoja_de_ruta || [];
-    if (!fases.length) return null;
-    return h('section', { class: 'panel' }, h('h4', {}, 'Hoja de ruta'),
-      h('ol', { class: 'road' }, fases.map((f, i) => {
-        const hechos = o.trabajos_lista.filter((t) => t.estado === 'TERMINADO' && t.proyecto === f.proyecto).length;
-        const enMarcha = o.trabajos.en_curso?.proyecto === f.proyecto;
-        return h('li', { class: `road-step${enMarcha ? ' now' : hechos ? ' some' : ''}` }, h('span', { class: 'road-n', 'aria-hidden': 'true' }, String(i + 1)),
-          h('div', {}, h('b', {}, f.fase), h('p', {}, f.objetivo),
-            h('small', { class: 'muted' }, `${f.proyecto}${f.criterio ? ` · cumplida cuando ${f.criterio}` : ''}${hechos ? ` · ${hechos} trabajo${hechos === 1 ? '' : 's'} terminado${hechos === 1 ? '' : 's'} en este proyecto` : ''}${enMarcha ? ' · trabajando ahora' : ''}`)));
-      })));
+  function aprobacion(o) {
+    if (o.estado !== 'ESPERANDO_APROBACION') return null;
+    return h('section', { class: 'panel need-panel' }, h('h4', {}, 'Plan por aprobar'), h('p', {}, 'Este objetivo se creó pidiendo revisar el plan antes de empezar.'),
+      h('div', { class: 'a-acts' }, h('button', { class: 'btn primary', type: 'button', disabled: !online(), onclick: (e) => aprobar(o, e.currentTarget) }, 'RESPONDER Y APROBAR'),
+        B('Corregir el plan', (b) => corregir(o, b))));
   }
   function one() {
     const o = viewing;
-    return [resumenOne(o), necesidades(o), roadmap(o), planView(o),
-      Object.keys(o.respuestas || {}).length ? h('section', { class: 'panel' }, h('h4', {}, 'Tus respuestas e instrucciones'), h('ul', { class: 'a-pend' }, Object.entries(o.respuestas).map(([k, v]) => h('li', {}, h('b', {}, k), ` · ${v}`)))) : null,
-      h('section', { class: 'panel' }, h('h4', {}, `Trabajos (${o.trabajos_lista.length})`), o.trabajos_lista.length ? o.trabajos_lista.map((t) => h('article', { class: `a-runrow t-${t.estado === 'TERMINADO' ? 'ok' : ['CANCELADO'].includes(t.estado) ? 'idle' : 'work'}` },
-        h('header', {}, h('b', {}, `${fecha(t.inicio)} · ${t.proyecto}`), chip(t.verificado ? 'Terminado y comprobado' : t.estado === 'CANCELADO' ? 'Cancelado' : 'En marcha', t.verificado ? 'ok' : 'work')),
-        h('p', { class: 'a-desc' }, t.objetivo), t.ahora ? h('p', { class: 'ln' }, h('b', {}, 'SITUACIÓN'), ` ${t.ahora}`) : null,
-        t.comprobado?.length ? h('ul', { class: 'a-pend' }, t.comprobado.map((x) => h('li', {}, x))) : null,
-        h('div', { class: 'a-acts' }, h('button', { class: 'btn ghost small', type: 'button', onclick: async (e) => {
-          e.currentTarget.disabled = true;
-          try { const x = await api.cmd('ronda.informe', { trabajo: t.trabajo }); if (x?.ok) viewText(`Informe · ${t.proyecto}`, x.data.texto); else toast(x?.error || 'Sin informe', 'bad'); } finally { e.currentTarget.disabled = false; }
-        } }, 'Informe completo')))) : h('p', { class: 'muted' }, 'Ninguno todavía.')),
-      h('details', { class: 'panel fold' }, h('summary', {}, 'Historial del director'), h('ul', { class: 'a-pend' }, o.eventos.map((e) => h('li', {}, h('small', { class: 'muted' }, `${fecha(e.at)} · ${e.tipo} · `), e.texto))))];
+    return [h('section', { class: 'panel dir' }, h('div', { class: 'dir-head' }, chip(o.estado_texto, TONE[o.estado] || 'idle'),
+      h('p', { class: 'muted small obj-proys-line' }, `${o.seleccion?.modo === 'AUTO' ? 'Proyectos elegidos por el CEO' : 'Proyectos elegidos por ti (el CEO puede sumar otros)'}: ${o.proyectos.map((p) => p.nombre).join(', ') || '—'}`)),
+      cuatro(o), actions(o), needBox(o)),
+    aprobacion(o), necesidades(o), hojaView(o), resultados(o), planView(o),
+    Object.keys(o.respuestas || {}).length ? h('details', { class: 'panel fold' }, h('summary', {}, 'Tus respuestas e instrucciones'), h('ul', { class: 'a-pend' }, Object.entries(o.respuestas).map(([k, v]) => h('li', {}, h('b', {}, k), ` · ${v}`)))) : null,
+    h('details', { class: 'panel fold' }, h('summary', {}, `Trabajos realizados (${o.trabajos_lista.length})`), o.trabajos_lista.length ? o.trabajos_lista.map((t) => h('article', { class: `a-runrow t-${t.estado === 'TERMINADO' ? 'ok' : ['CANCELADO'].includes(t.estado) ? 'idle' : 'work'}` },
+      h('header', {}, h('b', {}, `${fecha(t.inicio)} · ${t.proyecto}`), chip(t.verificado ? 'Terminado y comprobado' : t.estado === 'CANCELADO' ? 'Cancelado' : 'En marcha', t.verificado ? 'ok' : 'work')),
+      h('p', { class: 'a-desc' }, t.objetivo), t.ahora ? h('p', { class: 'ln' }, h('b', {}, 'SITUACIÓN'), ` ${t.ahora}`) : null,
+      t.comprobado?.length ? h('ul', { class: 'a-pend' }, t.comprobado.map((x) => h('li', {}, x))) : null,
+      h('div', { class: 'a-acts' }, B('Informe completo', async (b) => {
+        b.disabled = true;
+        try { const x = await api.cmd('ronda.informe', { trabajo: t.trabajo }); if (x?.ok) viewText(`Informe · ${t.proyecto}`, x.data.texto); else toast(x?.error || 'Sin informe', 'bad'); } finally { b.disabled = false; }
+      })))) : h('p', { class: 'muted' }, 'Ninguno todavía.')),
+    h('details', { class: 'panel fold' }, h('summary', {}, 'Historial del CEO'), h('ul', { class: 'a-pend' }, o.eventos.map((e) => h('li', {}, h('small', { class: 'muted' }, `${fecha(e.at)} · ${e.tipo} · `), e.texto))))];
   }
-
 
   function paint(force = false) {
     paintTop();
     if (!mode) return;
     const s = JSON.stringify([mode, list, viewing]) + online();
-    if (!force && (s === sig || document.querySelector('dialog[open]'))) return;
+    // No se repinta con una ventana o un menú abiertos (se perdería lo que escribes o miras).
+    if (!force && (s === sig || document.querySelector('dialog[open], #p-negocio details.a-more[open]'))) return;
     sig = s;
-    document.getElementById('n-title').textContent = mode === 'one' ? viewing.titulo : 'Objetivos de negocio';
-    document.getElementById('n-sub').textContent = mode === 'list' ? `${list.filter((o) => !CLOSED.includes(o.estado)).length} abiertos · ${online() ? 'PC conectado' : 'PC desconectado'}` : viewing.estado_texto;
+    // Conserva qué desplegables estaban abiertos al repintar.
+    const abiertos = new Set([...document.querySelectorAll('#n-body details[open] > summary')].map((x) => x.textContent));
+    document.getElementById('n-title').textContent = mode === 'one' ? viewing.titulo : 'Objetivos';
+    document.getElementById('n-sub').textContent = mode === 'list' ? `${list.filter((o) => !CLOSED.includes(o.estado)).length} abiertos · ${online() ? 'PC conectado' : 'PC desconectado'}` : '';
+    const abiertosL = list.filter((o) => !CLOSED.includes(o.estado)), cerradosL = list.filter((o) => CLOSED.includes(o.estado));
     document.getElementById('n-body').replaceChildren(...(mode === 'one' ? one() : [
-      h('div', { class: 'a-top' }, h('button', { class: 'btn accent', type: 'button', disabled: !online(), onclick: (e) => crear(e.currentTarget) }, '+ Nuevo objetivo de negocio')),
-      list.length ? h('div', { class: 'a-cards' }, list.map(card)) : h('p', { class: 'empty' }, 'Todavía no hay objetivos de negocio. Escribe el resultado que quieres conseguir («Quiero vender GEST7 por redes sociales») y CEOPadre preparará el plan.'),
+      h('div', { class: 'ag-bar' }, h('button', { class: 'btn primary', type: 'button', disabled: !online(), onclick: (e) => crear(e.currentTarget) }, '+ Nuevo objetivo')),
+      abiertosL.length ? h('div', { class: 'ag-grid' }, abiertosL.map(card)) : h('p', { class: 'empty' }, 'Escribe el resultado que quieres conseguir («Quiero conseguir clientes para GEST7 mediante redes sociales») y el CEO se organiza y trabaja solo.'),
+      cerradosL.length ? h('details', { class: 'fold' }, h('summary', {}, `Terminados o cancelados (${cerradosL.length})`), h('div', { class: 'ag-grid' }, cerradosL.map(card))) : null,
     ]).flat(Infinity).filter(Boolean));
+    for (const d of document.querySelectorAll('#n-body details')) if (abiertos.has(d.querySelector(':scope > summary')?.textContent)) d.open = true;
   }
   function paintTop() {
     const b = document.getElementById('b-negocio');

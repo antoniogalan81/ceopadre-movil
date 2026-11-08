@@ -8,6 +8,9 @@ import { autoUi } from './automatizaciones.js';
 import { negocioUi } from './negocio.js';
 import { aiEditor } from './redactor.js';
 import { alquileresUi } from './alquiler.js';
+import { borrador, ventanasUniversales } from './modal.js';
+
+ventanasUniversales(); // V3.9: clic fuera = Volver/Cerrar en TODAS las ventanas modales (web/modal.js)
 
 const LOCAL = ['127.0.0.1', 'localhost'].includes(location.hostname);
 // GESTIÓN · ALQUILERES: tarjeta de cada inquilino («Me ha pagado») dentro de GESTIONES. run/ask se usan al pulsar.
@@ -277,6 +280,11 @@ async function run(op, params, okMsg, btn) {
 // Hoja modal reutilizable. fields: [{name, label, type:'textarea'|'text', value, placeholder}]
 function ask({ title, help = '', fields = [], ok = 'Aceptar', danger = false }) {
   const dlg = $('#dlg');
+  // Lo escrito y cerrado sin aceptar (fuera, Escape o Volver) vuelve al reabrir la misma pregunta (web/modal.js).
+  const clave = `${title}|${fields.map((f) => f.name).join(',')}`;
+  const previo = borrador.leer(clave);
+  const inicial = Object.fromEntries(fields.map((f) => [f.name, f.value || '']));
+  if (previo) fields = fields.map((f) => (previo[f.name] && !f.value && ['textarea', 'text', undefined].includes(f.type) ? { ...f, value: previo[f.name] } : f));
   $('#dlg-title').textContent = title;
   $('#dlg-help').textContent = help;
   $('#dlg-help').hidden = !help;
@@ -308,7 +316,13 @@ function ask({ title, help = '', fields = [], ok = 'Aceptar', danger = false }) 
   box.querySelector('textarea,input,select')?.focus();
   return new Promise((resolve) => {
     dlg.addEventListener('close', () => {
-      if (dlg.returnValue !== 'ok') return resolve(null);
+      if (dlg.returnValue !== 'ok') {
+        const escrito = {};
+        for (const f of fields) if (!f.type || f.type === 'text' || f.type === 'textarea') { const v = box.querySelector(`[name="${f.name}"]`)?.value || ''; if (v.trim() && v !== inicial[f.name]) escrito[f.name] = v; }
+        borrador.guardar(clave, escrito);
+        return resolve(null);
+      }
+      borrador.borrar(clave);
       const out = {};
       for (const f of fields) { const el = box.querySelector(`[name="${f.name}"]`); out[f.name] = f.type === 'checkbox' ? el.checked : f.type === 'password' ? el.value : el.value.trim(); }
       for (const el of box.querySelectorAll('input[type=password]')) el.value = ''; // la contraseña no se queda en el formulario

@@ -20,7 +20,7 @@ const fecha = (iso) => (iso ? new Date(iso).toLocaleString('es-ES', { day: '2-di
 const chip = (label, tone) => h('span', { class: `a-chip t-${tone}` }, label);
 const sha256 = async (s) => [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s)))].map((x) => x.toString(16).padStart(2, '0')).join('');
 
-export function autoUi({ api, ask, toast, show, data, run, viewText, ai }) {
+export function autoUi({ api, ask, toast, show, data, run, viewText, ai, alquileres = () => [] }) {
   let mode = null;           // 'list' | 'edit' | 'runs' | 'inbox'
   let onlyProject = null;    // lista de un solo proyecto (desde DETALLES)
   let form = null;           // editor: { id?, proyecto, nombre, … pasos[] }
@@ -236,7 +236,10 @@ export function autoUi({ api, ask, toast, show, data, run, viewText, ai }) {
   function list() {
     const ps = projects().filter((p) => !onlyProject || p.id === onlyProject);
     const groups = ps.map((p) => [p, (p.automatizaciones || []).map((a) => ({ ...a, proyectoNombre: p.nombre }))]).filter(([p, xs]) => xs.length || p.id === onlyProject);
-    return [phraseBox(), h('div', { class: 'a-top' }, h('button', { class: 'btn ghost small', type: 'button', onclick: () => openEditor(null, onlyProject) }, 'Crear paso a paso'),
+    // ALQUILERES (GESTIÓN): acceso directo arriba en Agentes. No son agentes de IA: «Me ha pagado» funciona sin modelos.
+    const alq = onlyProject ? [] : alquileres();
+    return [alq.length ? h('section', { class: 'a-group' }, h('div', { class: 'zone-head' }, h('h2', {}, 'Alquileres'), h('span', { class: 'count' }, String(alq.length))),
+      h('div', { class: 'alq-list' }, alq)) : null, phraseBox(), h('div', { class: 'a-top' }, h('button', { class: 'btn ghost small', type: 'button', onclick: () => openEditor(null, onlyProject) }, 'Crear paso a paso'),
       onlyProject ? h('button', { class: 'btn ghost small', type: 'button', onclick: () => openList(null) }, 'Ver todos los proyectos') : null,
       inbox().length ? h('button', { class: 'btn ghost small', type: 'button', onclick: openInbox }, `Respuestas por aprobar · ${pending().length}`) : null),
     groups.length ? groups.map(([p, xs]) => h('section', { class: 'a-group' }, h('div', { class: 'zone-head' }, h('h2', {}, p.nombre), h('span', { class: 'count' }, String(xs.length))),
@@ -464,7 +467,7 @@ export function autoUi({ api, ask, toast, show, data, run, viewText, ai }) {
     if (mode === 'edit' && !force) return;
     if (mode === 'runs' && !force) return;
     if (mode === 'list') {
-      const s = JSON.stringify(all().map((a) => [a.id, a.estado, a.activa, a.version, a.ultima?.id, a.ultima?.estado, a.ultima?.progreso, a.ultima?.texto, a.ultima?.aprobaciones, a.integraciones, a.programa])) + onlyProject + online() + inbox().length + (win?.leido || '');
+      const s = JSON.stringify(all().map((a) => [a.id, a.estado, a.activa, a.version, a.ultima?.id, a.ultima?.estado, a.ultima?.progreso, a.ultima?.texto, a.ultima?.aprobaciones, a.integraciones, a.programa])) + onlyProject + online() + inbox().length + (win?.leido || '') + JSON.stringify(projects().map((p) => p.alquileres || null));
       if (!force && (s === sig || document.querySelector('dialog[open], details.a-more[open], details.a-what[open]') || document.activeElement?.closest?.('.ag-new'))) return; // no se come lo que escribes
       sig = s;
     }

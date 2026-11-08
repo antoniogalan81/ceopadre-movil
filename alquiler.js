@@ -8,7 +8,7 @@ const mesTitulo = (m) => { const s = `${MESES[Number(m.slice(5, 7)) - 1]} de ${m
 const WA = { PENDIENTE: ['Pendiente', 'wait'], ENVIANDO: ['Enviando…', 'work'], ENVIADO: ['Enviado', 'ok'], ERROR: ['Error', 'bad'] };
 const chip = (txt, tone) => h('span', { class: `a-chip t-${tone}` }, txt);
 
-export function alquileresUi({ run, ask, LOCAL }) {
+export function alquileresUi({ run, ask, cmd, toast, LOCAL }) {
   const ocupado = new Set(); // alquileres con una orden en curso: el botón sigue desactivado aunque la tarjeta se repinte
   const abierto = new Set(); // historiales desplegados (sobreviven al repintado)
   const orden = async (a, op, params, okMsg, btn) => {
@@ -29,8 +29,49 @@ export function alquileresUi({ run, ask, LOCAL }) {
         { name: 'fecha_pago', label: 'Fecha de recepción del pago', type: 'date', value: a.hoy, max: a.hoy },
         { name: 'metodo', label: 'Forma de pago', type: 'choice', value: a.metodo, options: a.metodos.map((m) => ({ value: m.valor, label: m.nombre })) },
       ] });
-    if (r) await orden(a, 'alquiler.cobrar', r, 'Cobro registrado', btn);
+    if (r) await previaYConfirmar(a, r, btn);
   }
+
+  // Visor del documento (PC y móvil): imagen de la página del PDF real. Con `confirmar`, dos botones; si no, sólo «Cerrar».
+  function visor({ titulo, resumen = '', imagen, confirmar = false, pdf = null }) {
+    return new Promise((resolve) => {
+      const dlg = h('dialog', { class: 'alq-doc', 'aria-label': titulo });
+      const fin = (v) => { dlg.close(); dlg.remove(); resolve(v); };
+      dlg.append(h('h2', {}, titulo), resumen ? h('p', { class: 'muted' }, resumen) : null,
+        h('div', { class: 'alq-doc-img' }, h('img', { src: imagen, alt: `Documento: ${titulo}` })),
+        h('div', { class: 'row alq-doc-btns' },
+          confirmar ? [h('button', { class: 'btn ghost', type: 'button', onclick: () => fin(false) }, 'Cancelar'),
+            h('button', { class: 'btn primary', type: 'button', onclick: () => fin(true) }, 'Confirmar pago y enviar')]
+            : [pdf ? h('a', { class: 'btn ghost', href: pdf, target: '_blank', rel: 'noopener' }, 'Abrir PDF') : null, h('button', { class: 'btn primary', type: 'button', onclick: () => fin(false) }, 'Cerrar')]));
+      dlg.addEventListener('cancel', (e) => { e.preventDefault(); fin(false); });
+      document.body.append(dlg);
+      dlg.showModal();
+    });
+  }
+
+  // «Me ha pagado» → VISTA PREVIA del PDF real (nada registrado) → «Confirmar pago y enviar» o «Cancelar».
+  async function previaYConfirmar(a, params, btn) {
+    if (ocupado.has(a.id)) return;
+    ocupado.add(a.id);
+    if (btn) btn.disabled = true;
+    let v;
+    try { v = await cmd('alquiler.vista_previa', { alquiler: a.id, ...params }); } finally { ocupado.delete(a.id); if (btn) btn.disabled = false; }
+    if (!v?.ok) { toast(v?.error || 'No se pudo preparar la vista previa', 'bad'); return; }
+    const d = v.data;
+    const si = await visor({ titulo: `Recibo de ${d.etiqueta}`, imagen: d.imagen, confirmar: true,
+      resumen: `${d.importe_txt} · ${d.metodo_txt} · se enviará por WhatsApp a ${a.telefono}. Aún no se ha registrado nada.` });
+    if (si) await orden(a, 'alquiler.cobrar', { ...params, mes: d.mes }, 'Cobro registrado', btn);
+  }
+
+  // OJO «Ver documento»: emitido = el PDF guardado; pendiente = BORRADOR — NO EMITIDO. Nunca cobra ni envía.
+  async function ver(a, recibo = null) {
+    if (LOCAL) { window.open(recibo ? `/alquiler/recibo/${recibo}` : `/alquiler/borrador/${encodeURIComponent(a.id)}`, '_blank', 'noopener'); return; }
+    const v = await cmd('alquiler.ver', recibo ? { recibo } : { alquiler: a.id });
+    if (!v?.ok) { toast(v?.error || 'No se pudo abrir el documento', 'bad'); return; }
+    await visor({ titulo: v.data.titulo, imagen: v.data.imagen, resumen: v.data.emitido ? 'Recibo emitido (guardado).' : 'BORRADOR — NO EMITIDO: no se ha registrado ni enviado nada.' });
+  }
+  const ojo = (a, recibo = null, label = 'Ver documento') => h('button', { class: 'icon-btn alq-ojo', type: 'button', title: label, 'aria-label': label,
+    onclick: () => ver(a, recibo) }, '👁');
 
   async function rectificar(a, x) {
     const r = await ask({ title: `Rectificar ${x.recibo.numero}`, ok: 'Emitir recibo rectificado',
@@ -51,8 +92,7 @@ export function alquileresUi({ run, ask, LOCAL }) {
         { name: 'arrendador', label: 'Arrendador', value: a.arrendador },
         { name: 'arrendatario', label: 'Arrendatario', value: a.inquilino },
         { name: 'importe', label: 'Mensualidad (€)', value: (a.importe / 100).toLocaleString('es-ES', { minimumFractionDigits: 2 }), inputmode: 'decimal' },
-        { name: 'metodo', label: 'Forma de pago habitual', type: 'choice', value: a.metodo, options: [{ value: 'BIZUM', label: 'Bizum' }, { value: 'TRANSFERENCIA', label: 'Transferencia bancaria' }] },
-        { name: 'metodo_alt', label: 'Forma de pago alternativa', type: 'choice', value: a.metodo_alt || '', options: [{ value: 'TRANSFERENCIA', label: 'Transferencia bancaria' }, { value: 'BIZUM', label: 'Bizum' }] },
+        { name: 'metodo', label: 'Forma de pago', type: 'choice', value: a.metodo || 'BIZUM', options: a.metodos.map((m) => ({ value: m.valor, label: m.nombre })) },
         { name: 'telefono', label: 'WhatsApp del inquilino', value: a.telefono, inputmode: 'tel' },
         { name: 'lugar', label: 'Lugar de emisión', value: a.lugar },
       ] });
@@ -77,7 +117,7 @@ export function alquileresUi({ run, ask, LOCAL }) {
           h('td', {}, x.pago === 'PAGADO' ? chip('Pagado', 'ok') : chip('Pendiente', 'wait')),
           h('td', {}, waCell(x)),
           h('td', {}, x.recibo ? [
-            LOCAL ? h('a', { href: `/alquiler/recibo/${x.recibo.id}`, target: '_blank', rel: 'noopener' }, 'Ver PDF') : h('span', { class: 'muted', title: 'El PDF vive en el PC (y en tu chat de WhatsApp)' }, 'En el PC'),
+            ojo(a, x.recibo.id, `Ver recibo ${x.recibo.numero}`),
             x.recibo.versiones > 1 ? h('small', { class: 'muted' }, ` · rectificado (${x.recibo.numero})`) : null,
             ' · ', h('button', { class: 'link', type: 'button', onclick: () => rectificar(a, x) }, 'Rectificar')] : '—')))))));
     return det;
@@ -95,14 +135,15 @@ export function alquileresUi({ run, ask, LOCAL }) {
     return h('article', { class: `alq-card${pend.length ? ' need' : ''}`, 'data-id': `alq:${a.id}`, 'aria-label': `Alquiler de ${a.inquilino}` },
       h('header', { class: 'alq-head' },
         h('div', {}, h('h3', {}, a.inquilino), h('small', { class: 'muted' }, `Alquiler · ${eur(a.importe)} al mes · ${metodo}`)),
-        h('button', { class: 'link', type: 'button', onclick: () => ficha(a) }, 'Ficha')),
+        h('div', { class: 'row' }, ojo(a, pend.length ? null : r?.id ?? null, pend.length ? 'Ver documento (borrador, no emitido)' : 'Ver documento'),
+          h('button', { class: 'link', type: 'button', onclick: () => ficha(a) }, 'Ficha'))),
       h('dl', { class: 'alq-dl' },
         h('dt', {}, 'Mes'), h('dd', {}, pend.length > 1 ? pend.map(mesTitulo).join(' · ') : mesTitulo(mes)),
         h('dt', {}, 'Estado'), h('dd', {}, estado),
         r ? [h('dt', {}, 'WhatsApp'), h('dd', {}, chip(wa[0], wa[1]), ` ${r.numero}`, r.wa_motivo ? h('small', { class: 'muted alq-motivo' }, r.wa_motivo) : null)] : null),
       h('div', { class: 'row alq-acciones' },
         pend.length ? h('button', { class: 'btn primary alq-pagado', type: 'button', disabled: busy,
-          onclick: (e) => (pend.length > 1 ? modificar(a, e.currentTarget) : orden(a, 'alquiler.cobrar', {}, 'Cobro registrado', e.currentTarget)) },
+          onclick: (e) => (pend.length > 1 ? modificar(a, e.currentTarget) : previaYConfirmar(a, {}, e.currentTarget)) },
         busy ? 'Registrando…' : 'Me ha pagado') : null,
         r?.wa_estado === 'ERROR' ? h('button', { class: 'btn small', type: 'button', disabled: busy,
           onclick: (e) => orden(a, 'alquiler.reintentar', { recibo: r.id }, 'Reintentando', e.currentTarget) }, 'Reintentar envío') : null,

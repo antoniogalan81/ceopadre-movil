@@ -1222,3 +1222,10 @@ dialog.ceo-chat::backdrop { background: oklch(0 0 0 / .25); }
 .alq-tabla { width: 100%; border-collapse: collapse; font-size: 13px; }
 .alq-tabla th, .alq-tabla td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
 .alq-tabla .num { text-align: right; font-variant-numeric: tabular-nums; }
+.alq-ojo { min-width: 44px; min-height: 44px; font-size: 18px; }
+dialog.alq-doc { width: min(720px, calc(100vw - 24px)); max-height: calc(100dvh - 24px); padding: 14px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--paper); color: var(--ink); }
+dialog.alq-doc h2 { margin: 0 0 4px; font-size: 18px; }
+.alq-doc-img { overflow: auto; max-height: calc(100dvh - 210px); border: 1px solid var(--line); border-radius: 8px; background: #fff; }
+.alq-doc-img img { display: block; width: 100%; height: auto; }
+.alq-doc-btns { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin-top: 10px; }
+.alq-doc-btns .btn { min-height: 44px; }

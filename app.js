@@ -2,7 +2,7 @@
 // No ejecuta nada: pinta el estado y deja órdenes. Todo el texto se inserta como texto (nunca HTML).
 import { cleanGoal, conditionsText, decisionCount, decisionsText, direccion, esperaHumana, gestText, HIGH_RISK, mood, needsDecision, netStatus, office, passwordAt, pcOnline, priority, PROMPT_LIMIT, PROMPT_WARN, quotaView, REAUTH_MS, waitingConditions, zone } from './zones.js';
 import { h } from './dom.js';
-import { advice, decideRow, mapBody, mapPanel, pendingDecisions, proposals } from './map.js';
+import { advice, decideRow, EFECTO, explica, mapBody, mapPanel, pendingDecisions, proposals } from './map.js';
 import { remoteUi } from './remoto.js';
 import { autoUi } from './automatizaciones.js';
 import { negocioUi } from './negocio.js';
@@ -538,7 +538,10 @@ function superadaBox(c) {
 // Qué pasa con cada botón, dicho antes de pulsarlo (lo que hace de verdad el motor: trabajo.aprobar / trabajo.rechazar).
 const conseq = (c) => (esGasto(c) ? null : h('p', { class: 'ln conseq' }, h('b', {}, 'SI APRUEBAS'), ' el CEO sigue con lo propuesto. ',
   h('b', {}, 'SI RECHAZAS'), ' busca otra vía sin ese cambio o termina explicando por qué no se puede.'));
-const jobDecision = (c) => (c.estado === 'ESPERANDO_DECISION' ? h('div', { class: 'decision' }, superadaBox(c), ...decisionLines(c), advice(c.consejo), conseq(c),
+const jobDecision = (c) => (c.estado === 'ESPERANDO_DECISION' ? h('div', { class: 'decision' }, superadaBox(c),
+  ...(explica(c.consejo, 'trabajo') && !esGasto(c) ? [explica(c.consejo, 'trabajo'), h('details', { class: 'prop-more tecnico' }, h('summary', {}, 'Detalle técnico'), ...decisionLines(c))]
+    : [...decisionLines(c), advice(c.consejo), conseq(c)]),
+  copiarBtn(`decision:${c.id}:${c.ref}`),
   decideRow({ yes: (e) => actions.approve(c, e.currentTarget), no: (e) => actions.reject(c, e.currentTarget),
     ask: c.ref ? (e) => actions.consult(c, c.ref, e.currentTarget) : null,
     alt: c.consejo?.alternativa && c.version ? (e) => actions.alternativa(c, e.currentTarget) : null, altLabel: c.consejo?.alternativa?.etiqueta, rec: c.consejo?.veredicto,
@@ -880,6 +883,7 @@ const decideCanon = (pid) => (id, que, b, x = null) => (que === 'alternativa' ? 
 function decisionHandlers(p) {
   return {
     alternativa: (d, b) => run('decision.alternativa', { proyecto: p.id, ref: d.ref, version: d.version }, 'Respondida', b),
+    copy: (ref, b) => copiarConsulta(`decision:${p.id}:${ref}`, b),
     async answer(d, b) {
       const r = await ask({ title: `Decidir · ${p.nombre}`, help: d.pregunta, ok: 'Guardar decisión',
         fields: [{ name: 'respuesta', label: 'Tu decisión', type: 'textarea', value: d.consejo?.respuesta || '', placeholder: 'Escribe la respuesta tal como quieres que la sigan Codex y Claude' }] });
@@ -923,7 +927,7 @@ function paintDecisions() {
           p.objetivo ? h('small', { class: 'muted goal1', title: p.objetivo }, cleanGoal(p.objetivo)) : null),
           iconBtn('info', `Detalles de ${p.nombre}`, () => actions.details(p))),
         jobDecision(p),
-        proposals(p, decideCanon(p.id), (ref, b) => actions.consult(p, ref, b)),
+        proposals(p, decideCanon(p.id), (ref, b) => actions.consult(p, ref, b), (ref, b) => copiarConsulta(`decision:${p.id}:${ref}`, b)),
         pendingDecisions(p.decisiones, decisionHandlers(p), false)))));
   for (const x of box.querySelectorAll('details')) if (wasOpen.has(x.dataset.k)) x.open = true;
 }
@@ -1041,7 +1045,7 @@ const ceo = { conv: null, ref: null, timer: null, t0: 0 };
 const VUELTA = { proyecto: 'Ir al proyecto', objetivo: 'Ir al objetivo', agentes: 'Ir a Agentes', inicio: 'Ir a Dirección' };
 const draftKey = (ref) => `ceo-borrador:${ref}`;
 const borradorCEO = { get: (ref) => { try { return localStorage.getItem(draftKey(ref)) || ''; } catch { return ''; } }, set: (ref, v) => { try { if (v) localStorage.setItem(draftKey(ref), v); else localStorage.removeItem(draftKey(ref)); } catch { /* sin almacenamiento */ } } };
-async function openCeo(ref, { pregunta = null, push = true } = {}) {
+async function openCeo(ref, { pregunta = null, push = true, id = null } = {}) {
   if (!api) return;
   const dlg = $('#ceo');
   ceo.ref = ref;
@@ -1050,7 +1054,8 @@ async function openCeo(ref, { pregunta = null, push = true } = {}) {
   $('#ceo-title').textContent = 'Consultar al CEO';
   $('#ceo-ctx').textContent = '';
   fill($('#ceo-msgs'), h('p', { class: 'muted' }, 'Cargando la conversación…'));
-  const r = await api.cmd('ceo.conversacion', { ref });
+  fill($('#ceo-res'), null); fill($('#ceo-dec'), null);
+  const r = await api.cmd('ceo.conversacion', { ref, ...(id ? { id } : {}) });
   if (ceo.ref !== ref) return;
   if (!r?.ok) { fill($('#ceo-msgs'), h('p', { class: 'bad' }, r?.error || 'El PC no responde')); return; }
   ceo.conv = r.data;
@@ -1073,20 +1078,62 @@ async function decidirCeo(accion, b, mensaje = null, version = null) {
   if (!d) return;
   if (accion === 'APROBAR' && d.gasto && !(await ask({ title: '¿Autorizas este gasto?', help: d.recomendacion || d.propuesta, ok: 'SÍ, AUTORIZO ESTE GASTO', danger: true }))) return;
   const op = accion === 'ALTERNATIVA' ? 'decision.alternativa' : 'decision.resolver';
-  const ok = await run(op, { proyecto: d.proyecto, ref: d.ref, version: version || d.version, accion, ...(mensaje ? { mensaje } : {}) }, accion === 'ALTERNATIVA' ? 'Alternativa en marcha' : accion === 'APROBAR' ? 'Aprobado' : 'Rechazado', b);
-  if (ok) void refreshCeo();
+  const etiqueta = accion === 'APROBAR' ? d.aprobar : accion === 'RECHAZAR' ? d.rechazar : d.alternativa?.etiqueta;
+  if (b) b.disabled = true;
+  const r = await api.cmd(op, { proyecto: d.proyecto, ref: d.ref, version: version || d.version, accion, etiqueta, ...(mensaje ? { mensaje } : {}) }).catch((e) => ({ ok: false, error: e.message }));
+  if (b) b.disabled = false;
+  if (!r?.ok) {
+    // Sin cerrar: se ve el problema y se puede reintentar o preguntar.
+    fill($('#ceo-res'), h('p', { class: 'ceo-res bad', role: 'alert' }, `No se pudo: ${r?.error || 'el PC no responde'}`));
+    toast(r?.error || 'No se pudo', 'bad');
+    void refreshCeo();
+    return;
+  }
+  await resueltoCeo(r.data);
 }
+/** Decisión resuelta: el resultado REAL un momento, la pantalla al día y el panel se cierra (el historial queda). */
+async function resueltoCeo(x) {
+  const FASE = { REGISTRADA: 'Registrada', EJECUTADA: 'Hecho', VERIFICADA: 'Hecho y comprobado' };
+  fill($('#ceo-res'), h('p', { class: 'ceo-res ok', role: 'status' }, h('b', {}, `${FASE[x?.fase] || 'Registrada'}. `), x?.mensaje || ''));
+  toast(x?.mensaje || 'Decisión registrada');
+  await refreshCeo();
+  await refresh?.();
+  const ref = ceo.ref;
+  setTimeout(() => { if (ceo.ref === ref && $('#ceo').open) cerrarCeo(); }, 2600);
+}
+/** «Copiar consulta»: el asunto entero en texto llano para preguntarlo fuera (ChatGPT, otra persona). */
+async function copiar(texto) {
+  try { await navigator.clipboard.writeText(texto); return true; } catch { /* sin permiso: método clásico */ }
+  const t = h('textarea', { style: 'position:fixed;left:-9999px;top:0', readonly: '' }, texto);
+  document.body.append(t); t.select();
+  let ok = false; try { ok = document.execCommand('copy'); } catch { ok = false; }
+  t.remove();
+  return ok;
+}
+async function copiarConsulta(ref, b, { id = null, conversacion = false } = {}) {
+  const r = await api.cmd('ceo.copiar', { ref, id, conversacion });
+  if (!r?.ok) { toast(r?.error || 'No se pudo preparar el texto', 'bad'); return; }
+  if (await copiar(r.data.texto)) { toast('Copiado: pégalo en ChatGPT o donde quieras'); if (b) { const t = b.textContent; b.textContent = '✓ Copiado'; setTimeout(() => { b.textContent = t; }, 1800); } }
+  else { await ask({ title: 'Copia este texto', help: 'Tu navegador no deja copiar solo: selecciónalo y cópialo.', fields: [{ name: 't', label: 'Consulta', type: 'textarea', value: r.data.texto }], ok: 'Cerrar' }); }
+}
+const copiarBtn = (ref) => h('button', { class: 'link copiar', type: 'button', title: 'Copia el asunto entero (sin datos sensibles) para consultarlo fuera', onclick: (e) => copiarConsulta(ref, e.currentTarget) }, '📋 Copiar consulta');
 /** QUÉ SE DECIDE, qué hace cada botón y qué recomienda el CEO, sin salir de la conversación. */
 function ceoDecision(c) {
   const d = c.decision;
   if (!d) return null; // resuelta o cambiada: lo dice ya la cabecera de la conversación
   const altB = d.alternativa ? { alt: (e) => decidirCeo('ALTERNATIVA', e.currentTarget), altLabel: d.tipo === 'pregunta' ? `Responder: ${d.alternativa.etiqueta}` : d.alternativa.etiqueta } : {};
   const recTxt = d.recomienda === 'APROBAR' ? d.aprobar || ACC.APROBAR : d.recomienda === 'RECHAZAR' ? d.rechazar || ACC.RECHAZAR : d.recomienda === 'ALTERNATIVA' ? d.alternativa?.etiqueta : null;
+  const k = { estado: d.preparando ? 'PENDIENTE' : d.explicacion ? 'OK' : null, explicacion: d.explicacion, veredicto: d.recomienda, motivo: d.motivo, riesgo: d.riesgo,
+    aprobar: d.aprobar, rechazar: d.rechazar, alternativa: d.alternativa, respuesta: null };
+  const ex = explica(k, d.tipo);
   return h('section', { class: 'ceo-dec', 'aria-label': 'La decisión' },
-    h('p', { class: 'ln' }, h('b', {}, d.tipo === 'pregunta' ? 'PREGUNTA ' : 'PROPUESTA ORIGINAL '), d.propuesta),
-    d.si_apruebo ? h('p', { class: 'ln small' }, h('b', {}, 'SI APRUEBAS '), d.si_apruebo, ' ', h('b', {}, 'SI RECHAZAS '), d.si_rechazo) : null,
-    recTxt ? h('p', { class: 'ln reco' }, h('b', {}, 'EL CEO RECOMIENDA '), recTxt, d.motivo ? ` — ${d.motivo}` : '') : null,
-    d.riesgo ? h('p', { class: 'ln bad small' }, h('b', {}, 'RIESGO '), d.riesgo) : null,
+    ex && d.explicacion ? ex : [
+      h('p', { class: 'ln' }, h('b', {}, d.tipo === 'pregunta' ? 'PREGUNTA ' : 'PROPUESTA ORIGINAL '), d.propuesta),
+      d.si_apruebo ? h('p', { class: 'ln small' }, h('b', {}, 'SI APRUEBAS '), d.si_apruebo, ' ', h('b', {}, 'SI RECHAZAS '), d.si_rechazo) : null,
+      recTxt ? h('p', { class: 'ln reco' }, h('b', {}, 'EL CEO RECOMIENDA '), recTxt, d.motivo ? ` — ${d.motivo}` : '') : null,
+      d.riesgo ? h('p', { class: 'ln bad small' }, h('b', {}, 'RIESGO '), d.riesgo) : null,
+      ex, h('p', { class: 'ln small efecto' }, h('b', {}, 'QUÉ HACE CEOPADRE '), EFECTO[d.tipo] || '')],
+    d.explicacion ? h('details', { class: 'prop-more tecnico' }, h('summary', {}, 'Detalle técnico'), h('p', { class: 'small' }, d.propuesta)) : null,
     decideRow({ yes: d.tipo === 'pregunta' ? null : (e) => decidirCeo('APROBAR', e.currentTarget), no: d.tipo === 'pregunta' ? null : (e) => decidirCeo('RECHAZAR', e.currentTarget),
       yesLabel: d.gasto ? 'Sí, autorizo este gasto' : d.aprobar || ACC.APROBAR, noLabel: d.gasto ? 'No autorizo este gasto' : d.rechazar || ACC.RECHAZAR, rec: d.recomienda, ...altB }));
 }
@@ -1096,7 +1143,8 @@ function ceoMsg(m, aplicados) {
   const d = m.datos || {};
   const fila = (t, v, cls = '') => (v ? [h('dt', { class: cls }, t), h('dd', { class: cls }, v)] : null);
   return h('div', { class: 'msg ceo' },
-    h('p', { class: 'msg-who' }, d.proveedor === 'CLAUDE' ? 'CEO · Claude (sustituto)' : 'CEO'),
+    h('p', { class: 'msg-who' }, d.auto ? 'CEO · explicación inicial' : d.proveedor === 'CLAUDE' ? 'CEO · Claude (sustituto)' : 'CEO',
+      h('button', { class: 'link msg-copy', type: 'button', title: 'Copiar esta respuesta', onclick: async (e) => { if (await copiar(m.texto)) { e.currentTarget.textContent = '✓'; toast('Respuesta copiada'); } } }, '📋')),
     h('p', { class: 'msg-r' }, m.texto),
     d.quiere_hacer || d.recomienda || d.por_que || d.riesgo || d.si_no ? h('dl', { class: 'msg-dl' },
       fila('RECOMIENDO', d.recomienda, 'reco'), fila('POR QUÉ', d.por_que), fila('RIESGO', d.riesgo, 'bad'),
@@ -1136,6 +1184,7 @@ function paintCeo() {
   }
   const aplicados = new Set(c.mensajes.filter((m) => m.rol === 'sistema').map((m) => Number((/^Aplicado \(#(\d+)\)/.exec(m.texto) || [])[1])).filter(Boolean));
   fill($('#ceo-dec'), ceoDecision(c));
+  if (!c.decision) fill($('#ceo-res'), c.ref.startsWith('decision:') && c.aplicados?.length ? h('p', { class: 'ceo-res ok small' }, h('b', {}, 'Resuelta. '), c.aplicados.at(-1).texto.replace(/^(Aplicado \(#\d+\)|Decidido):\s*/, '')) : null);
   const sel = $('#ceo-otras');
   sel.hidden = !c.anteriores?.length;
   if (c.anteriores?.length) fill(sel, h('option', { value: '' }, `Anteriores (${c.anteriores.length})`),
@@ -1182,6 +1231,7 @@ function ceoUi() {
   let a0 = false; try { a0 = localStorage.getItem('ceo-ancho') === '1'; } catch { /* sin almacenamiento */ }
   ancho(a0);
   $('#ceo-ancho').addEventListener('click', () => ancho(!$('#ceo').classList.contains('ancho')));
+  $('#ceo-copiar').addEventListener('click', (e) => copiarConsulta(ceo.ref, e.currentTarget, { id: ceo.conv?.id, conversacion: true }));
   // El asunto cambió: conversación nueva sobre lo mismo; las anteriores siguen guardadas y se pueden reabrir.
   $('#ceo-nueva').addEventListener('click', async () => {
     const r = await api.cmd('ceo.conversacion', { ref: ceo.ref, nueva: true });
@@ -1318,6 +1368,22 @@ function insertText(ta, text) {
 }
 
 let detailCache = null;
+/** HISTORIAL de conversaciones con el CEO de este proyecto (decisiones resueltas incluidas), en modo consulta. Se carga al abrir. */
+function historialCeo(c) {
+  const box = h('div', { class: 'hist-ceo' }, h('p', { class: 'muted small' }, 'Cargando…'));
+  const el = h('details', { class: 'panel fold-ceo', 'data-k': `hist-${c.id}` }, h('summary', {}, '💬 Conversaciones con el CEO'), box);
+  el.addEventListener('toggle', async () => {
+    if (!el.open) return;
+    const r = await api.cmd('ceo.conversaciones', { proyecto: c.id });
+    const xs = r?.ok ? r.data.conversaciones : [];
+    fill(box, xs.length ? h('ul', { class: 'notes' }, xs.map((x) => h('li', {},
+      h('button', { class: 'link', type: 'button', onclick: () => openCeo(x.ref, { id: x.id }) }, x.titulo || 'Conversación'),
+      h('small', { class: 'muted' }, ` · ${new Date(x.updated_at).toLocaleString('es-ES', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })} · ${x.n} mensajes`),
+      x.decidido ? h('small', { class: 'ok' }, ` · ${x.decidido.replace(/^(Aplicado \(#\d+\)|Decidido):\s*/, '').slice(0, 140)}`) : null)))
+      : h('p', { class: 'muted small' }, r?.ok ? 'Aún no has hablado con el CEO sobre este proyecto.' : r?.error || 'El PC no responde'));
+  });
+  return el;
+}
 async function paintDetail(force) {
   const c = data.proyectos.find((p) => p.id === openId);
   if (!c) { openId = null; show('p-list'); return; }
@@ -1333,7 +1399,7 @@ async function paintDetail(force) {
   const decide = decideCanon(c.id);
   const consult = (ref, b) => actions.consult(c, ref, b);
   const openMap = () => { $('#map-title').textContent = `Mapa · ${c.nombre}`; paintMap(d.mapa, decide, consult); $('#map').showModal(); };
-  body.replaceChildren(...[summaryPanel(c, d), direccionPanel(c, d), revisionPanel(c), aui?.projectPanel(c), esperasPanel(c, d), mapPanel(d.mapa, { open: openMap, decide, ...decisionHandlers(c) }), writePanel(c, d), roundsPanel(d), techPanel(c, d)].filter(Boolean));
+  body.replaceChildren(...[summaryPanel(c, d), direccionPanel(c, d), revisionPanel(c), aui?.projectPanel(c), esperasPanel(c, d), mapPanel(d.mapa, { open: openMap, decide, ...decisionHandlers(c) }), writePanel(c, d), roundsPanel(d), historialCeo(c), techPanel(c, d)].filter(Boolean));
   if ($('#map').open) paintMap(d.mapa, decide, consult);
   for (const x of body.querySelectorAll('details')) if (wasOpen.has(x.dataset.k)) x.open = true;
 }

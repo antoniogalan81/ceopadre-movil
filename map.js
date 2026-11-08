@@ -37,6 +37,36 @@ export function decideRow({ yes, no, ask, alt = null, altLabel = '', rec = null,
     alt ? b('↺', altLabel || 'Hacer la alternativa del CEO', alt, 'alt', 'ALTERNATIVA') : null, ask ? dbtn('?', 'Consultar al CEO', ask, 'ask') : null);
 }
 
+// Qué hace CEOPadre DE VERDAD según la clase de decisión (lo que hace el motor; no depende de la IA).
+export const EFECTO = {
+  trabajo: 'Aprobar deja que el CEO siga con lo propuesto. No autoriza publicar, desplegar, enviar a terceros ni gastar si no estaba en la propuesta: eso se pregunta aparte.',
+  propuesta: 'Sólo cambia el mapa del proyecto (lo que CEOPadre da por decidido). No inicia trabajos ni publica nada.',
+  pregunta: 'Tu respuesta queda como decisión del proyecto y el CEO la seguirá en los próximos trabajos.',
+};
+const REC_TXT = { APROBAR: (k) => k.aprobar || 'Aprobar la propuesta', RECHAZAR: (k) => k.rechazar || 'Rechazar la propuesta', ALTERNATIVA: (k) => k.alternativa?.etiqueta || 'Otra vía',
+  POSPONER: () => 'Esperar', INVESTIGAR: () => 'Comprobar antes un dato', RESPONDER: () => 'Responder' };
+/**
+ * V3.8 — LA DECISIÓN EXPLICADA de antemano por el CEO (una vez por versión; nada se calcula al abrir): qué pasa, qué
+ * proponen, qué recomienda y por qué, qué pasará con cada botón, el riesgo y qué hace CEOPadre de verdad. Sin jerga.
+ * Devuelve null si el CEO aún no la explicó (entonces se ve lo de siempre).
+ */
+export function explica(k, tipo) {
+  if (k?.estado === 'PENDIENTE') return h('p', { class: 'advice v-wait', role: 'status' }, h('b', {}, 'CEO'), ' · preparando la explicación…');
+  const e = k?.explicacion;
+  if (!e || k.estado !== 'OK') return null;
+  const f = (t, v, cls = '') => (v ? h('div', { class: `ex-row ${cls}` }, h('dt', {}, t), h('dd', {}, v)) : null);
+  const rec = REC_TXT[k.veredicto]?.(k);
+  return h('dl', { class: 'explica' },
+    f('QUÉ PASA', e.que_pasa), f(tipo === 'pregunta' ? 'QUÉ SE PREGUNTA' : 'QUÉ TE PROPONEN', e.que_proponen),
+    f('EL CEO RECOMIENDA', rec ? [h('b', {}, rec), k.respuesta && k.respuesta !== rec ? ` — ${k.respuesta}` : ''] : k.respuesta, 'rec'),
+    f('POR QUÉ', k.motivo),
+    f(`SI ELIGES «${k.aprobar || 'Aprobar'}»`, e.si_apruebo), f(`SI ELIGES «${k.rechazar || 'Rechazar'}»`, e.si_rechazo),
+    k.alternativa ? f(`SI ELIGES «${k.alternativa.etiqueta}»`, k.alternativa.texto) : null,
+    f('RIESGO', k.riesgo, 'bad'),
+    f('QUÉ HACE CEOPADRE', EFECTO[tipo], 'efecto'));
+}
+const tecnico = (...kids) => h('details', { class: 'prop-more tecnico' }, h('summary', {}, 'Detalle técnico'), ...kids);
+
 const VEREDICTO = { APROBAR: ['✓', 'APROBAR', 'yes'], RECHAZAR: ['✕', 'RECHAZAR', 'no'], RESPONDER: ['✎', 'RESPONDER', 'ans'], ALTERNATIVA: ['↺', 'OTRA VÍA', 'alt'] };
 /** Recomendación de Codex en la propia tarjeta: «CODEX · ✓ APROBAR» + una frase (+ riesgo sólo si lo hay). Antonio decide. */
 export function advice(c) {
@@ -58,42 +88,46 @@ export function advice(c) {
  * CAMBIOS PROPUESTOS a lo protegido. Primero QUÉ CAMBIA (y el impacto si lo hay) y ✓ ✕ ?; el antes/después completo y el
  * motivo, plegados en «Detalles» (se entiende desde el móvil en segundos). `consult(ref, btn)` = Consultar al CEO (abre la conversación).
  */
-export function proposals(m, decide, consult = null) {
+export function proposals(m, decide, consult = null, copy = null) {
   if (!m.propuestas?.length) return null;
   return h('div', { class: 'props' }, lbl(`CAMBIOS PROPUESTOS (${m.propuestas.length})`),
     m.propuestas.map((p) => h('article', { class: 'prop', 'data-ref': p.ref || null },
-      h('p', { class: 'prop-field' }, '🔒 ', p.campo),
-      h('p', { class: 'ln what' }, h('b', {}, 'QUÉ CAMBIA'), ' ', short(p.despues, 260)),
-      p.impacto ? h('p', { class: 'ln' }, h('b', {}, 'IMPACTO'), ' ', short(p.impacto, 200)) : null,
-      h('details', { class: 'prop-more', 'data-k': `prop-${p.id}` }, h('summary', {}, 'Detalles'),
+      // Con la explicación del CEO, lo técnico (campo, antes/después) queda plegado.
+      explica(p.consejo, 'propuesta') ? null : h('p', { class: 'prop-field' }, '🔒 ', p.campo),
+      explica(p.consejo, 'propuesta') ? null : h('p', { class: 'ln what' }, h('b', {}, 'QUÉ CAMBIA'), ' ', short(p.despues, 260)),
+      explica(p.consejo, 'propuesta') || (p.impacto ? h('p', { class: 'ln' }, h('b', {}, 'IMPACTO'), ' ', short(p.impacto, 200)) : null),
+      h('details', { class: 'prop-more', 'data-k': `prop-${p.id}` }, h('summary', {}, explica(p.consejo, 'propuesta') ? 'Detalle técnico' : 'Detalles'),
+        h('p', { class: 'ln small' }, '🔒 ', p.campo),
         h('div', { class: 'prop-diff' },
           h('div', {}, h('small', {}, 'AHORA'), h('p', {}, p.antes)),
           h('div', {}, h('small', {}, 'PROPUESTO'), h('p', {}, p.despues))),
         p.motivo ? h('p', { class: 'ln' }, h('b', {}, 'MOTIVO'), ' ', p.motivo) : null,
         p.impacto && p.impacto.length > 200 ? h('p', { class: 'ln' }, h('b', {}, 'IMPACTO'), ' ', p.impacto) : null),
-      advice(p.consejo),
+      explica(p.consejo, 'propuesta') ? null : advice(p.consejo),
       decideRow({ yes: (e) => decide(p.id, 'aprobar', e.currentTarget, p), no: (e) => decide(p.id, 'rechazar', e.currentTarget, p),
         yesLabel: p.consejo?.aprobar || 'Aplicar el cambio propuesto', noLabel: p.consejo?.rechazar || 'Dejar el mapa como está',
         alt: p.consejo?.alternativa ? (e) => decide(p.id, 'alternativa', e.currentTarget, p) : null, altLabel: p.consejo?.alternativa?.etiqueta, rec: p.consejo?.veredicto,
-        ask: consult && p.ref ? (e) => consult(p.ref, e.currentTarget) : null }))));
+        ask: consult && p.ref ? (e) => consult(p.ref, e.currentTarget) : null }),
+      copy && p.ref ? h('button', { class: 'link copiar', type: 'button', onclick: (e) => copy(p.ref, e.currentTarget) }, '📋 Copiar consulta') : null)));
 }
 
 /** DECISIONES PENDIENTES de un proyecto: preguntas que sólo contesta Antonio: ✎ responder, ⏱ posponer, ? preguntar a Codex. */
-export function pendingDecisions(list, { answer, postpone, consult = null, alternativa = null }, title = true) {
+export function pendingDecisions(list, { answer, postpone, consult = null, alternativa = null, copy = null }, title = true) {
   if (!list?.length) return null;
   return h('div', { class: 'dec-pend' }, title ? lbl(`DECISIONES PENDIENTES (${list.length})`) : null,
     h('ul', { class: 'mlist' }, list.map((d) => h('li', { class: 'dec-item', 'data-ref': d.ref || null },
       h('p', {}, '• ', d.pregunta),
-      advice(d.consejo),
+      explica(d.consejo, 'pregunta') || advice(d.consejo),
       h('div', { class: 'dec-btns', role: 'group', 'aria-label': 'Decidir' },
         dbtn('✎', 'Responder', (e) => answer(d, e.currentTarget), 'yes'),
         dbtn('⏱', 'Posponer 7 días', (e) => postpone(d, e.currentTarget), 'no'),
         alternativa && d.consejo?.alternativa && d.version ? dbtn('↺', `Responder: ${d.consejo.alternativa.etiqueta}`, (e) => alternativa(d, e.currentTarget), 'alt rec') : null,
-        consult && d.ref ? dbtn('?', 'Consultar al CEO', (e) => consult(d.ref, e.currentTarget), 'ask') : null)))));
+        consult && d.ref ? dbtn('?', 'Consultar al CEO', (e) => consult(d.ref, e.currentTarget), 'ask') : null),
+      copy && d.ref ? h('button', { class: 'link copiar', type: 'button', onclick: (e) => copy(d.ref, e.currentTarget) }, '📋 Copiar consulta') : null))));
 }
 
 /** Vista de 20 segundos: qué queremos, dónde estamos, qué sigue y qué no se toca. */
-export function mapPanel(m, { open, decide, answer, postpone, consult }) {
+export function mapPanel(m, { open, decide, answer, postpone, consult, alternativa, copy }) {
   if (!m) return null;
   if (m.error) return h('section', { class: 'panel map' }, h('h4', {}, 'MAPA DEL PROYECTO'), h('p', { class: 'note' }, m.error));
   const e = m.estado;
@@ -110,8 +144,8 @@ export function mapPanel(m, { open, decide, answer, postpone, consult }) {
         : h('p', { class: 'muted small' }, '—')))),
     e.bloqueado.length ? h('p', { class: 'note' }, '⛔ ', e.bloqueado[0].text) : null,
     m.reglas.length ? [lbl('REGLAS CLAVE'), h('ul', { class: 'mlist rules' }, m.reglas.slice(0, 3).map((r) => h('li', {}, '🔒 ', r)))] : null,
-    pendingDecisions(m.pendientes, { answer, postpone, consult }),
-    proposals(m, decide, consult));
+    pendingDecisions(m.pendientes, { answer, postpone, consult, alternativa, copy }),
+    proposals(m, decide, consult, copy));
 }
 
 /** Flujo del sistema: cajas en vertical con flechas; las bifurcaciones, debajo de su paso. Sin librerías. */

@@ -1177,3 +1177,27 @@ dialog.ceo-chat::backdrop { background: oklch(0 0 0 / .25); }
   .ceo-head .head-act { flex-wrap: nowrap; }
   .ceo-head .head-act .btn { padding: 0 12px; }
 }
+
+/* V3.8 — DECISIONES EXPLICADAS DE ANTEMANO, RESULTADO REAL Y COPIAR */
+.explica { margin: 0 0 6px; display: grid; gap: 6px; }
+.explica .ex-row { display: grid; grid-template-columns: 9.5rem 1fr; gap: 2px 12px; align-items: baseline; }
+.explica dt { font-size: 10.5px; font-weight: 800; letter-spacing: .05em; color: var(--ink-3); }
+.explica dd { margin: 0; overflow-wrap: anywhere; line-height: 1.45; }
+.explica .rec { background: color-mix(in srgb, var(--ok) 9%, var(--paper)); border-radius: 10px; padding: 6px 8px; }
+.explica .rec dt { color: var(--ok); }
+.explica .bad dd { color: var(--bad); }
+.explica .efecto dd { font-size: 13px; color: var(--ink-2); }
+@media (max-width: 560px) { .explica .ex-row { grid-template-columns: 1fr; } }
+.tecnico summary { font-size: 12.5px; color: var(--ink-3); }
+.link.copiar { font-size: 13px; margin-top: 4px; min-height: 36px; }
+.msg-who { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.msg-copy { font-size: 13px; min-height: 28px; text-decoration: none; opacity: .7; }
+.msg-copy:hover, .msg-copy:focus-visible { opacity: 1; }
+#ceo-res:empty { display: none; }
+.ceo-res { margin: 0; padding: 10px 12px; border-radius: 12px; font-size: 14px; }
+.ceo-res.ok { background: color-mix(in srgb, var(--ok) 12%, var(--paper)); border: 1px solid color-mix(in srgb, var(--ok) 45%, transparent); }
+.ceo-res.bad { background: var(--bad-bg); color: var(--bad); border: 1px solid var(--bad); }
+.fold-ceo summary { cursor: pointer; font-weight: 750; min-height: 44px; display: flex; align-items: center; }
+/* Los botones de la decisión siempre a mano, aunque la explicación sea larga (también en el móvil). */
+.ceo-dec .dec-btns { position: sticky; bottom: -10px; margin-inline: -12px; margin-bottom: -10px; padding: 8px 12px 10px; background: var(--card, var(--paper)); border-top: 1px solid var(--line); z-index: 1; }
+@media (max-width: 760px) { .ceo-dec { max-height: 52vh; } }

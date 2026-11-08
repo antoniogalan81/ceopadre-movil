@@ -258,8 +258,9 @@
     <header class="ceo-head">
       <div class="ceo-head-t"><p class="lbl">CONSULTAR AL CEO</p><h2 id="ceo-title">Hablar con el CEO</h2><p class="muted small" id="ceo-ctx"></p></div>
       <span class="head-act"><button class="btn ghost small" type="button" id="ceo-volver" hidden></button><button class="btn ghost small" type="button" id="ceo-cerrar">Cerrar</button></span>
-      <span class="head-act ceo-tools"><button class="btn ghost small" type="button" id="ceo-nueva" title="El asunto cambió: empieza otra conversación (la actual queda guardada)">＋ Nueva<span class="m-hide"> conversación</span></button><select id="ceo-otras" class="btn ghost small" aria-label="Conversaciones anteriores sobre esto" hidden></select><button class="btn ghost small ceo-ancho" type="button" id="ceo-ancho" aria-pressed="false">⤢ Ampliar</button></span>
+      <span class="head-act ceo-tools"><button class="btn ghost small" type="button" id="ceo-nueva" title="El asunto cambió: empieza otra conversación (la actual queda guardada)">＋ Nueva<span class="m-hide"> conversación</span></button><select id="ceo-otras" class="btn ghost small" aria-label="Conversaciones anteriores sobre esto" hidden></select><button class="btn ghost small" type="button" id="ceo-copiar" title="Copia el asunto y la conversación (sin datos sensibles) para consultarlo fuera">📋 Copiar<span class="m-hide"> consulta</span></button><button class="btn ghost small ceo-ancho" type="button" id="ceo-ancho" aria-pressed="false">⤢ Ampliar</button></span>
     </header>
+    <div id="ceo-res"></div>
     <div id="ceo-dec"></div>
     <div class="ceo-msgs" id="ceo-msgs" role="log" aria-live="polite" aria-label="Conversación con el CEO"></div>
     <form class="ceo-form" id="ceo-form">

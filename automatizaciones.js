@@ -2,6 +2,7 @@
 // (`automatizaciones`, `bandeja`) y deja órdenes de la lista cerrada; no ejecuta nada. Todo el texto entra como texto.
 import { h } from './dom.js';
 import { fraseAutomatizacion } from './zones.js';
+import { miniTarjeta } from './tarjeta.js';
 
 // Estado de un botón: disponible · ejecutándose · esperando autorización · completada · parcial · error (y sus matices).
 const STATE = {
@@ -176,17 +177,8 @@ export function autoUi({ api, ask, toast, show, data, run, viewText, ai, alquile
   function tarjeta(a) {
     const s = situacion(a);
     const [txt, on, cls] = s.accion;
-    const nombre = a.nombre.charAt(0) + a.nombre.slice(1).toLowerCase();
-    const abrir = () => openRuns(a);
-    const el = h('article', { class: `ag-mini t-${s.tone}`, 'data-id': `auto-${a.id}`, tabindex: '0', role: 'button', 'aria-label': `${nombre} · ${a.proyectoNombre || ''} · ${s.label}. Abrir ficha` },
-      h('div', { class: 'ag-mini-top' }, h('h3', {}, nombre), chip(s.label, s.tone)),
-      h('p', { class: 'ag-mini-proj muted' }, a.proyectoNombre || ''),
-      h('p', { class: 'ag-mini-desc' }, a.descripcion || 'Sin descripción'),
-      h('div', { class: 'ag-mini-act' }, h('button', { class: `btn ${cls} small`, type: 'button', disabled: !online() && cls === 'primary',
-        onclick: (e) => { e.stopPropagation(); on(e.currentTarget); } }, txt)));
-    el.addEventListener('click', (e) => { if (!e.target.closest('button, a, input, select, summary')) abrir(); });
-    el.addEventListener('keydown', (e) => { if ((e.key === 'Enter' || e.key === ' ') && e.target === el) { e.preventDefault(); abrir(); } });
-    return el;
+    return miniTarjeta({ id: `auto-${a.id}`, titulo: a.nombre.charAt(0) + a.nombre.slice(1).toLowerCase(), sub: a.proyectoNombre || '', desc: a.descripcion,
+      estado: [s.label, s.tone], accion: { txt, on, cls, disabled: !online() && cls === 'primary' }, abrir: () => openRuns(a) });
   }
 
   // AGENTE (V3.3): una ficha de colaborador, no una consola. Ahora es la cabecera de su FICHA (V3.9).
@@ -272,15 +264,18 @@ export function autoUi({ api, ask, toast, show, data, run, viewText, ai, alquile
 
   // LISTA (V3.9): catálogo compacto. Arriba sólo «+ Nuevo agente», buscar y los accesos (respuestas, Windows, avanzado).
   let filtro = '';
-  const ORDEN = { ask: 0, bad: 1, work: 2, warn: 3, idle: 4 };
+  const ORDEN = { ask: 0, bad: 1, work: 2, wait: 2, warn: 3, idle: 4, ok: 4 };
   function list() {
     const ps = projects().filter((p) => !onlyProject || p.id === onlyProject);
     const q = filtro.trim().toLowerCase();
     const coincide = (a) => !q || `${a.nombre} ${a.descripcion || ''} ${a.proyectoNombre}`.toLowerCase().includes(q);
     const groups = ps.map((p) => [p, (p.automatizaciones || []).map((a) => ({ ...a, proyectoNombre: p.nombre })).filter(coincide)
       .sort((a, b) => ORDEN[situacion(a).tone] - ORDEN[situacion(b).tone])]).filter(([p, xs]) => xs.length || (p.id === onlyProject && !q));
-    // ALQUILERES (GESTIÓN): acceso directo arriba en Agentes. No son agentes de IA: «Me ha pagado» funciona sin modelos.
-    const alq = onlyProject ? [] : alquileres();
+    // ALQUILERES (GESTIÓN): misma tarjeta compacta y misma rejilla que los agentes, pero NO son agentes (no cuentan en
+    // «N agentes»; «Me ha pagado» funciona sin modelos). Cada uno trae { tono, texto (para buscar), el }.
+    const alq = (onlyProject ? [] : alquileres()).filter((x) => !q || x.texto.toLowerCase().includes(q));
+    const items = [...alq.map((x) => ({ tone: x.tono, el: x.el })),
+      ...groups.flatMap(([, xs]) => xs).map((a) => ({ tone: situacion(a).tone, el: tarjeta(a) }))].sort((a, b) => ORDEN[a.tone] - ORDEN[b.tone]);
     const buscar = h('input', { type: 'search', class: 'ag-search', placeholder: 'Buscar agente o proyecto', 'aria-label': 'Buscar agente o proyecto' });
     buscar.value = filtro;
     buscar.addEventListener('input', () => { filtro = buscar.value; const pos = buscar.selectionStart; paint(true); const b = document.querySelector('.ag-search'); b?.focus(); b?.setSelectionRange(pos, pos); });
@@ -290,10 +285,8 @@ export function autoUi({ api, ask, toast, show, data, run, viewText, ai, alquile
       n > 6 ? buscar : null,
       pending().length ? h('button', { class: 'btn accent small', type: 'button', onclick: openInbox }, `Aprobaciones pendientes · ${pending().length}`) : inbox().length ? h('button', { class: 'btn ghost small', type: 'button', onclick: openInbox }, 'Respuestas') : null,
       onlyProject ? h('button', { class: 'btn ghost small', type: 'button', onclick: () => openList(null) }, 'Ver todos los proyectos') : null),
-    alq.length ? h('section', { class: 'a-group' }, h('div', { class: 'zone-head' }, h('h2', {}, 'Alquileres'), h('span', { class: 'count' }, String(alq.length))),
-      h('div', { class: 'alq-list' }, alq)) : null,
     // Una sola rejilla (el proyecto va en cada tarjeta): primero lo que te necesita o falla, después lo que trabaja.
-    groups.some(([, xs]) => xs.length) ? h('div', { class: 'ag-grid' }, groups.flatMap(([, xs]) => xs).sort((a, b) => ORDEN[situacion(a).tone] - ORDEN[situacion(b).tone]).map(tarjeta))
+    items.length ? h('div', { class: 'ag-grid' }, items.map((x) => x.el))
       : h('p', { class: 'empty' }, q ? 'Ningún agente coincide con la búsqueda.' : onlyProject ? 'Este proyecto aún no tiene agentes.' : 'Todavía no hay agentes. Crea el primero con «+ Nuevo agente».'),
     h('details', { class: 'fold ag-mas', 'data-k': 'ag-mas' }, h('summary', {}, 'Procesos de Windows y configuración avanzada'),
       h('div', { class: 'a-acts' }, h('button', { class: 'btn ghost small', type: 'button', onclick: () => openEditor(null, onlyProject) }, 'Crear paso a paso (avanzado)')),

@@ -6,6 +6,7 @@
 // edita aquí mismo (añadir, modificar, quitar, reordenar tareas y fases) sin rehacer el objetivo.
 import { h } from './dom.js';
 import { proyectosEn } from './zones.js';
+import { miniTarjeta } from './tarjeta.js';
 
 const TONE = { DEFINIENDO: 'work', ESPERANDO_APROBACION: 'ask', ACTIVA: 'work', ESPERANDO_ANTONIO: 'ask', PAUSADA: 'idle', ALCANZADA: 'ok', BLOQUEADA: 'bad', CANCELADA: 'idle',
   EN_SEGUIMIENTO: 'wait', CERRADA: 'idle' };
@@ -190,16 +191,13 @@ export function negocioUi({ api, ask, toast, show, data, run, viewText }) {
     const ahora = o.vista?.ahora?.[0];
     const necesita = o.te_necesita;
     const abrir = () => openOne(o.id);
-    const el = h('article', { class: `ag-mini obj-mini t-${necesita ? 'ask' : TONE[o.estado] || 'idle'}`, 'data-id': `meta-${o.id}`, tabindex: '0', role: 'button', 'aria-label': `${o.titulo} · ${o.estado_texto}. Abrir` },
-      h('div', { class: 'ag-mini-top' }, h('h3', {}, o.titulo), chip(necesita && !['ESPERANDO_ANTONIO', 'BLOQUEADA', 'ESPERANDO_APROBACION'].includes(o.estado) ? 'Te necesita' : o.estado_texto, necesita ? 'ask' : TONE[o.estado] || 'idle')),
-      h('p', { class: 'ag-mini-proj muted' }, o.proyectos.map((p) => p.nombre).join(' · ') || (o.seleccion?.modo === 'AUTO' ? 'El CEO elige los proyectos' : '')),
-      h('p', { class: 'ag-mini-desc' }, ahora ? `Ahora · ${ahora.proyecto}: ${corto(ahora.ahora && ahora.ahora !== 'Aún no se ha hecho nada' ? ahora.ahora : ahora.objetivo, 120)}` : o.evaluacion || corto(o.texto, 160)),
-      hj ? h('p', { class: 'obj-cuenta' }, h('span', { class: 't-ok' }, `${hj.hechas} hecho`), h('span', { class: 't-work' }, `${hj.en_curso} ahora`), h('span', {}, `${hj.pendientes} pendiente${hj.pendientes === 1 ? '' : 's'}`),
+    return miniTarjeta({ id: `meta-${o.id}`, titulo: o.titulo, clase: 'obj-mini', abrir,
+      estado: [necesita && !['ESPERANDO_ANTONIO', 'BLOQUEADA', 'ESPERANDO_APROBACION'].includes(o.estado) ? 'Te necesita' : o.estado_texto, necesita ? 'ask' : TONE[o.estado] || 'idle'],
+      sub: o.proyectos.map((p) => p.nombre).join(' · ') || (o.seleccion?.modo === 'AUTO' ? 'El CEO elige los proyectos' : ''),
+      desc: ahora ? `Ahora · ${ahora.proyecto}: ${corto(ahora.ahora && ahora.ahora !== 'Aún no se ha hecho nada' ? ahora.ahora : ahora.objetivo, 120)}` : o.evaluacion || corto(o.texto, 160),
+      extra: hj ? h('p', { class: 'obj-cuenta' }, h('span', { class: 't-ok' }, `${hj.hechas} hecho`), h('span', { class: 't-work' }, `${hj.en_curso} ahora`), h('span', {}, `${hj.pendientes} pendiente${hj.pendientes === 1 ? '' : 's'}`),
         hj.bloqueadas ? h('span', { class: 't-ask' }, `${hj.bloqueadas} bloqueada${hj.bloqueadas === 1 ? '' : 's'}`) : null) : null,
-      h('div', { class: 'ag-mini-act' }, B(necesita ? 'Resolver' : 'Ver', (b) => abrir(b), necesita ? 'primary' : 'ghost')));
-    el.addEventListener('click', (e) => { if (!e.target.closest('button, a, input, select, summary')) abrir(); });
-    el.addEventListener('keydown', (e) => { if ((e.key === 'Enter' || e.key === ' ') && e.target === el) { e.preventDefault(); abrir(); } });
-    return el;
+      accion: { txt: necesita ? 'Resolver' : 'Ver', on: abrir, cls: necesita ? 'primary' : 'ghost' } });
   }
 
   // ------------------------------------------------------------ acciones

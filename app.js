@@ -264,6 +264,7 @@ async function refresh() {
   rui?.paint();
   aui?.paint();
   nui?.paint();
+  ALQ.sync(data.proyectos); // ficha de alquiler abierta: al día con los datos reales
 }
 
 async function run(op, params, okMsg, btn) {
@@ -1838,7 +1839,7 @@ async function start() {
   }
   const ai = aiEditor({ api, toast, onApplied: () => void refresh() }); // EDITAR CON IA (uno solo para todas las bandejas)
   rui ??= remoteUi({ api, ask, toast, show, data: () => data, ago, local: LOCAL, ai });
-  aui ??= autoUi({ api, ask, toast, show, data: () => data, run, viewText: (t, x) => view(t, x), ai, alquileres: () => ALQ.cards(data.proyectos) });
+  aui ??= autoUi({ api, ask, toast, show, data: () => data, run, viewText: (t, x) => view(t, x), ai, alquileres: () => ALQ.minis(data.proyectos) });
   nui ??= negocioUi({ api, ask, toast, show, data: () => data, run, viewText: (t, x) => view(t, x) });
   show('p-list');
   await refresh();

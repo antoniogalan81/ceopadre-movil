@@ -1300,3 +1300,11 @@ dialog.obj-new { padding: 20px 16px calc(16px + env(safe-area-inset-bottom)); wi
 }
 @media (pointer: coarse) { .t-ico { min-width: 44px; min-height: 44px; } }
 .obj-proys-line { margin: 0; }
+
+/* V3.9.1 · Ficha de alquiler en ventana (la tarjeta del catálogo es la compacta .ag-mini). */
+dialog.alq-ficha { width: min(680px, 100%); padding: 16px 16px calc(16px + env(safe-area-inset-bottom)); }
+.alq-ficha .cmp-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
+.alq-ficha .cmp-head h2 { margin: 0; font-size: 18px; overflow-wrap: anywhere; }
+.alq-ficha .alq-card { border: 0; padding: 0; box-shadow: none; }
+.ag-mini-desc { line-height: 1.4; min-height: 2.8em; } /* siempre 2 líneas: todas las tarjetas miden igual */
+.ag-mini h3 { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; } .ag-mini-top > h3 { flex: 1; }

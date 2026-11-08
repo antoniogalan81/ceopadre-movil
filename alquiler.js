@@ -1,6 +1,7 @@
 // GESTIÓN · ALQUILERES: la tarjeta de cada inquilino dentro de GESTIONES (PC y móvil). Sólo pinta y da órdenes de la lista
 // cerrada (alquiler.*); todo lo decide el PC (src/alquiler.js). Uso normal: un clic en «Me ha pagado».
 import { h } from './dom.js';
+import { miniTarjeta } from './tarjeta.js';
 
 const eur = (c) => `${(c / 100).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2, useGrouping: 'always' })} €`;
 const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
@@ -123,7 +124,9 @@ export function alquileresUi({ run, ask, cmd, toast, LOCAL }) {
     return det;
   }
 
-  function card(a) {
+  // FICHA COMPLETA (contenido de la ventana): datos, estado del pago y del WhatsApp, «Me ha pagado», modificar, ficha,
+  // ver documento e historial con rectificar. Es la tarjeta grande de antes, sin cambios de lógica.
+  function detalle(a) {
     const pend = a.pendientes;
     const ultimo = a.historial.find((x) => x.recibo);
     const mes = pend[0] || ultimo?.mes || a.actual;
@@ -151,6 +154,49 @@ export function alquileresUi({ run, ask, cmd, toast, LOCAL }) {
       historial(a));
   }
 
-  /** Tarjetas de todos los alquileres que traen las gestiones (vacío si no hay). */
-  return { cards: (gestiones) => gestiones.flatMap((c) => (c.alquileres || []).map(card)) };
+  // VENTANA de la ficha. Clic fuera / Escape / Cerrar la cierran (web/modal.js); abrirla no registra, genera ni envía nada.
+  // Mientras está abierta se repinta con los datos reales (sync), sin repintar si nada cambió (no se pierde el foco).
+  let abierta = null; // { id, dlg, cuerpo, sig }
+  function abrirFicha(a) {
+    if (abierta?.dlg.open) abierta.dlg.close();
+    const cuerpo = h('div', { class: 'alq-ficha-body' }, detalle(a));
+    const dlg = h('dialog', { class: 'sheet alq-ficha', 'aria-label': `Alquiler de ${a.inquilino}` },
+      h('header', { class: 'cmp-head' }, h('h2', {}, `Alquiler · ${a.inquilino}`), h('button', { class: 'btn ghost small', type: 'button', onclick: () => dlg.close() }, 'Cerrar')), cuerpo);
+    dlg.addEventListener('close', () => { dlg.remove(); if (abierta?.dlg === dlg) abierta = null; });
+    document.body.append(dlg);
+    abierta = { id: a.id, dlg, cuerpo, sig: JSON.stringify(a) };
+    dlg.showModal();
+  }
+  function sync(gestiones) {
+    if (!abierta) return;
+    const a = gestiones.flatMap((c) => c.alquileres || []).find((x) => x.id === abierta.id);
+    const sig = JSON.stringify(a || null);
+    if (!a || sig === abierta.sig) return;
+    abierta.sig = sig;
+    abierta.cuerpo.replaceChildren(detalle(a));
+  }
+
+  // TARJETA COMPACTA (la misma de los agentes, web/tarjeta.js). El mes relevante va en el estado. La acción principal:
+  // pendiente → «Me ha pagado», que SÓLO abre la vista previa (nada se registra ni se envía sin «Confirmar pago y
+  // enviar»); envío fallido → «Ver problema»; al día → «Ver ficha». Nunca cobra ni envía con un solo clic.
+  function mini(a, gestion) {
+    const pend = a.pendientes;
+    const ultimo = a.historial.find((x) => x.recibo);
+    const r = ultimo?.recibo;
+    const mes = (m) => MESES[Number(m.slice(5, 7)) - 1];
+    const metodo = a.metodos.find((m) => m.valor === a.metodo)?.nombre || a.metodo;
+    const busy = ocupado.has(a.id);
+    const abrir = () => abrirFicha(a);
+    const [estado, accion] = r?.wa_estado === 'ERROR' ? [['Recibo sin enviar', 'bad'], { txt: 'Ver problema', on: abrir }]
+      : pend.length > 1 ? [[`${pend.length} mensualidades pendientes`, 'bad'], { txt: busy ? 'Registrando…' : 'Me ha pagado', on: (b) => modificar(a, b), cls: 'primary', disabled: busy }]
+      : pend.length ? [[`Pendiente de pago · ${mes(pend[0])}`, 'wait'], { txt: busy ? 'Registrando…' : 'Me ha pagado', on: (b) => previaYConfirmar(a, {}, b), cls: 'primary', disabled: busy }]
+      : r?.wa_estado === 'ENVIANDO' ? [['Enviando recibo…', 'work'], { txt: 'Ver ficha', on: abrir }]
+      : [[`Pagado · al día${ultimo ? ` · ${mes(ultimo.mes)}` : ''}`, 'ok'], { txt: 'Ver ficha', on: abrir }];
+    const el = miniTarjeta({ id: `alq:${a.id}`, titulo: a.inquilino, sub: gestion?.nombre && gestion.nombre !== 'Alquileres' ? `Alquileres · ${gestion.nombre}` : 'Alquileres · Gestión', clase: 'alq-mini',
+      desc: `Recibo mensual por WhatsApp · ${eur(a.importe)} al mes · ${metodo}`, estado, accion, abrir });
+    return { tono: estado[1] === 'wait' ? 'ask' : estado[1], texto: `${a.inquilino} alquileres alquiler ${gestion?.nombre || ''}`, el };
+  }
+
+  /** Tarjetas compactas de todos los alquileres que traen las gestiones (vacío si no hay) y la ficha abierta al día. */
+  return { minis: (gestiones) => gestiones.flatMap((c) => (c.alquileres || []).map((a) => mini(a, c))), sync, abrirFicha };
 }

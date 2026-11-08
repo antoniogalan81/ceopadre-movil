@@ -781,7 +781,9 @@ function paintGoals() {
   const n = data.negocio?.abiertos || 0;
   if (n && !goals.busy && Date.now() - goals.at > 60_000 && data.pc.online !== false) {
     goals.busy = true;
-    void api.cmd('negocio.lista', {}).then((r) => { if (r?.ok) { goals.list = r.data.objetivos; goals.at = Date.now(); } }).finally(() => { goals.busy = false; paintGoals(); });
+    void api.cmd('negocio.lista', {}).then((r) => { if (r?.ok) goals.list = r.data.objetivos; })
+      // El intento cuenta aunque falle (sin red / PC caído): sin esto, finally → paintGoals → otra llamada al instante, en bucle.
+      .finally(() => { goals.at = Date.now(); goals.busy = false; paintGoals(); });
   }
   const list = n ? (goals.list || []).filter((g) => !['ALCANZADA', 'CANCELADA', 'CERRADA'].includes(g.estado)) : [];
   const kpi = (g) => { const x = g.kpis.find((k) => k.disponible && k.valor != null); return x ? `${x.nombre}: ${x.valor}${x.unidad ? ` ${x.unidad}` : ''} de ${x.objetivo}` : g.kpis.length ? 'resultados aún sin medir' : 'sin indicadores aprobados'; };

@@ -7,8 +7,11 @@ import { remoteUi } from './remoto.js';
 import { autoUi } from './automatizaciones.js';
 import { negocioUi } from './negocio.js';
 import { aiEditor } from './redactor.js';
+import { alquileresUi } from './alquiler.js';
 
 const LOCAL = ['127.0.0.1', 'localhost'].includes(location.hostname);
+// GESTIÓN · ALQUILERES: tarjeta de cada inquilino («Me ha pagado») dentro de GESTIONES. run/ask se usan al pulsar.
+const ALQ = alquileresUi({ run: (...a) => run(...a), ask: (o) => ask(o), LOCAL });
 const $ = (s) => document.querySelector(s);
 
 // ------------------------------------------------------------------ transporte
@@ -291,7 +294,7 @@ function ask({ title, help = '', fields = [], ok = 'Aceptar', danger = false }) 
     const input = f.type === 'textarea'
       ? h('textarea', { name: f.name, rows: 5, placeholder: f.placeholder || '', required })
       : f.type === 'password' ? h('input', { name: f.name, type: 'password', autocomplete: 'current-password', required })
-      : h('input', { name: f.name, type: f.type === 'url' ? 'url' : 'text', inputmode: f.type === 'url' ? 'url' : null, placeholder: f.placeholder || '', required, spellcheck: 'false' });
+      : h('input', { name: f.name, type: ['url', 'date'].includes(f.type) ? f.type : 'text', inputmode: f.type === 'url' ? 'url' : f.inputmode || null, max: f.max || null, placeholder: f.placeholder || '', required, spellcheck: 'false' });
     input.value = f.value || '';
     // Intro en un campo de una línea = Aceptar (si no, el formulario enviaría el primer botón: «Volver»).
     if (f.type !== 'textarea') input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); $('#dlg-ok').click(); } });
@@ -655,14 +658,18 @@ function gestUnit(o, asDesk) {
   };
   const btn = h('button', { class: `icon-btn chevron${gestOpen ? ' open' : ''}`, type: 'button', 'aria-expanded': String(gestOpen), 'aria-controls': 'gest-list',
     'aria-label': gestOpen ? 'Cerrar GESTIONES' : 'Abrir GESTIONES', title: gestOpen ? 'Cerrar' : 'Abrir', onclick: (e) => { e.stopPropagation(); toggle(); } }, svg('chevron'));
+  const alq = ALQ.cards(o.gestiones);
+  const alqPend = o.gestiones.flatMap((c) => c.alquileres || []).filter((a) => a.pendientes.length);
   const head = [h('img', { class: 'logo', src: 'gestiones.svg', alt: '', width: 36, height: 36 }),
-    h('div', { class: 'title' }, h('h3', {}, 'GESTIONES'), status({ estado: '' }, gestText(r)))];
+    h('div', { class: 'title' }, h('h3', {}, 'GESTIONES'), status({ estado: '' }, gestText(r)),
+      !gestOpen && alqPend.length ? h('small', { class: 'alq-aviso' }, `Alquiler pendiente: ${alqPend.map((a) => a.inquilino.split(' ')[0]).join(', ')}`) : null)];
   // Abierta: la propia unidad se despliega a lo ancho con sus gestiones dentro (un cajón, no otra página).
   if (gestOpen) {
     return h('section', { class: `drawer gest m-${m} is-open`, 'data-id': 'gestiones', 'aria-label': 'Gestiones' },
       h('header', { class: 'unit-head' }, ...head,
         h('button', { class: 'btn primary small', type: 'button', onclick: (e) => createFolder('gestion.crear', 'gestión', 'E:\\ECOAPP\\Gestiones', e.currentTarget) }, '+ Nueva gestión'),
         btn),
+      alq.length ? h('div', { class: 'alq-list' }, alq) : null,
       h('div', { class: 'drawer-grid', id: 'gest-list' },
         o.gestiones.length ? o.gestiones.map((c) => (zone(c) === 'marcha' ? desk(c) : tile(c)))
           : h('p', { class: 'zone-empty' }, 'Todavía no hay gestiones. Crea la primera: Hacienda, Facturas, Seguros…')));

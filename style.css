@@ -1201,3 +1201,24 @@ dialog.ceo-chat::backdrop { background: oklch(0 0 0 / .25); }
 /* Los botones de la decisión siempre a mano, aunque la explicación sea larga (también en el móvil). */
 .ceo-dec .dec-btns { position: sticky; bottom: -10px; margin-inline: -12px; margin-bottom: -10px; padding: 8px 12px 10px; background: var(--card, var(--paper)); border-top: 1px solid var(--line); z-index: 1; }
 @media (max-width: 760px) { .ceo-dec { max-height: 52vh; } }
+
+/* ---------- GESTIÓN · ALQUILERES (web/alquiler.js): tarjeta compacta del inquilino, un clic en «Me ha pagado» ---------- */
+.a-chip.t-wait { background: var(--wait-bg); color: var(--wait); }
+.alq-list { display: grid; gap: 8px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); margin-bottom: 10px; }
+.alq-card { min-width: 0; background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; display: grid; gap: 8px; }
+.alq-card.need { border-color: var(--ask); box-shadow: inset 4px 0 0 var(--ask); }
+.alq-head { display: flex; justify-content: space-between; align-items: start; gap: 8px; }
+.alq-head h3 { margin: 0; font-size: 16px; }
+.alq-dl { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; margin: 0; align-items: baseline; }
+.alq-dl dt { color: var(--ink-3); font-size: 13px; } .alq-dl dd { margin: 0; }
+.alq-motivo { display: block; margin-top: 2px; }
+.alq-acciones { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.alq-pagado { min-height: 44px; padding-inline: 22px; font-size: 15px; }
+.alq-aviso { display: block; color: var(--ask); font-weight: 700; }
+.alq-hist summary { cursor: pointer; color: var(--accent); font-weight: 650; min-height: 32px; display: flex; align-items: center; }
+.alq-scroll { overflow-x: auto; max-width: 100%; }
+.alq-hist { min-width: 0; }
+.alq-card button.link { min-height: 44px; padding-inline: 4px; }
+.alq-tabla { width: 100%; border-collapse: collapse; font-size: 13px; }
+.alq-tabla th, .alq-tabla td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+.alq-tabla .num { text-align: right; font-variant-numeric: tabular-nums; }

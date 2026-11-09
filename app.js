@@ -1,8 +1,8 @@
 // CEOPadre en el navegador. En el PC habla con la API local; en el móvil, con Supabase.
 // No ejecuta nada: pinta el estado y deja órdenes. Todo el texto se inserta como texto (nunca HTML).
-import { cleanGoal, conditionsText, decisionCount, decisionsText, direccion, esperaHumana, gestText, HIGH_RISK, mood, needsDecision, netStatus, office, passwordAt, pcOnline, priority, PROMPT_LIMIT, PROMPT_WARN, quotaView, REAUTH_MS, waitingConditions, zone } from './zones.js';
+import { cleanGoal, conditionsText, decisionCount, decisionsText, direccion, esPotente, esperaHumana, gestText, mood, needsDecision, netStatus, office, passwordAt, pcOnline, priority, PROMPT_LIMIT, PROMPT_WARN, quotaView, REAUTH_MS, waitingConditions, zone } from './zones.js';
 import { h } from './dom.js';
-import { advice, decideRow, EFECTO, explica, mapBody, mapPanel, pendingDecisions, proposals } from './map.js';
+import { advice, comunes, decideRow, EFECTO, explica, mapBody, mapPanel, pendingDecisions, proposals } from './map.js';
 import { remoteUi } from './remoto.js';
 import { autoUi } from './automatizaciones.js';
 import { negocioUi } from './negocio.js';
@@ -92,7 +92,7 @@ async function remoteApi() {
     async details(id) { const r = await sb.from('ceo_card').select('detalle').eq('id', id).maybeSingle(); return r.data?.detalle; },
     async cmd(op, params) {
       if (!online()) return { ok: false, error: 'El PC no está conectado ahora mismo: la orden no se envía.' };
-      if (HIGH_RISK.has(op)) {
+      if (esPotente(op, params)) {
         const extra = await strongConfirm(sb, op, params);
         if (!extra?.ok) return { ok: false, error: extra?.error || 'Cancelado: no se ha enviado nada.' };
         params = { ...params, confirmado: true, _auth: extra.token };
@@ -237,6 +237,7 @@ function aplicarRuta() {
 window.addEventListener('popstate', aplicarRuta);
 window.addEventListener('ceo:nav', (e) => navPush(e.detail || {}));
 window.addEventListener('ceo:abrir', (e) => { if (e.detail?.ref) void openCeo(e.detail.ref, { pregunta: e.detail.pregunta || null }); });
+window.addEventListener('ceo:copiar', (e) => { if (e.detail?.ref) void copiarConsulta(e.detail.ref, e.detail.btn || null); });
 document.addEventListener('click', (e) => {
   const t = e.target.closest?.('#tabbar [data-go], .tabs [data-tab]');
   if (t) goTab(t.dataset.go || t.dataset.tab);
@@ -559,12 +560,24 @@ const conseq = (c) => (esGasto(c) ? null : h('p', { class: 'ln conseq' }, h('b',
 const jobDecision = (c) => (c.estado === 'ESPERANDO_DECISION' ? h('div', { class: 'decision' }, superadaBox(c),
   ...(explica(c.consejo, 'trabajo') && !esGasto(c) ? [explica(c.consejo, 'trabajo'), h('details', { class: 'prop-more tecnico' }, h('summary', {}, 'Detalle técnico'), ...decisionLines(c))]
     : [...decisionLines(c), advice(c.consejo), conseq(c)]),
-  copiarBtn(`decision:${c.id}:${c.ref}`),
   decideRow({ yes: (e) => actions.approve(c, e.currentTarget), no: (e) => actions.reject(c, e.currentTarget),
     ask: c.ref ? (e) => actions.consult(c, c.ref, e.currentTarget) : null,
     alt: c.consejo?.alternativa && c.version ? (e) => actions.alternativa(c, e.currentTarget) : null, altLabel: c.consejo?.alternativa?.etiqueta, rec: c.consejo?.veredicto,
     yesLabel: esGasto(c) ? 'Sí, autorizo este gasto' : c.consejo?.aprobar || 'Aprobar la propuesta', noLabel: esGasto(c) ? 'No autorizo este gasto' : c.consejo?.rechazar || 'Rechazar la propuesta' }),
-  h('button', { class: 'link', type: 'button', onclick: (e) => actions.instruct(c, e.currentTarget) }, 'Responder otra cosa o pedir una aclaración')) : null);
+  // Un trabajo esperando no se pospone (seguiría parado igual): lo independiente ya sigue en otros trabajos.
+  comunes({ copy: (b) => copiarConsulta(`decision:${c.id}:${c.ref}`, b), detalles: () => detallesDecision(c.nombre, c, 'trabajo'), instruir: (b) => actions.instruct(c, b) })) : null);
+/** «Ver detalles» de cualquier decisión: contexto, justificación, alternativas, riesgos y consecuencias, en texto llano
+ *  (el visor se cierra al pulsar fuera sin aplicar nada). `k` = la decisión con su consejo; `extra` = filas propias. */
+function detallesDecision(titulo, k, tipo, extra = []) {
+  const e = k.consejo?.explicacion || {};
+  const [rec, opts] = String(k.recomendacion || '').split(/\n?OPCIONES:\n?/);
+  const filas = [['QUÉ PASA', e.que_pasa], ['QUÉ SE PROPONE', e.que_proponen || k.propuesta], ...extra,
+    ['EL CEO RECOMIENDA', [k.consejo?.veredicto && ({ APROBAR: k.consejo.aprobar || 'Aprobar', RECHAZAR: k.consejo.rechazar || 'Rechazar', ALTERNATIVA: k.consejo.alternativa?.etiqueta, RESPONDER: k.consejo.respuesta, POSPONER: 'Esperar', INVESTIGAR: 'Comprobar antes un dato' }[k.consejo.veredicto] || k.consejo.veredicto), k.consejo?.motivo || rec].filter(Boolean).join(' — ')],
+    ['ALTERNATIVAS', [opts, k.consejo?.alternativa ? `${k.consejo.alternativa.etiqueta}: ${k.consejo.alternativa.texto || ''}` : ''].filter(Boolean).join('\n')],
+    [`SI APRUEBAS${k.consejo?.aprobar ? ` («${k.consejo.aprobar}»)` : ''}`, e.si_apruebo || k.si_apruebo], [`SI RECHAZAS${k.consejo?.rechazar ? ` («${k.consejo.rechazar}»)` : ''}`, e.si_rechazo || k.si_rechazo],
+    ['RIESGO', k.consejo?.riesgo], ['QUÉ HACE CEOPADRE', EFECTO[tipo]]];
+  view(`Detalles · ${titulo}`, filas.filter(([, v]) => v && String(v).trim()).map(([t, v]) => `${t}\n${v}`).join('\n\n') || 'Sin más detalles: pregunta al CEO.');
+}
 
 // ------------------------------------------------------------------ la oficina
 
@@ -627,7 +640,10 @@ function tuyaCard(x) {
     line('TE NECESITA', hum.que ? hum.que.charAt(0).toUpperCase() + hum.que.slice(1) : x.condicion),
     h('p', { class: 'ln muted' }, 'Cuando lo hagas, CEOPadre lo comprueba solo y sigue. Si ya lo has hecho, pulsa el botón.'),
     h('div', { class: 'row' }, h('button', { class: 'btn primary small', type: 'button', onclick: (e) => run('trabajo.reanudar', { trabajo: x.trabajo }, 'Comprobando', e.currentTarget) }, 'Ya lo he hecho'),
-      h('button', { class: 'btn ghost small', type: 'button', onclick: () => actions.details(x.c) }, 'Ver detalles')));
+      h('button', { class: 'btn ghost small', type: 'button', onclick: () => openCeo(`trabajo:${x.trabajo}`, { pregunta: '¿Qué necesitas exactamente de mí, para qué, y hay alguna alternativa que no me necesite?' }) }, '💬 Consultar al CEO'),
+      h('button', { class: 'btn ghost small', type: 'button', onclick: () => actions.details(x.c) }, 'Ver detalles')),
+    // Otra instrucción: la de siempre del trabajo; no se pospone (CEOPadre ya lo comprueba solo, sin avisar de más).
+    comunes({ copy: (b) => copiarConsulta(`trabajo:${x.trabajo}`, b), instruir: (b) => actions.instruct({ ...x.c, trabajo: x.trabajo }, b) }));
 }
 /** ESPERANDO ALGO EXTERNO: en lenguaje normal (qué falta, cuándo se miró, qué pasará). Lo técnico, en la ficha. */
 function waitCard(x) {
@@ -1154,8 +1170,27 @@ function ceoDecision(c) {
       d.riesgo ? h('p', { class: 'ln bad small' }, h('b', {}, 'RIESGO '), d.riesgo) : null,
       ex, h('p', { class: 'ln small efecto' }, h('b', {}, 'QUÉ HACE CEOPADRE '), EFECTO[d.tipo] || '')],
     d.explicacion ? h('details', { class: 'prop-more tecnico' }, h('summary', {}, 'Detalle técnico'), h('p', { class: 'small' }, d.propuesta)) : null,
-    decideRow({ yes: d.tipo === 'pregunta' ? null : (e) => decidirCeo('APROBAR', e.currentTarget), no: d.tipo === 'pregunta' ? null : (e) => decidirCeo('RECHAZAR', e.currentTarget),
-      yesLabel: d.gasto ? 'Sí, autorizo este gasto' : d.aprobar || ACC.APROBAR, noLabel: d.gasto ? 'No autorizo este gasto' : d.rechazar || ACC.RECHAZAR, rec: d.recomienda, ...altB }));
+    decideRow({ yes: d.tipo === 'pregunta' ? null : d.abierta ? (e) => otraCeo(d, e.currentTarget, true) : (e) => decidirCeo('APROBAR', e.currentTarget),
+      no: d.tipo === 'pregunta' ? null : (e) => decidirCeo('RECHAZAR', e.currentTarget),
+      yesLabel: d.gasto ? 'Sí, autorizo este gasto' : d.abierta ? d.boton : d.aprobar || d.boton || ACC.APROBAR, noLabel: d.gasto ? 'No autorizo este gasto' : d.rechazar || (d.tipo === 'necesidad' ? 'No lo voy a hacer' : ACC.RECHAZAR), rec: d.recomienda, ...altB }),
+    // V3.11: también desde aquí, sin salir de la conversación: otra instrucción y posponer (sólo donde tienen sentido).
+    comunes({ instruir: d.tipo === 'propuesta' ? null : (b) => otraCeo(d, b), posponer: d.tipo === 'necesidad' || d.tipo === 'pregunta' ? (b) => posponerCeo(d, b) : null }));
+}
+/** «Dar otra instrucción» (o responder una pregunta abierta) desde la conversación: la orden de siempre de cada clase. */
+async function otraCeo(d, b, responder = false) {
+  const r = await ask({ title: responder || d.tipo === 'pregunta' ? 'Tu respuesta' : 'Otra instrucción en lugar de la propuesta', help: d.propuesta, ok: 'Enviar',
+    fields: [{ name: 't', label: responder || d.tipo === 'pregunta' ? 'Respuesta' : 'Qué quieres que se haga', type: 'textarea' }] });
+  if (!r?.t) return;
+  const id = d.ref.slice(d.ref.indexOf(':') + 1);
+  const [op, params] = d.tipo === 'necesidad' ? ['negocio.necesidad', responder ? { id: d.necesidad, respuesta: r.t } : { id: d.necesidad, instruccion: r.t }]
+    : d.tipo === 'pregunta' ? ['decision.responder', { proyecto: d.proyecto, id, respuesta: r.t }]
+      : ['trabajo.instruccion', { trabajo: id, texto: r.t, tipo: 'INSTRUCCION' }];
+  if (await run(op, params, 'Enviado', b)) await resueltoCeo({ fase: 'REGISTRADA', mensaje: responder ? 'Respuesta registrada: el director sigue con ella.' : 'Instrucción registrada en lugar de la propuesta.' });
+}
+async function posponerCeo(d, b) {
+  const ok = d.tipo === 'necesidad' ? await run('negocio.posponer', { id: d.necesidad, dias: 7 }, 'Pospuesta 7 días', b)
+    : await run('decision.posponer', { proyecto: d.proyecto, id: d.ref.slice(d.ref.indexOf(':') + 1), dias: 7 }, 'Pospuesta 7 días', b);
+  if (ok) await resueltoCeo({ fase: 'REGISTRADA', mensaje: 'Pospuesta 7 días: sigue pendiente, sin avisos; lo demás continúa.' });
 }
 function ceoMsg(m, aplicados) {
   if (m.rol === 'antonio') return h('div', { class: 'msg yo' }, h('p', {}, m.texto));

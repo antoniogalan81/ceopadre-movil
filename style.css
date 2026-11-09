@@ -998,6 +998,12 @@ a.btn { display: inline-flex; align-items: center; justify-content: center; text
 .dec-btns .dbtn, .dec-pend .dbtn { width: auto; min-width: 0; height: auto; min-height: 44px; padding: 0 16px; gap: 8px; display: inline-flex; align-items: center; font-weight: 750; font-size: 14px; }
 .dbtn-l { font: 750 14px/1.1 var(--sans); }
 .decision > .link { justify-self: start; }
+/* V3.11 · fila común de toda decisión (copiar · detalles · otra instrucción · posponer): mismo sitio en todas las pantallas;
+   en el móvil se reparte en dos columnas con objetivos táctiles de 44 px. */
+.dec-com { display: flex; flex-wrap: wrap; gap: 2px 18px; margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--line); }
+.dec-com .link.com { min-height: 44px; font-size: 13.5px; }
+@media (max-width: 520px) { .dec-com { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; } .dec-com .link.com { text-align: left; } }
+.need-card.pospuesta { opacity: .8; }
 
 /* Lateral: proyectos y agentes como accesos. */
 .side-links { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }

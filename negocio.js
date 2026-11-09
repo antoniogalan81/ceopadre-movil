@@ -5,7 +5,8 @@
 // Un objetivo abierto enseña primero lo esencial (hecho · ahora · después · te necesito) y la HOJA DE RUTA VIVA, que se
 // edita aquí mismo (añadir, modificar, quitar, reordenar tareas y fases) sin rehacer el objetivo.
 import { h } from './dom.js';
-import { proyectosEn } from './zones.js';
+import { EFECTOS_NEC, proyectosEn } from './zones.js';
+import { advice, comunes, decideRow, explica } from './map.js';
 import { miniTarjeta } from './tarjeta.js';
 
 const TONE = { DEFINIENDO: 'work', ESPERANDO_APROBACION: 'ask', ACTIVA: 'work', ESPERANDO_ANTONIO: 'ask', PAUSADA: 'idle', ALCANZADA: 'ok', BLOQUEADA: 'bad', CANCELADA: 'idle',
@@ -136,23 +137,59 @@ export function negocioUi({ api, ask, toast, show, data, run, viewText }) {
       v.entendido ? h('p', { class: 'q4-entendido' }, h('b', {}, 'ÚLTIMO CAMBIO ENTENDIDO: '), v.entendido) : null);
   }
   // Lo que el CEO pidió a Antonio: qué, por qué, qué bloquea, qué sigue haciendo y cómo decirle que está hecho.
+  // V3.11: es una DECISIÓN COMÚN (misma explicación del CEO, ✓ ✕ ↺ ? y fila común que en Dirección y Proyectos).
+  const ceoAbrir = (ref, pregunta = '¿Qué recomiendas, por qué, qué alternativas hay y qué consecuencias tiene cada una?') => window.dispatchEvent(new CustomEvent('ceo:abrir', { detail: { ref, pregunta } }));
+  const copiarRef = (ref, btn) => window.dispatchEvent(new CustomEvent('ceo:copiar', { detail: { ref, btn } }));
   function necesidades(o) {
-    const xs = (o.necesidades || []).filter((n) => n.estado === 'PENDIENTE');
-    if (!xs.length) return null;
-    return h('section', { class: 'panel need-panel' }, h('h4', {}, `Necesito tu intervención (${xs.length})`), xs.map((n) => h('article', { class: 'need-card' },
+    const todas = (o.necesidades || []).filter((n) => n.estado === 'PENDIENTE');
+    const xs = todas.filter((n) => !n.pospuesta);
+    const aparcadas = todas.filter((n) => n.pospuesta);
+    if (!todas.length) return null;
+    return h('section', { class: 'panel need-panel' }, h('h4', {}, xs.length ? `Necesito tu intervención (${xs.length})` : 'Necesito tu intervención'),
+      xs.length ? xs.map((n) => needCard(o, n)) : h('p', { class: 'muted small' }, 'Nada urgente: sólo lo que pospusiste.'),
+      aparcadas.length ? h('details', { class: 'prop-more', 'data-k': `pospuestas-${o.id}` }, h('summary', {}, `Pospuestas (${aparcadas.length})`),
+        aparcadas.map((n) => h('article', { class: 'need-card pospuesta' }, h('p', { class: 'need-t' }, h('b', {}, TIPO_NEC[n.tipo] || 'Necesito'), ` — ${n.que}`),
+          h('p', { class: 'muted small' }, `Pospuesta hasta el ${fecha(n.pospuesta_hasta)}. El objetivo sigue con lo demás.`),
+          h('div', { class: 'a-acts' }, B('Traerla ahora', (b) => after(cmd('negocio.posponer', { id: n.id, dias: 0 }, 'Vuelve a estar a la vista', b))))))) : null);
+  }
+  function needCard(o, n) {
+    const c = n.consejo || null;
+    const k = c ? { ...c, aprobar: n.abierta ? (EFECTOS_NEC[n.tipo] || {}).boton : c.acciones?.aprobar, rechazar: c.acciones?.rechazar, alternativa: c.acciones?.alternativa || null } : null;
+    const ef = EFECTOS_NEC[n.tipo] || {};
+    const ex = k && explica(k, 'necesidad');
+    const si = n.tipo === 'CONEXION' ? () => window.dispatchEvent(new CustomEvent('ceo:conexiones', { detail: { servicio: n.conexion } }))
+      : n.abierta || n.tipo === 'ACCION' ? (b) => resolverNec(o, n, b)
+        : (b) => after(cmd('negocio.necesidad', { id: n.id, respuesta: 'Aprobada' }, ef.boton || 'Aprobado', b));
+    return h('article', { class: 'need-card', 'data-ref': n.ref },
       h('p', { class: 'need-t' }, h('b', {}, TIPO_NEC[n.tipo] || 'Necesito'), ` — ${n.que}`),
-      h('dl', { class: 'wait-dl' },
+      ex || h('dl', { class: 'wait-dl' },
         n.por_que ? [h('dt', {}, 'Por qué'), h('dd', {}, n.por_que)] : null,
         n.bloquea ? [h('dt', {}, 'Queda en espera'), h('dd', {}, n.bloquea)] : null,
         n.mientras ? [h('dt', {}, 'Mientras, sigo con'), h('dd', {}, n.mientras)] : null,
         n.como ? [h('dt', {}, n.tipo === 'KPI' ? 'Comando' : 'Cómo'), h('dd', {}, n.tipo === 'KPI' ? h('code', {}, n.como) : n.como)] : null),
-      h('div', { class: 'a-acts' },
-        n.tipo === 'CONEXION' ? B(`Conectar ${n.conexion || 'la cuenta'}`, () => window.dispatchEvent(new CustomEvent('ceo:conexiones', { detail: { servicio: n.conexion } })), 'primary')
-          : n.tipo === 'AUTOMATIZACION' ? B('Activar la automatización', (b) => after(cmd('negocio.necesidad', { id: n.id, respuesta: 'Aprobada' }, 'Automatización activada', b)), 'primary')
-          : n.tipo === 'CAPACIDAD' ? B('Incorporar al catálogo', (b) => after(cmd('negocio.necesidad', { id: n.id, respuesta: 'Aprobada' }, 'Incorporada al catálogo', b)), 'primary')
-          : n.tipo === 'KPI' ? B('Aprobar este comando', (b) => after(cmd('negocio.necesidad', { id: n.id, respuesta: 'Aprobada' }, 'Aprobado', b)), 'primary')
-          : B(n.tipo === 'DECISION' || n.tipo === 'DATO' ? 'Responder' : 'Ya lo he hecho', (b) => resolverNec(o, n, b), 'primary'),
-        B('No lo voy a hacer', (b) => descartarNec(o, n, b))))));
+      ex ? null : advice(k),
+      decideRow({ yes: (e) => si(e.currentTarget), yesLabel: n.tipo === 'CONEXION' ? `Conectar ${n.conexion || 'la cuenta'}` : n.abierta ? ef.boton : k?.aprobar || ef.boton || 'Aprobar',
+        no: (e) => descartarNec(o, n, e.currentTarget), noLabel: k?.rechazar || 'No lo voy a hacer',
+        alt: k?.alternativa ? (e) => after(cmd('decision.alternativa', { proyecto: n.proyecto, ref: `necesidad:${n.id}`, version: n.version }, 'Alternativa registrada', e.currentTarget)) : null,
+        altLabel: k?.alternativa?.etiqueta, rec: k?.veredicto, ask: () => ceoAbrir(n.ref) }),
+      comunes({ copy: (b) => copiarRef(n.ref, b), detalles: () => detallesNec(o, n, k), instruir: n.abierta ? null : (b) => instruirNec(o, n, b), posponer: (b) => after(cmd('negocio.posponer', { id: n.id, dias: 7 }, 'Pospuesta 7 días', b)) }));
+  }
+  function detallesNec(o, n, k) {
+    const ef = EFECTOS_NEC[n.tipo] || {};
+    const e = k?.explicacion || {};
+    const d = n.detalle || {};
+    const rec = k?.veredicto ? `${{ APROBAR: k.aprobar || ef.boton || 'Aprobar', RECHAZAR: k.rechazar || 'No hacerlo', ALTERNATIVA: k.alternativa?.etiqueta, RESPONDER: k.respuesta, POSPONER: 'Esperar', INVESTIGAR: 'Comprobar antes un dato' }[k.veredicto] || k.veredicto}${k.motivo ? ` — ${k.motivo}` : ''}` : 'Aún sin recomendación: pulsa «Consultar al CEO».';
+    const filas = [['OBJETIVO', o.titulo], ['QUÉ SE PIDE', n.que], ['QUÉ PASA', e.que_pasa], ['POR QUÉ (justificación)', n.por_que], ['QUÉ QUEDA EN ESPERA', n.bloquea], ['MIENTRAS, EL OBJETIVO SIGUE CON', n.mientras],
+      ['CÓMO / DATOS', n.como], ['FUENTE', d.fuente], ['LICENCIA', d.licencia], ['INSTALACIÓN (por proyecto y con tu autorización)', d.instalacion],
+      ['ALTERNATIVAS', [d.alternativas, k?.alternativa ? `Del CEO — ${k.alternativa.etiqueta}: ${k.alternativa.texto || ''}` : ''].filter(Boolean).join('\n')],
+      ['EL CEO RECOMIENDA', rec], [`SI ELIGES «${k?.aprobar || ef.boton || 'Aprobar'}»`, e.si_apruebo || ef.si_apruebo], [`SI ELIGES «${k?.rechazar || 'No lo voy a hacer'}»`, e.si_rechazo || ef.si_rechazo],
+      ['SI DAS OTRA INSTRUCCIÓN', 'No se hace lo propuesto: el director sigue con lo que tú digas.'], ['SI LA POSPONES', 'Sigue pendiente 7 días sin avisos; el resto del objetivo sigue trabajando.'],
+      ['RIESGO', [k?.riesgo, d.seguridad].filter(Boolean).join('\n')], ['PEDIDA', fecha(n.created_at)]];
+    viewText(`Detalles · ${TIPO_NEC[n.tipo] || 'petición'}`, filas.filter(([, v]) => v && String(v).trim()).map(([t, v]) => `${t}\n${v}`).join('\n\n'));
+  }
+  async function instruirNec(o, n, btn) {
+    const r = await ask({ title: 'Otra instrucción en lugar de la propuesta', help: n.que, ok: 'Enviar', fields: [{ name: 't', label: 'Qué quieres que se haga', type: 'textarea' }] });
+    if (r?.t) await after(cmd('negocio.necesidad', { id: n.id, instruccion: r.t }, 'Instrucción registrada', btn));
   }
   async function resolverNec(o, n, btn) {
     const r = await ask({ title: n.que, help: n.como || '', ok: 'Enviar', fields: [{ name: 'respuesta', label: n.tipo === 'ACCION' ? 'Qué has hecho (opcional)' : 'Tu respuesta', type: 'textarea', required: n.tipo !== 'ACCION' }] });
@@ -168,7 +205,10 @@ export function negocioUi({ api, ask, toast, show, data, run, viewText }) {
     if (o.estado === 'ESPERANDO_ANTONIO' || o.estado === 'BLOQUEADA') return h('div', { class: 'decision' }, h('p', { class: 'ln' }, h('b', {}, o.estado === 'BLOQUEADA' ? 'BLOQUEADO' : 'TE NECESITA'), ` ${o.pregunta || o.evaluacion || ''}`),
       h('div', { class: 'row' }, o.estado === 'ESPERANDO_ANTONIO' ? B('RESPONDER', (b) => responder(o, b), 'primary') : null,
         o.categoria === 'CIERRE' ? B('Sí, darlo por alcanzado', (b) => cerrar(o, b)) : null,
-        B('REANUDAR', (b) => after(cmd('negocio.reanudar', { id: o.id }, 'Reanudado', b)))));
+        B('REANUDAR', (b) => after(cmd('negocio.reanudar', { id: o.id }, 'Reanudado', b))),
+        B('💬 Consultar al CEO', () => ceoAbrir(`meta:${o.id}`, `${o.estado === 'BLOQUEADA' ? 'Está bloqueado' : 'Me preguntas'}: «${corto(o.pregunta || o.evaluacion || '', 300)}». ¿Qué recomiendas, por qué, qué alternativas hay y qué pasa con cada una?`))),
+      // RESPONDER ya es «dar otra instrucción»; posponer no tiene sentido: el objetivo entero está esperando esto.
+      comunes({ copy: (b) => copiarRef(`meta:${o.id}`, b) }));
     return null;
   }
   // Acciones del objetivo: una principal a la vista; el resto, en «Más».

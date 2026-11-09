@@ -181,6 +181,20 @@ export const HIGH_RISK = new Set(['objetivo.iniciar', 'objetivo.anadir', 'trabaj
   'decision.alternativa',
   // V3.10: unificar o cerrar lo pendiente de Antonio (cierra preguntas y entrega respuestas a trabajos).
   'negocio.conciliar']);
+// V3.11: qué pasa con cada botón de una NECESIDAD de objetivo (lo que hace negocio.necesidad). La usan el CEO
+// (src/conversacion.js) y la ventana de detalles (web/negocio.js): las dos dicen lo mismo.
+export const EFECTOS_NEC = {
+  CAPACIDAD: { boton: 'Incorporar al catálogo', si_apruebo: 'Se añade al catálogo del HUB como conocimiento: no se instala, contrata ni transmite nada.', si_rechazo: 'No se añade; el director sigue sin ella.' },
+  AUTOMATIZACION: { boton: 'Activar la automatización', si_apruebo: 'Se activa la automatización con su horario (visible y pausable en Agentes).', si_rechazo: 'Queda desactivada; el director replanifica sin ella.' },
+  KPI: { boton: 'Aprobar este comando', si_apruebo: 'CEOPadre empieza a medir ese indicador con ese comando.', si_rechazo: 'No se ejecuta ese comando; el indicador queda sin medir.' },
+  CONEXION: { boton: 'Ya la he conectado', si_apruebo: 'Se comprueba que la cuenta está conectada (conéctala antes en Conexiones, en el PC).', si_rechazo: 'El director replanifica sin esa cuenta.' },
+  ACCION: { boton: 'Ya lo he hecho', si_apruebo: 'Le dices que ya está hecho y el director sigue con lo que dependía de ello.', si_rechazo: 'No lo harás: el director replanifica sin ello.' },
+  DATO: { boton: 'Responder', si_apruebo: null, si_rechazo: 'No lo darás: el director replanifica sin ese dato.' },
+  DECISION: { boton: 'Responder', si_apruebo: null, si_rechazo: 'No decides eso: el director replanifica sin ello.' },
+};
+/** V3.11: potente por la orden o por lo que decide: aprobar/rechazar una NECESIDAD de un objetivo desde la conversación o la
+ *  tarjeta (decision.resolver con ref necesidad:…) da trabajo al director igual que negocio.necesidad. */
+export const esPotente = (op, params) => HIGH_RISK.has(op) || (op === 'decision.resolver' && /^necesidad:/.test(String(params?.ref || '')));
 export const REAUTH_MS = 30 * 60_000;
 /** Hora (ms) de la última vez que esta sesión se abrió CON CONTRASEÑA, leída del token (amr). 0 si no consta. */
 export function passwordAt(accessToken) {

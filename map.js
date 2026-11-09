@@ -37,11 +37,26 @@ export function decideRow({ yes, no, ask, alt = null, altLabel = '', rec = null,
     alt ? b('↺', altLabel || 'Hacer la alternativa del CEO', alt, 'alt', 'ALTERNATIVA') : null, ask ? dbtn('?', 'Consultar al CEO', ask, 'ask') : null);
 }
 
+/**
+ * V3.11 · LO COMÚN DE TODA DECISIÓN, debajo de ✓ ✕ ↺ ?: mismos nombres y mismo orden en todas las pantallas (Dirección,
+ * Proyectos, Objetivos, la conversación con el CEO; PC y móvil). Cada tarjeta pasa SÓLO lo que tiene sentido para ella
+ * (p. ej. un trabajo esperando no se pospone: seguiría parado igual). Ninguno decide nada salvo «Dar otra instrucción».
+ */
+export function comunes({ copy = null, detalles = null, instruir = null, posponer = null, posponerLabel = 'Posponer 7 días' } = {}) {
+  const L = (txt, fn, title) => (fn ? h('button', { class: 'link com', type: 'button', title, onclick: (e) => fn(e.currentTarget) }, txt) : null);
+  const xs = [L('📋 Copiar consulta', copy, 'Copia el asunto entero (sin datos sensibles) para consultarlo fuera, p. ej. en ChatGPT'),
+    L('🔎 Ver detalles', detalles, 'Contexto, justificación, alternativas, riesgos y qué pasa con cada opción'),
+    L('✎ Dar otra instrucción', instruir, 'No aceptar la propuesta tal cual: di qué hacer en su lugar'),
+    L(`⏱ ${posponerLabel}`, posponer, 'Dejarla pendiente sin avisos; lo que no depende de ella sigue trabajando')].filter(Boolean);
+  return xs.length ? h('div', { class: 'dec-com', role: 'group', 'aria-label': 'Más opciones de la decisión' }, xs) : null;
+}
+
 // Qué hace CEOPadre DE VERDAD según la clase de decisión (lo que hace el motor; no depende de la IA).
 export const EFECTO = {
   trabajo: 'Aprobar deja que el CEO siga con lo propuesto. No autoriza publicar, desplegar, enviar a terceros ni gastar si no estaba en la propuesta: eso se pregunta aparte.',
   propuesta: 'Sólo cambia el mapa del proyecto (lo que CEOPadre da por decidido). No inicia trabajos ni publica nada.',
   pregunta: 'Tu respuesta queda como decisión del proyecto y el CEO la seguirá en los próximos trabajos.',
+  necesidad: 'Lo que decidas queda en el registro de decisiones del objetivo y llega al director y a los trabajos vinculados. El resto del objetivo sigue mientras tanto.',
 };
 const REC_TXT = { APROBAR: (k) => k.aprobar || 'Aprobar la propuesta', RECHAZAR: (k) => k.rechazar || 'Rechazar la propuesta', ALTERNATIVA: (k) => k.alternativa?.etiqueta || 'Otra vía',
   POSPONER: () => 'Esperar', INVESTIGAR: () => 'Comprobar antes un dato', RESPONDER: () => 'Responder' };
@@ -108,7 +123,8 @@ export function proposals(m, decide, consult = null, copy = null) {
         yesLabel: p.consejo?.aprobar || 'Aplicar el cambio propuesto', noLabel: p.consejo?.rechazar || 'Dejar el mapa como está',
         alt: p.consejo?.alternativa ? (e) => decide(p.id, 'alternativa', e.currentTarget, p) : null, altLabel: p.consejo?.alternativa?.etiqueta, rec: p.consejo?.veredicto,
         ask: consult && p.ref ? (e) => consult(p.ref, e.currentTarget) : null }),
-      copy && p.ref ? h('button', { class: 'link copiar', type: 'button', onclick: (e) => copy(p.ref, e.currentTarget) }, '📋 Copiar consulta') : null)));
+      // Otra instrucción = preguntar al CEO por otra vía (la alternativa sale de la conversación); no se pospone: no bloquea nada.
+      comunes({ copy: copy && p.ref ? (b) => copy(p.ref, b) : null }))));
 }
 
 /** DECISIONES PENDIENTES de un proyecto: preguntas que sólo contesta Antonio: ✎ responder, ⏱ posponer, ? preguntar a Codex. */
@@ -120,10 +136,10 @@ export function pendingDecisions(list, { answer, postpone, consult = null, alter
       explica(d.consejo, 'pregunta') || advice(d.consejo),
       h('div', { class: 'dec-btns', role: 'group', 'aria-label': 'Decidir' },
         dbtn('✎', 'Responder', (e) => answer(d, e.currentTarget), 'yes'),
-        dbtn('⏱', 'Posponer 7 días', (e) => postpone(d, e.currentTarget), 'no'),
         alternativa && d.consejo?.alternativa && d.version ? dbtn('↺', `Responder: ${d.consejo.alternativa.etiqueta}`, (e) => alternativa(d, e.currentTarget), 'alt rec') : null,
         consult && d.ref ? dbtn('?', 'Consultar al CEO', (e) => consult(d.ref, e.currentTarget), 'ask') : null),
-      copy && d.ref ? h('button', { class: 'link copiar', type: 'button', onclick: (e) => copy(d.ref, e.currentTarget) }, '📋 Copiar consulta') : null))));
+      // Una pregunta abierta: «otra instrucción» ES responder (✎), así que aquí sólo copiar y posponer.
+      comunes({ copy: copy && d.ref ? (b) => copy(d.ref, b) : null, posponer: (b) => postpone(d, b) })))));
 }
 
 /** Vista de 20 segundos: qué queremos, dónde estamos, qué sigue y qué no se toca. */

@@ -178,7 +178,9 @@ export const HIGH_RISK = new Set(['objetivo.iniciar', 'objetivo.anadir', 'trabaj
   // V3.6: aplicar un cambio pedido en la conversación con el CEO (da trabajo a Claude).
   'ceo.aplicar',
   // V3.7: elegir la alternativa del CEO en una decisión (da trabajo nuevo a Claude). Aprobar/rechazar siguen como en la tarjeta.
-  'decision.alternativa']);
+  'decision.alternativa',
+  // V3.10: unificar o cerrar lo pendiente de Antonio (cierra preguntas y entrega respuestas a trabajos).
+  'negocio.conciliar']);
 export const REAUTH_MS = 30 * 60_000;
 /** Hora (ms) de la última vez que esta sesión se abrió CON CONTRASEÑA, leída del token (amr). 0 si no consta. */
 export function passwordAt(accessToken) {

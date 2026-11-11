@@ -149,7 +149,7 @@ const STATES = {
   LIBRE: ['⚪', 'SIN OBJETIVO', 'idle'], EN_COLA: ['⏳', 'PRÓXIMO · EN COLA', 'wait'], TRABAJANDO: ['🟢', 'TRABAJANDO', 'work'],
   ESPERANDO_DECISION: ['🟡', 'NECESITA TU RESPUESTA', 'ask'], PAUSADO: ['⏸️', 'EN PAUSA', 'idle'],
   ESPERANDO_CLAUDE: ['⏳', 'SIN CUOTA DE CLAUDE · ESPERANDO', 'wait'], ESPERANDO_CEO: ['⏳', 'SIN CUOTA DEL CEO · ESPERANDO', 'wait'],
-  ESPERANDO_CONDICION: ['🔭', 'ESPERANDO ALGO EXTERNO', 'wait'], ESPERANDO_ANTONIO: ['✋', 'NECESITA QUE HAGAS ALGO', 'ask'],
+  ESPERANDO_CONDICION: ['🔭', 'ESPERANDO', 'wait'], ESPERANDO_ANTONIO: ['✋', 'NECESITA QUE HAGAS ALGO', 'ask'],
   SIN_ACTIVIDAD: ['🟠', 'TRABAJANDO · SIN SEÑALES', 'warn'], BLOQUEADO: ['🔴', 'BLOQUEADO', 'bad'], ERROR: ['🔴', 'HAY UN PROBLEMA', 'bad'],
   LISTO: ['✅', 'TE TOCA: CONTINUAR', 'ok'], TERMINADO: ['✅', 'TERMINADO Y COMPROBADO', 'ok'], CANCELADO: ['⚪', 'CANCELADO', 'idle'],
 };
@@ -584,7 +584,7 @@ function detallesDecision(titulo, k, tipo, extra = []) {
 // Texto del estado en los puestos (lo que Antonio lee de un vistazo).
 const MOOD_LABEL = { ESPERANDO_DECISION: 'Necesita tu respuesta', ERROR: 'Hay un problema', BLOQUEADO: 'Bloqueado',
   SIN_ACTIVIDAD: 'Trabajando (sin señales; se recupera solo)', TRABAJANDO: 'Trabajando', ESPERANDO_CLAUDE: 'Sin cuota de Claude · esperando', ESPERANDO_CEO: 'Sin cuota del CEO · esperando',
-  ESPERANDO_CONDICION: 'Esperando algo externo', ESPERANDO_ANTONIO: 'Necesita que hagas algo', EN_COLA: 'Próximo: en cola', LIBRE: 'Sin objetivo', PAUSADO: 'En pausa', LISTO: 'Te toca: continuar', TERMINADO: 'Terminado y comprobado', CANCELADO: 'Cancelado' };
+  ESPERANDO_CONDICION: 'Esperando (otro trabajo o una condición)', ESPERANDO_ANTONIO: 'Necesita que hagas algo', EN_COLA: 'Próximo: en cola', LIBRE: 'Sin objetivo', PAUSADO: 'En pausa', LISTO: 'Te toca: continuar', TERMINADO: 'Terminado y comprobado', CANCELADO: 'Cancelado' };
 // Una decisión pendiente de Antonio (del objetivo o del canon) manda sobre cualquier otro estado.
 const decisionLabel = (c) => { const n = decisionCount(c); return n > 1 ? `Necesita tu respuesta · ${n}` : 'Necesita tu respuesta'; };
 const status = (c, text) => h('span', { class: 'status' }, h('i', { class: 'dot', 'aria-hidden': 'true' }),

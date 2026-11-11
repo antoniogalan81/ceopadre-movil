@@ -1020,7 +1020,17 @@ details.z-projects[open] > summary::after { content: "▴"; }
 details.z-projects > summary h2 { margin: 0; font-size: 18px; }
 details.z-projects[open] > summary { margin-bottom: 12px; }
 
-.tabbar { grid-template-columns: repeat(5, 1fr); }
+.tabbar { grid-template-columns: repeat(6, 1fr); }
+
+/* MAMA (T9): conversación + encargos; en el móvil una columna. */
+.mama-grid { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 14px; align-items: start; }
+.mama-chat { display: flex; flex-direction: column; gap: 8px; min-height: 60vh; max-height: calc(100dvh - 190px); }
+.mama-msgs { min-height: 240px; border: 1px solid var(--line); border-radius: 14px; padding: 10px; background: var(--paper); }
+.msg.yo .m-at { color: color-mix(in oklch, #fff 75%, transparent); text-align: right; margin-top: 4px; }
+.mama-orden + .mama-orden { margin-top: 8px; }
+.mama-orden p { margin: 2px 0 0; }
+.mama-aviso { max-width: 560px; }
+@media (max-width: 860px) { .mama-grid { grid-template-columns: 1fr; } .mama-chat { max-height: none; min-height: 0; } .mama-msgs { max-height: 62dvh; } }
 
 @media (max-width: 1180px) { .brief { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 760px) {

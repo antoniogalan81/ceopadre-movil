@@ -6,6 +6,7 @@ import { advice, comunes, decideRow, EFECTO, explica, mapBody, mapPanel, pending
 import { remoteUi } from './remoto.js';
 import { autoUi } from './automatizaciones.js';
 import { negocioUi } from './negocio.js';
+import { mamaUi } from './mama.js';
 import { aiEditor } from './redactor.js';
 import { alquileresUi } from './alquiler.js';
 import { borrador, ventanasUniversales } from './modal.js';
@@ -195,16 +196,16 @@ function toast(msg, kind = '') {
 }
 
 // La barra de pestañas (móvil) y la pestaña de arriba (PC) dicen en qué sección estás.
-const TAB_OF = { 'p-list': 'home', 'p-detail': 'home', 'p-remote': 'home', 'p-negocio': 'negocio', 'p-autos': 'autos', 'p-bandeja': 'inbox' };
+const TAB_OF = { 'p-list': 'home', 'p-detail': 'home', 'p-remote': 'home', 'p-negocio': 'negocio', 'p-autos': 'autos', 'p-bandeja': 'inbox', 'p-mama': 'mama' };
 /** Marca la sección actual en la cabecera y en la barra de abajo (Proyectos comparte pantalla con Dirección). */
 function marcarTab(go) {
   for (const t of document.querySelectorAll('#appbar .tabs .tab, #tabbar button')) {
-    const de = t.dataset.tab || t.dataset.go || { 'b-negocio': 'negocio', 'b-autos': 'autos', 'b-inbox': 'inbox' }[t.id];
+    const de = t.dataset.tab || t.dataset.go || { 'b-negocio': 'negocio', 'b-autos': 'autos', 'b-inbox': 'inbox', 'b-mama': 'mama' }[t.id];
     const on = de === go; t.classList.toggle('on', on); if (on) t.setAttribute('aria-current', 'page'); else t.removeAttribute('aria-current');
   }
 }
 const show = (id) => {
-  for (const s of ['p-login', 'p-list', 'p-detail', 'p-remote', 'p-autos', 'p-bandeja', 'p-negocio']) $('#' + s).hidden = s !== id;
+  for (const s of ['p-login', 'p-list', 'p-detail', 'p-remote', 'p-autos', 'p-bandeja', 'p-negocio', 'p-mama']) $('#' + s).hidden = s !== id;
   const bar = $('#tabbar');
   bar.hidden = id === 'p-login';
   const fab = $('#b-ceo'); if (fab && id === 'p-login') fab.hidden = true;
@@ -216,7 +217,7 @@ function goTab(go, push = true) {
   if (push) navPush({ v: go === 'home' ? null : go });
   if (go === 'home') { openId = null; show('p-list'); window.scrollTo(0, 0); return; }
   if (go === 'proyectos') { openId = null; show('p-list'); marcarTab('proyectos'); const z = $('#z-projects'); z.open = true; z.scrollIntoView({ behavior: 'smooth', block: 'start' }); return; }
-  $({ negocio: '#b-negocio', autos: '#b-autos', inbox: '#b-inbox' }[go])?.click();
+  $({ negocio: '#b-negocio', autos: '#b-autos', inbox: '#b-inbox', mama: '#b-mama' }[go])?.click();
 }
 // NAVEGACIÓN (V3.6): cada sección, proyecto, objetivo o conversación tiene su dirección (?v= · ?proyecto= · ?objetivo= · ?ceo=):
 // el botón Atrás del navegador vuelve a la anterior y un enlace directo abre exactamente eso.
@@ -248,6 +249,7 @@ document.addEventListener('click', (e) => {
 let rui = null; // MANDO REMOTO (web/remoto.js)
 let aui = null; // AUTOMATIZACIONES y BANDEJA DE APROBACIÓN (web/automatizaciones.js)
 let nui = null; // OBJETIVOS DE NEGOCIO (web/negocio.js)
+let mui = null; // MAMA (web/mama.js)
 
 async function refresh() {
   try {
@@ -1878,6 +1880,7 @@ async function start() {
   rui ??= remoteUi({ api, ask, toast, show, data: () => data, ago, local: LOCAL, ai });
   aui ??= autoUi({ api, ask, toast, show, data: () => data, run, viewText: (t, x) => view(t, x), ai, alquileres: () => ALQ.minis(data.proyectos) });
   nui ??= negocioUi({ api, ask, toast, show, data: () => data, run, viewText: (t, x) => view(t, x) });
+  mui ??= mamaUi({ api, toast, show, local: LOCAL });
   show('p-list');
   await refresh();
   $('#b-ceo').hidden = false;

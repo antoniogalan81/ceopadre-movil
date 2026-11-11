@@ -146,11 +146,33 @@ export function negocioUi({ api, ask, toast, show, data, run, viewText }) {
     const aparcadas = todas.filter((n) => n.pospuesta);
     if (!todas.length) return null;
     return h('section', { class: 'panel need-panel' }, h('h4', {}, xs.length ? `Necesito tu intervención (${xs.length})` : 'Necesito tu intervención'),
+      xs.length > 1 ? h('div', { class: 'lote-bar' }, B(`Responder en bloque (${xs.length})`, (b) => enBloque(o, xs, b)),
+        h('small', { class: 'muted' }, 'Una sola acción; cada respuesta queda registrada por separado.')) : null,
       xs.length ? xs.map((n) => needCard(o, n)) : h('p', { class: 'muted small' }, 'Nada urgente: sólo lo que pospusiste.'),
       aparcadas.length ? h('details', { class: 'prop-more', 'data-k': `pospuestas-${o.id}` }, h('summary', {}, `Pospuestas (${aparcadas.length})`),
         aparcadas.map((n) => h('article', { class: 'need-card pospuesta' }, h('p', { class: 'need-t' }, h('b', {}, TIPO_NEC[n.tipo] || 'Necesito'), ` — ${n.que}`),
           h('p', { class: 'muted small' }, `Pospuesta hasta el ${fecha(n.pospuesta_hasta)}. El objetivo sigue con lo demás.`),
           h('div', { class: 'a-acts' }, B('Traerla ahora', (b) => after(cmd('negocio.posponer', { id: n.id, dias: 0 }, 'Vuelve a estar a la vista', b))))))) : null);
+  }
+  // V3.12 · RESPONDER EN BLOQUE: aprobar lo compatible de una vez, rechazar o contestar cada una, o una instrucción global.
+  // Lo que exige aprobación individual (gasto, precio, contrato, credenciales, irreversible) no se ofrece para aprobar aquí.
+  async function enBloque(o, xs, btn) {
+    const fields = [];
+    for (const n of xs) {
+      const individual = !!n.individual || ['CONEXION', 'KPI'].includes(n.tipo);
+      const aprobable = !individual && (!n.abierta || !!n.recomendacion || ['CAPACIDAD', 'AUTOMATIZACION'].includes(n.tipo));
+      fields.push({ name: `a${n.id}`, type: 'choice', required: false, label: `#${n.id} · ${n.que}${n.recomendacion ? ` — Recomiendo: ${n.recomendacion}` : ''}${individual ? ' (exige tu decisión individual)' : ''}`,
+        options: [...(aprobable ? [{ value: 'APROBAR', label: n.recomendacion ? 'Aprobar lo recomendado' : 'Aprobar' }] : []),
+          { value: 'RESPONDER', label: 'Responder con mi texto' }, ...(individual ? [] : [{ value: 'GLOBAL', label: 'Aplicar la instrucción global' }]),
+          { value: 'RECHAZAR', label: 'Rechazar' }, { value: 'POSPONER', label: 'Posponer 7 días' }] });
+      fields.push({ name: `t${n.id}`, type: 'textarea', required: false, label: `Tu respuesta a #${n.id} (si eliges «Responder»)` });
+    }
+    fields.push({ name: 'global', type: 'textarea', required: false, label: 'Instrucción global (para las marcadas «Aplicar la instrucción global»)' });
+    const r = await ask({ title: `Responder ${xs.length} decisiones de «${o.titulo}»`, help: 'Cada decisión se registra por separado, con su respuesta. Lo que no marques sigue pendiente.', ok: 'Enviar', fields });
+    if (!r) return;
+    const items = xs.filter((n) => r[`a${n.id}`]).map((n) => ({ id: n.id, accion: r[`a${n.id}`], texto: r[`t${n.id}`] || '' }));
+    if (!items.length) { toast('No has marcado ninguna', 'bad'); return; }
+    await after(cmd('negocio.lote', { items, global: r.global || '' }, 'Respuestas registradas', btn));
   }
   function needCard(o, n) {
     const c = n.consejo || null;
@@ -162,7 +184,11 @@ export function negocioUi({ api, ask, toast, show, data, run, viewText }) {
         : (b) => after(cmd('negocio.necesidad', { id: n.id, respuesta: 'Aprobada' }, ef.boton || 'Aprobado', b));
     return h('article', { class: 'need-card', 'data-ref': n.ref },
       h('p', { class: 'need-t' }, h('b', {}, TIPO_NEC[n.tipo] || 'Necesito'), ` — ${n.que}`),
+      n.motivo_nivel ? h('p', { class: 'need-nivel' }, `Por qué te lo pregunto: ${n.motivo_nivel}${n.origen ? ` · lo pide: ${n.origen}` : ''}`) : null,
       ex || h('dl', { class: 'wait-dl' },
+        n.recomendacion ? [h('dt', {}, 'Recomiendo'), h('dd', {}, n.recomendacion)] : null,
+        n.si_aceptas ? [h('dt', {}, 'Si aceptas'), h('dd', {}, n.si_aceptas)] : null,
+        n.si_rechazas ? [h('dt', {}, 'Si rechazas'), h('dd', {}, n.si_rechazas)] : null,
         n.por_que ? [h('dt', {}, 'Por qué'), h('dd', {}, n.por_que)] : null,
         n.bloquea ? [h('dt', {}, 'Queda en espera'), h('dd', {}, n.bloquea)] : null,
         n.mientras ? [h('dt', {}, 'Mientras, sigo con'), h('dd', {}, n.mientras)] : null,
@@ -332,10 +358,14 @@ export function negocioUi({ api, ask, toast, show, data, run, viewText }) {
       const ts = hj.tareas.filter((t) => t.fase === f.id && vivas(t));
       const hechas = ts.filter((t) => t.estado === 'HECHA').length;
       const enMarcha = ts.some((t) => t.estado === 'EN_CURSO');
-      return h('li', { class: `road-f${enMarcha ? ' now' : ts.length && hechas === ts.length ? ' done' : hechas ? ' some' : ''}` },
+      // V3.12: «hecha» sólo con el RESULTADO verificado; con todas las tareas hechas pero sin acreditar, sigue abierta.
+      const est = f.estado || null;
+      return h('li', { class: `road-f${enMarcha ? ' now' : est?.cumplida ? ' done' : hechas ? ' some' : ''}` },
         h('div', { class: 'road-f-head' }, h('span', { class: 'road-n', 'aria-hidden': 'true' }, String(i + 1)),
           h('div', { class: 'road-f-t' }, h('b', {}, f.nombre), f.objetivo ? h('p', { class: 'small' }, f.objetivo) : null,
-            h('small', { class: 'muted' }, [f.proyecto, f.criterio ? `cumplida cuando ${f.criterio}` : null, ts.length ? `${hechas} de ${ts.length} tareas hechas` : null].filter(Boolean).join(' · '))),
+            h('small', { class: 'muted' }, [f.proyecto, f.criterio ? `cumplida cuando ${f.criterio}` : null, ts.length ? `${hechas} de ${ts.length} tareas hechas` : null].filter(Boolean).join(' · ')),
+            est && (est.trabajo !== 'PENDIENTE' || est.resultado !== 'PENDIENTE') ? h('p', { class: `road-res r-${est.resultado.toLowerCase()}` }, h('b', {}, est.texto),
+              est.trabajo === 'HECHO' && est.resultado === 'PENDIENTE' ? ` · prueba ${est.prueba === 'EJECUTADA' ? 'ejecutada' : 'sin ejecutar'}` : '', est.evidencia ? ` · ${est.evidencia}` : '') : null),
           editable ? h('button', { class: 'btn ghost small t-ico', type: 'button', 'aria-label': `Modificar la fase ${f.nombre}`, title: 'Modificar la fase', onclick: (e) => editarFase(o, f, e.currentTarget) }, '✎') : null),
         h('ol', { class: 'road-ts' }, ts.map((t) => tareaRow(o, t, editable))),
         editable ? h('button', { class: 'btn ghost small road-add', type: 'button', onclick: (e) => anadirTarea(o, f.id, e.currentTarget) }, '+ Tarea') : null);

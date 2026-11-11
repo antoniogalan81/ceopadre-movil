@@ -1314,3 +1314,11 @@ dialog.alq-ficha { width: min(680px, 100%); padding: 16px 16px calc(16px + env(s
 .alq-ficha .alq-card { border: 0; padding: 0; box-shadow: none; }
 .ag-mini-desc { line-height: 1.4; min-height: 2.8em; } /* siempre 2 líneas: todas las tarjetas miden igual */
 .ag-mini h3 { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; } .ag-mini-top > h3 { flex: 1; }
+
+/* V3.12 · resultado de una fase (trabajo ≠ resultado) y respuesta en bloque */
+.road-res { margin: 4px 0 0; font-size: .82rem; color: var(--muted, #666); }
+.road-res.r-verificado b { color: var(--ok, #1a7f37); }
+.road-res.r-fallido b, .road-res.r-necesita_antonio b { color: var(--bad, #b42318); }
+.road-res.r-pendiente b { color: var(--warn, #9a6700); }
+.lote-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 0 0 10px; }
+.need-nivel { font-size: .75rem; color: var(--muted, #666); }

@@ -105,6 +105,25 @@ export function quotaView(rows, now = Date.now()) {
   };
 }
 
+// CLAUDE 7D: el % que QUEDA en la ventana semanal de Claude y si se está gastando demasiado deprisa. Rojo cuando
+// restante / días hasta el reinicio (con fracción) < RITMO_MIN puntos por día. Sólo la fila «CLAUDE 7D» (nunca 5H, MES ni
+// Codex). Sin fila o sin % → null («No disponible»). Reinicio ya pasado → el dato es de la ventana anterior: sin ritmo.
+export const RITMO_MIN = 10;
+export function claude7d(rows, now = Date.now()) {
+  const r = (Array.isArray(rows) ? rows : []).find((x) => x?.provider === 'CLAUDE 7D');
+  if (!r || !Number.isFinite(r.available_percent)) return null;
+  const reset = Date.parse(r.reset_at || '');
+  const dias = Number.isFinite(reset) ? (reset - now) / 86400e3 : null;
+  const porDia = dias > 0 ? r.available_percent / dias : null;
+  return { disponible: r.available_percent, dias, porDia, rojo: porDia !== null && porDia < RITMO_MIN, caducado: dias !== null && dias <= 0,
+    faltan: dias > 0 ? faltaText(dias) : '—', reinicio: resetText(r.reset_at, now), leida: resetText(r.updated_at, now), error: r.error ?? null };
+}
+// «3 d 4 h» / «5 h 12 min» / «12 min».
+export function faltaText(dias) {
+  const min = Math.floor(dias * 1440), d = Math.floor(min / 1440), h = Math.floor((min % 1440) / 60), m = min % 60;
+  return d ? `${d} d ${h} h` : h ? `${h} h ${m} min` : `${m} min`;
+}
+
 // Límite PRÁCTICO de un prompt para Claude (no uno de interfaz): lo aplican el PC y el editor. Nunca se recorta.
 // ponytail: fijo (~200k tokens de texto); si Claude admite más contexto, se sube aquí y vale para todo.
 export const PROMPT_LIMIT = 800_000;

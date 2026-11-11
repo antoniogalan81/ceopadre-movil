@@ -1,6 +1,6 @@
 // CEOPadre en el navegador. En el PC habla con la API local; en el móvil, con Supabase.
 // No ejecuta nada: pinta el estado y deja órdenes. Todo el texto se inserta como texto (nunca HTML).
-import { cleanGoal, conditionsText, decisionCount, decisionsText, direccion, esPotente, esperaHumana, gestText, mood, needsDecision, netStatus, office, passwordAt, pcOnline, priority, PROMPT_LIMIT, PROMPT_WARN, quotaView, REAUTH_MS, waitingConditions, zone } from './zones.js';
+import { cleanGoal, conditionsText, decisionCount, decisionsText, direccion, esPotente, esperaHumana, gestText, mood, needsDecision, netStatus, office, passwordAt, pcOnline, priority, PROMPT_LIMIT, PROMPT_WARN, quotaView, REAUTH_MS, claude7d, RITMO_MIN, waitingConditions, zone } from './zones.js';
 import { h } from './dom.js';
 import { advice, comunes, decideRow, EFECTO, explica, mapBody, mapPanel, pendingDecisions, proposals } from './map.js';
 import { remoteUi } from './remoto.js';
@@ -981,17 +981,31 @@ function paintNet() {
   el.className = `net m-${s[0]}`;
   el.lastChild.textContent = s[1];
 }
-// Cuota: sólo un icono con el % más alto; al pulsarlo, el detalle por proveedor (datos ya leídos, ninguna llamada).
+// Cuota: el icono enseña lo que QUEDA de CLAUDE 7D y el tiempo hasta su reinicio (rojo si el ritmo disponible cae por debajo
+// de RITMO_MIN %/día); al pulsarlo, el cálculo y el detalle por proveedor (datos ya leídos, ninguna llamada).
 function paintQuota() {
-  const q = quotaView(data.cuotas);
+  const q = quotaView(data.cuotas), c = claude7d(data.cuotas);
+  const pct = (n) => `${String(Math.round(n * 10) / 10).replace('.', ',')} %`;
+  const calc = !c ? 'CLAUDE 7D: No disponible (sin lectura de la cuota semanal de Claude).'
+    : c.caducado ? `CLAUDE 7D: ${pct(c.disponible)} disponible según la lectura de ${c.leida}, pero su reinicio (${c.reinicio}) ya pasó: dato de la ventana anterior. Pulsa ↻ para leerla de nuevo.`
+    : c.porDia === null ? `CLAUDE 7D: ${pct(c.disponible)} disponible · reinicio desconocido · leída ${c.leida}`
+    : `CLAUDE 7D: ${pct(c.disponible)} disponible · reinicio ${c.reinicio} (faltan ${c.faltan} = ${String(c.dias.toFixed(2)).replace('.', ',')} días) · ${pct(c.porDia)}/día disponible (rojo si < ${RITMO_MIN} %/día) · leída ${c.leida}${c.error ? ` · sin actualizar: ${c.error}` : ''}`;
   for (const box of document.querySelectorAll('.quota')) {
-    box.hidden = !q;
-    if (!q) continue;
-    box.querySelector('.q-max').textContent = `${Math.round(q.max)} %`;
+    box.hidden = !q && !c;
+    if (!q && !c) continue;
+    const sum = box.querySelector('summary');
+    sum.classList.toggle('q-low', !!c?.rojo);
+    sum.title = calc;
+    sum.setAttribute('aria-label', calc);
+    // «disponible» solo en pantallas anchas (la barra no debe desbordar); el cálculo completo está en title y desplegable.
+    box.querySelector('.q-max').replaceChildren(...(!c ? ['CLAUDE 7D · No disponible']
+      : c.caducado ? [`CLAUDE 7D · ${pct(c.disponible)} (dato ${c.leida})`]
+      : [`CLAUDE 7D · ${pct(c.disponible)}`, h('span', { class: 'q-wide' }, ' disponible'), ` · ${c.faltan}`]));
     box.querySelector('.quota-pop').replaceChildren(
-      h('table', {}, h('thead', {}, h('tr', {}, h('th', {}, ''), h('th', {}, 'Usado'), h('th', {}, 'Disponible'), h('th', {}, 'Reinicio'))),
+      h('p', { class: c?.rojo ? 'q-calc q-low' : 'q-calc' }, calc),
+      ...(q ? [h('table', {}, h('thead', {}, h('tr', {}, h('th', {}, ''), h('th', {}, 'Usado'), h('th', {}, 'Disponible'), h('th', {}, 'Reinicio'))),
         h('tbody', {}, q.filas.map((f) => h('tr', {}, h('th', {}, f.nombre), h('td', {}, f.usado), h('td', {}, f.disponible), h('td', {}, f.reinicio))))),
-      h('small', { class: 'muted' }, `Cuota de toda la cuenta (no sólo CEOPadre)${q.leida ? ` · leída ${q.leida}` : ''}${q.avisos.map((a) => ` · ${a}`).join('')}${q.filas.some((f) => f.disponible === 'No disponible') ? ' · MES: el proveedor no informa cuota mensual' : ''}`));
+      h('small', { class: 'muted' }, `Cuota de toda la cuenta (no sólo CEOPadre)${q.leida ? ` · leída ${q.leida}` : ''}${q.avisos.map((a) => ` · ${a}`).join('')}${q.filas.some((f) => f.disponible === 'No disponible') ? ' · MES: el proveedor no informa cuota mensual' : ''}`)] : []));
   }
 }
 // Un clic fuera cierra el desplegable de cuota.

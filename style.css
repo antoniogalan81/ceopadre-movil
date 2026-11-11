@@ -877,8 +877,14 @@ a.btn { display: inline-flex; align-items: center; justify-content: center; text
 .side-item > .ico { grid-column: 1; grid-row: 1 / span 2; width: 22px; text-align: center; color: var(--ink-3); }
 .side-item > .ico.ok { color: var(--ok); font-weight: 800; }
 .side-item > .a-chip { grid-column: 3; grid-row: 1; }
-.goals .side-item { grid-template-columns: 1fr auto; }
-.goals .side-item > b { grid-column: 1; } .goals .side-item > small { grid-column: 1 / -1; } .goals .side-item > .a-chip { grid-column: 2; }
+/* El estado va DEBAJO del título: en una columna de ~250 px (media pantalla) una etiqueta larga sin cortes («Trabajo hecho ·
+   resultado pendiente de acreditar») se quedaba la columna «auto» y el título, con overflow-wrap:anywhere, salía letra a letra. */
+.goals .side-item { grid-template-columns: minmax(0, 1fr); }
+.goals .side-item > b { grid-column: 1; grid-row: 1; } .goals .side-item > .a-chip { grid-column: 1; grid-row: 2; justify-self: start; margin-top: 2px; }
+.goals .side-item > small { grid-column: 1; grid-row: 3; }
+/* Regla general: ninguna etiqueta deja al título por debajo de ~9 letras; si no cabe, la etiqueta se parte en dos líneas. */
+.side-item > b { min-width: min(9em, 100%); }
+.side-item > .a-chip { white-space: normal; max-width: 14em; }
 .side-card > .muted.small { margin: 4px 0 10px; font-size: 13px; }
 
 /* Proyectos: azulejos para lo que tiene historia; fila compacta para lo que está en reposo. */
@@ -1336,3 +1342,38 @@ dialog.alq-ficha { width: min(680px, 100%); padding: 16px 16px calc(16px + env(s
 /* CLAUDE 7D: el número en rojo cuando lo que queda por día hasta el reinicio baja del umbral (zones.js RITMO_MIN). */
 .quota .q-max.q-low { color: oklch(0.6 0.22 27); }
 
+.mama-side { display: flex; flex-direction: column; gap: 14px; }
+.mama-side .side-card { margin: 0; }
+.mama-comp li + li { margin-top: 4px; }
+
+/* OPTIMIZACIÓN 11-11 — barra a media pantalla (761–1100 px): el logotipo, las secciones y los botones no caben en una fila;
+   antes la barra desbordaba (849 px en 768) y el nombre «CEOPadre» quedaba tapado. Sólo el logotipo y secciones desplazables. */
+.home .bar { grid-template-columns: auto minmax(0, 1fr) auto; }
+.tabs { min-width: 0; max-width: 100%; overflow-x: auto; scrollbar-width: none; }
+.tabs::-webkit-scrollbar { display: none; }
+@media (min-width: 761px) and (max-width: 1100px) { .home .bar .brand { display: none; } .home .bar { gap: 12px; } .more-txt { display: none; } }
+/* Tarjeta compacta: título hasta DOS líneas y nunca por debajo de ~8 letras; la etiqueta de estado cede (se parte) en vez de
+   comerse el título (11-11: «Trabajo hecho · resultado pendiente de acreditar» dejaba el título a 0 px). */
+.ag-mini-top > h3 { flex: 1 1 auto; min-width: min(8em, 55%); white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: break-word; }
+.ag-mini .a-chip { flex: 0 1 auto; max-width: 45%; white-space: normal; text-align: center; line-height: 1.25; }
+/* Hoja de ruta compacta (11-11): cada fase es una tarjeta plegable; las tareas, plegadas a 2 líneas y se abren al pulsar. */
+.road-f { padding: 0 0 8px; }
+.road-f:not(:last-child)::before { display: none; }
+.road-fold { border: 1px solid var(--line); border-radius: 14px; background: var(--paper); }
+.road-f.now .road-fold { border-color: var(--work); box-shadow: 0 0 0 1px var(--work) inset; }
+.road-f-sum { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 10px 12px; cursor: pointer; list-style: none; border-radius: 14px; }
+.road-f-sum::-webkit-details-marker { display: none; }
+.road-f-sum:hover { background: var(--bg); }
+.road-f-sum:focus-visible { outline: 3px solid var(--accent); outline-offset: -2px; }
+.road-f-sumt { display: grid; min-width: 0; gap: 2px; }
+.road-f-sumt b { display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.road-f-sumt small { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.road-f-sum .a-chip { max-width: 11em; white-space: normal; text-align: center; line-height: 1.25; }
+.road-fold[open] > .road-f-sum { border-bottom: 1px solid var(--line); border-radius: 14px 14px 0 0; }
+.road-fold > .road-f-head, .road-fold > .road-ts, .road-fold > .road-add { margin: 8px 12px; }
+.road-fold > .road-f-head { margin-left: 12px; }
+.road-t-txt { display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; cursor: pointer; }
+.road-t-txt.abierta { display: block; -webkit-line-clamp: unset; }
+@media (max-width: 560px) { .road-f-sum { grid-template-columns: auto minmax(0, 1fr); } .road-f-sum .a-chip { grid-column: 2; justify-self: start; } }
+/* Resumen de 4 columnas del objetivo: cada línea en 2 renglones como máximo (el detalle está en la hoja de ruta). */
+.q4-grid .mlist li:not(.more) { display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }

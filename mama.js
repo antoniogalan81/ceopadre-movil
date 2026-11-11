@@ -50,7 +50,7 @@ export function mamaUi({ api, toast, show, local }) {
         h('p', { class: 'muted small' }, 'Abre CEOPadre en el PC para hablar con ella.')));
       return;
     }
-    const s = JSON.stringify([v?.mensajes?.length, v?.mensajes?.at(-1)?.id, v?.pensando, v?.ordenes?.map((o) => [o.id, o.trabajo_estado]), v?.uso]);
+    const s = JSON.stringify([v?.mensajes?.length, v?.mensajes?.at(-1)?.id, v?.pensando, v?.ordenes?.map((o) => [o.id, o.trabajo_estado]), v?.uso, v?.panel]);
     if (s === sig) return;
     sig = s;
     const ms = v?.mensajes || [];
@@ -72,11 +72,38 @@ export function mamaUi({ api, toast, show, local }) {
       })) : h('p', { class: 'muted small' }, 'Todavía no ha encargado nada.'));
     const foco = document.activeElement?.id === 'm-text';
     const borrador = document.getElementById('m-text')?.value || '';
-    b.replaceChildren(h('div', { class: 'mama-grid' }, h('section', { class: 'mama-chat', 'aria-label': 'Conversación' }, lista, form), encargos));
+    b.replaceChildren(h('div', { class: 'mama-grid' }, h('section', { class: 'mama-chat', 'aria-label': 'Conversación' }, lista, form),
+      h('div', { class: 'mama-side' }, ...tarjetas(v?.panel), encargos)));
     const ta = document.getElementById('m-text');
     ta.value = borrador;
     if (foco) ta.focus();
     lista.scrollTop = lista.scrollHeight;
+  }
+
+  // §4: actividades y compromisos, decisiones pendientes y resumen del día. Sólo datos (sin IA): src/mama.js panel().
+  function tarjetas(pn) {
+    if (!pn) return [];
+    const card = (id, titulo, ...hijos) => h('section', { class: 'side-card', id, 'aria-labelledby': `${id}-h` }, h('h2', { id: `${id}-h` }, titulo), ...hijos);
+    const vacio = (t) => h('p', { class: 'muted small' }, t);
+    const a = pn.actividades || {};
+    const oh = a.ordenes_hoy || {};
+    const nOrd = Object.values(oh).reduce((x, y) => x + y, 0);
+    const act = card('m-act', 'Actividades y compromisos',
+      h('p', { class: 'small' }, `Hoy: ${a.mensajes_hoy ?? 0} mensaje${a.mensajes_hoy === 1 ? '' : 's'} tuyo${a.mensajes_hoy === 1 ? '' : 's'} · ${a.respuestas_hoy ?? 0} respuesta${a.respuestas_hoy === 1 ? '' : 's'} de Mama · ${nOrd} ${nOrd === 1 ? "orden" : "órdenes"}${nOrd ? ` (${Object.entries(oh).map(([e, n]) => `${n} ${(ESTADO[e]?.[0] || e).toLowerCase()}`).join(', ')})` : ''} · ${a.encargos_abiertos ?? 0} encargo${a.encargos_abiertos === 1 ? '' : 's'} en curso`),
+      a.compromisos?.length ? h('ul', { class: 'side-list mama-comp' }, a.compromisos.map((c) => h('li', {}, h('strong', {}, c.texto), c.cuando ? h('span', { class: 'muted small' }, ` · ${c.cuando}`) : null)))
+        : vacio('Sin compromisos anotados. Mama sólo apunta los que tú le dices.'));
+    const dec = card('m-dec', `Decisiones pendientes (${pn.decisiones?.length || 0})`,
+      pn.decisiones?.length ? h('ul', { class: 'side-list' }, pn.decisiones.map((d) => h('li', {}, h('strong', {}, `${d.proyecto}: ${d.que}`), d.detalle ? h('p', { class: 'muted small' }, d.detalle) : null)))
+        : vacio('Nada espera tu decisión.'),
+      h('p', { class: 'muted small' }, 'Se deciden en su tarjeta de CEOPadre: Mama nunca aprueba ni rechaza.'));
+    const r = pn.resumen || {};
+    const res = card('m-res', `Resumen del día · ${pn.dia || ''}`,
+      h('p', { class: 'small' }, r.linea || '—'),
+      r.objetivos?.length ? h('ul', { class: 'side-list' }, r.objetivos.map((o) => h('li', {}, h('strong', {}, o.titulo), h('span', { class: 'muted small' }, ` · ${o.estado.toLowerCase()}`),
+        o.kpis?.length ? h('p', { class: 'muted small' }, o.kpis.map((k) => `${k.nombre}: ${k.valor ?? '—'}${k.unidad ? ` ${k.unidad}` : ''} / ${k.objetivo ?? '—'}`).join(' · ')) : null))) : null,
+      r.trabajando?.length ? h('details', {}, h('summary', {}, `En marcha (${r.trabajando.length})`), h('ul', { class: 'side-list' }, r.trabajando.map((t) => h('li', {}, h('strong', {}, t.proyecto), h('p', { class: 'muted small' }, t.ahora || t.objetivo))))) : null,
+      r.problemas?.length ? h('details', {}, h('summary', {}, `Problemas (${r.problemas.length})`), h('ul', { class: 'side-list' }, r.problemas.map((p) => h('li', {}, `${p.proyecto}: ${p.que}`)))) : null);
+    return [act, dec, res];
   }
 
   document.getElementById('m-back')?.addEventListener('click', back);

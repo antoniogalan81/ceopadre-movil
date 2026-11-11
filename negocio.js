@@ -129,7 +129,7 @@ export function negocioUi({ api, ask, toast, show, data, run, viewText }) {
     const necesito = [...(v.te_necesito || []).map((n) => n.que), ...(o.pregunta && ['ESPERANDO_ANTONIO', 'BLOQUEADA'].includes(o.estado) ? [o.pregunta] : []),
       ...ahora.filter((t) => t.te_necesita).map((t) => `${t.proyecto}: un trabajo espera algo tuyo`)];
     return h('div', { class: 'q4-grid' },
-      linea('QUÉ HA HECHO', 'ok', lista(hechas.length ? hechas : v.hecho, (t) => `${t.texto ? corto(t.texto) : `${t.proyecto}: ${corto(t.objetivo)}`} ✓`, 'Nada terminado todavía.')),
+      linea('QUÉ HA HECHO', 'ok', lista(hechas.length ? [...hechas].reverse() : v.hecho, (t) => `${t.texto ? corto(t.texto) : `${t.proyecto}: ${corto(t.objetivo)}`} ✓`, 'Nada terminado todavía.')),
       linea('QUÉ ESTÁ HACIENDO', 'work', lista(ahora, (t) => `${t.proyecto}: ${t.pausado ? 'en pausa' : t.te_necesita ? 'esperando algo tuyo' : corto(t.ahora && t.ahora !== 'Aún no se ha hecho nada' ? t.ahora : t.objetivo)}${t.ultima_actividad ? '' : ''}`,
         o.estado === 'PAUSADA' ? 'En pausa.' : o.estado === 'DEFINIENDO' ? 'Investigando y preparando la hoja de ruta.' : 'Nada en marcha ahora.')),
       linea('QUÉ HARÁ DESPUÉS', 'next', despues.length ? lista(despues, (t) => corto(t.texto), '') : h('p', { class: 'small' }, v.despues || (o.estado === 'EN_SEGUIMIENTO' ? `Medir el resultado ${o.proxima_revision ? `el ${fecha(o.proxima_revision)}` : 'periódicamente'} (sin IA).` : 'El CEO decide al terminar lo que hay en marcha.'))),
@@ -337,7 +337,7 @@ export function negocioUi({ api, ask, toast, show, data, run, viewText }) {
     const ico = (txt, aria, on, cls = '') => h('button', { class: `btn ghost small t-ico ${cls}`, type: 'button', 'aria-label': aria, title: aria, onclick: (e) => on(e.currentTarget) }, txt);
     return h('li', { class: `road-t t-${tone}`, 'data-tarea': t.id },
       h('div', { class: 'road-t-main' }, chip(label, tone),
-        h('span', { class: 'road-t-txt' }, t.texto),
+        h('span', { class: 'road-t-txt', title: 'Pulsa para ver entera', onclick: (e) => e.currentTarget.classList.toggle('abierta') }, t.texto),
         h('small', { class: 'muted' }, [t.quien ? `${t.quien}` : t.proyecto, t.origen !== 'CEO' ? 'tuya' : null, t.estado === 'EN_CURSO' && t.ahora && t.ahora !== 'Aún no se ha hecho nada' ? corto(t.ahora, 90) : null, t.nota && !abierta ? t.nota : null].filter(Boolean).join(' · '))),
       editable && abierta ? h('div', { class: 'road-t-acts' },
         t.estado === 'PENDIENTE' ? ico('↑', `Subir prioridad de ${t.id}`, (b) => hojaCmd(o, { op: 'mover', tarea: t.id, a: 'arriba' }, 'Prioridad cambiada', b)) : null,
@@ -345,6 +345,7 @@ export function negocioUi({ api, ask, toast, show, data, run, viewText }) {
         ico('✎', `Modificar ${t.id}`, (b) => editarTarea(o, t, b)),
         ico('✕', `Quitar ${t.id}`, (b) => quitarTarea(o, t, b), 't-del')) : null);
   }
+  const FASES_ABIERTAS = new Map(); // "objetivo:fase" → abierta (sólo lo que Antonio tocó; lo demás, por defecto)
   function hojaView(o) {
     const hj = o.hoja;
     if (!hj || (!hj.fases.length && !hj.tareas.length)) {
@@ -360,15 +361,25 @@ export function negocioUi({ api, ask, toast, show, data, run, viewText }) {
       const enMarcha = ts.some((t) => t.estado === 'EN_CURSO');
       // V3.12: «hecha» sólo con el RESULTADO verificado; con todas las tareas hechas pero sin acreditar, sigue abierta.
       const est = f.estado || null;
-      return h('li', { class: `road-f${enMarcha ? ' now' : est?.cumplida ? ' done' : hechas ? ' some' : ''}` },
-        h('div', { class: 'road-f-head' }, h('span', { class: 'road-n', 'aria-hidden': 'true' }, String(i + 1)),
-          h('div', { class: 'road-f-t' }, h('b', {}, f.nombre), f.objetivo ? h('p', { class: 'small' }, f.objetivo) : null,
+      // FASE COMPACTA (11-11): plegada por defecto salvo la que está en marcha; se recuerda lo que Antonio abre o cierra
+      // (la vista se repinta con cada cambio de estado). Cabecera: número, nombre, estado, cuenta y siguiente acción.
+      const clave = `${o.id}:${f.id}`;
+      const abierta = FASES_ABIERTAS.has(clave) ? FASES_ABIERTAS.get(clave) : enMarcha;
+      const sig = ts.find((t) => t.estado === 'EN_CURSO') || ts.find((t) => t.estado === 'PENDIENTE');
+      const [fl, ft] = est?.cumplida ? ['Cumplida', 'ok'] : enMarcha ? ['En marcha', 'work'] : ts.length && hechas === ts.length ? ['Hecha · sin acreditar', 'warn'] : hechas ? ['Empezada', 'idle'] : ['Pendiente', 'idle'];
+      return h('li', { class: `road-f${enMarcha ? ' now' : est?.cumplida ? ' done' : hechas ? ' some' : ''}` }, h('details', { class: 'road-fold', open: abierta },
+        // Sólo un clic de Antonio cuenta (el «toggle» también salta al pintar la fase abierta por defecto).
+        h('summary', { class: 'road-f-sum', onclick: (e) => FASES_ABIERTAS.set(clave, !e.currentTarget.parentElement.open) }, h('span', { class: 'road-n', 'aria-hidden': 'true' }, String(i + 1)),
+          h('span', { class: 'road-f-sumt' }, h('b', {}, f.nombre), h('small', { class: 'muted' }, [ts.length ? `${hechas}/${ts.length} tareas` : 'sin tareas', sig ? `siguiente: ${corto(sig.texto, 90)}` : null].filter(Boolean).join(' · '))),
+          chip(fl, ft)),
+        h('div', { class: 'road-f-head' },
+          h('div', { class: 'road-f-t' }, f.objetivo ? h('p', { class: 'small' }, f.objetivo) : null,
             h('small', { class: 'muted' }, [f.proyecto, f.criterio ? `cumplida cuando ${f.criterio}` : null, ts.length ? `${hechas} de ${ts.length} tareas hechas` : null].filter(Boolean).join(' · ')),
             est && (est.trabajo !== 'PENDIENTE' || est.resultado !== 'PENDIENTE') ? h('p', { class: `road-res r-${est.resultado.toLowerCase()}` }, h('b', {}, est.texto),
               est.trabajo === 'HECHO' && est.resultado === 'PENDIENTE' ? ` · prueba ${est.prueba === 'EJECUTADA' ? 'ejecutada' : 'sin ejecutar'}` : '', est.evidencia ? ` · ${est.evidencia}` : '') : null),
           editable ? h('button', { class: 'btn ghost small t-ico', type: 'button', 'aria-label': `Modificar la fase ${f.nombre}`, title: 'Modificar la fase', onclick: (e) => editarFase(o, f, e.currentTarget) }, '✎') : null),
         h('ol', { class: 'road-ts' }, ts.map((t) => tareaRow(o, t, editable))),
-        editable ? h('button', { class: 'btn ghost small road-add', type: 'button', onclick: (e) => anadirTarea(o, f.id, e.currentTarget) }, '+ Tarea') : null);
+        editable ? h('button', { class: 'btn ghost small road-add', type: 'button', onclick: (e) => anadirTarea(o, f.id, e.currentTarget) }, '+ Tarea') : null));
     };
     return h('section', { class: 'panel road-panel' },
       h('div', { class: 'dir-head' }, h('h4', {}, 'Hoja de ruta'), h('small', { class: 'muted' }, 'El orden es la prioridad. El CEO la sigue y la ajusta; tus cambios mandan.')),

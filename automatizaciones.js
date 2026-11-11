@@ -219,10 +219,28 @@ export function autoUi({ api, ask, toast, show, data, run, viewText, ai, alquile
     if (!online()) { toast('El PC no está conectado: la orden no se envía.', 'bad'); return; }
     // EJECUCIÓN DIRECTA (V3.9): ▶ Ejecutar lanza sin otra ventana. El PC impide una segunda copia (ya en marcha o recurso
     // ocupado) y lo que salga a terceros sigue esperando tu aprobación en Respuestas. La prueba sí pregunta.
+    // Agente con selector (src/seleccion.js): antes de lanzar se eligen fuentes y trabajos; se guardan como preferencia.
+    if (a.selector) { const seleccion = await elegir(a, prueba); if (seleccion) await cmd('automatizacion.ejecutar', { id: a.id, confirmado: true, prueba, seleccion }, 'En marcha', btn); return; }
     if (!prueba) { await cmd('automatizacion.ejecutar', { id: a.id, confirmado: true, prueba: false }, 'En marcha', btn); return; }
     const ok = await ask({ title: `${prueba ? 'Probar' : 'Ejecutar'} «${a.nombre}»`, ok: prueba ? 'Ejecutar en prueba' : 'Ejecutar',
       help: `${a.proyectoNombre || ''}: se lanza en el PC (${a.modo === 'DIRECTO' ? 'Claude' : 'Codex dirige a Claude'}).${prueba ? ' MODO PRUEBA: sin tocar datos reales.' : ''} Verás el progreso aquí; nada se envía a terceros sin tu aprobación.` });
     if (ok) await cmd('automatizacion.ejecutar', { id: a.id, confirmado: true, prueba }, 'Lanzada', btn);
+  }
+  // Casillas de fuentes (sólo las disponibles; las demás, con su motivo) y de trabajos, con la última elección marcada.
+  async function elegir(a, prueba) {
+    const { fuentes, trabajos, preferencia } = a.selector;
+    const disp = fuentes.filter((f) => f.disponible);
+    const no = fuentes.filter((f) => !f.disponible);
+    const r = await ask({ title: `${prueba ? 'Probar' : 'Ejecutar'} «${a.nombre}»`, ok: prueba ? 'Ejecutar en prueba' : 'Ejecutar',
+      help: [`Elige qué revisar y qué hacer. Se recuerda para la próxima vez. Nada se envía a terceros sin tu aprobación.${prueba ? ' MODO PRUEBA: sin tocar datos reales.' : ''}`,
+        ...no.map((f) => `No disponible · ${f.nombre}: ${f.motivo}`)].join('\n'),
+      fields: [{ name: 'todas', label: 'Todas las fuentes disponibles', type: 'checkbox', value: disp.length > 1 && disp.every((f) => preferencia.fuentes.includes(f.id)) },
+        ...disp.map((f) => ({ name: `f_${f.id}`, label: `Fuente: ${f.nombre}`, type: 'checkbox', value: preferencia.fuentes.includes(f.id) })),
+        ...trabajos.map((t) => ({ name: `t_${t.id}`, label: `Trabajo: ${t.nombre}`, type: 'checkbox', value: preferencia.trabajos.includes(t.id) }))] });
+    if (!r) return null;
+    const sel = { fuentes: r.todas ? disp.map((f) => f.id) : disp.filter((f) => r[`f_${f.id}`]).map((f) => f.id), trabajos: trabajos.filter((t) => r[`t_${t.id}`]).map((t) => t.id) };
+    if (!sel.fuentes.length || !sel.trabajos.length) { toast(!sel.fuentes.length ? 'Elige al menos una fuente.' : 'Elige al menos un tipo de trabajo.', 'bad'); return null; }
+    return sel;
   }
   async function cancel(a, u, btn) {
     const ok = await ask({ title: `¿Cancelar «${a.nombre}»?`, ok: 'Sí, cancelar', danger: true, help: 'Se detiene la ejecución en curso. No se revierte nada de lo ya hecho.' });

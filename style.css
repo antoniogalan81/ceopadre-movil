@@ -155,7 +155,8 @@ body {
 .btn.small { min-height: 38px; font-size: 13px; padding: 0 12px; }
 
 /* ---- detalle ---- */
-.detail { display: grid; gap: 14px; padding-bottom: 30px; }
+.detail { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; padding-bottom: 30px; } /* sin esto, la rejilla de 4 bloques ensanchaba el detalle a 646 px en un móvil de 390 */
+.detail code, .detail small, .detail li { overflow-wrap: anywhere; } /* comandos y rutas largas del detalle técnico no ensanchan la pantalla */
 .panel { background: var(--paper); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; }
 .panel h4 { margin: 0 0 8px; font-size: 12px; letter-spacing: .14em; text-transform: uppercase; color: var(--ink-3); }
 .mono { font-family: var(--mono); font-size: 13px; overflow-wrap: anywhere; margin: 0; }
@@ -185,6 +186,14 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); box-sh
 .sheet form { padding: 20px 16px calc(16px + env(safe-area-inset-bottom)); }
 .sheet h2 { margin: 0 0 6px; font-size: 20px; }
 .sheet::backdrop { background: rgba(20,16,8,.45); }
+/* Teclado del móvil (web/modal.js pone --vvh/--kb con visualViewport): la ventana cabe en lo que queda visible, se desplaza
+   por dentro y Volver/Aceptar siguen a la vista; el selector no se sale y el texto largo no empuja los botones fuera. */
+dialog.sheet { max-height: calc(var(--vvh, 100dvh) - 8px); overflow: auto; overscroll-behavior: contain; }
+@media (max-width: 699px) { dialog.sheet:not(.composer) { margin-bottom: var(--kb, 0px); } }
+.sheet form > .row:last-child { position: sticky; bottom: 0; z-index: 1; background: var(--paper); padding-top: 10px; margin-top: 4px; }
+.sheet select { width: 100%; max-width: 100%; text-overflow: ellipsis; min-height: 44px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--paper); color: var(--ink); font: inherit; }
+.sheet textarea { max-height: 45dvh; resize: vertical; }
+#dlg-fields .field { min-width: 0; }
 
 .toast {
   position: fixed; left: 50%; bottom: calc(18px + env(safe-area-inset-bottom)); transform: translate(-50%, 20px);
@@ -918,7 +927,7 @@ a.btn { display: inline-flex; align-items: center; justify-content: center; text
 @media (max-width: 760px) {
   .tabs { display: none; }
   .tabbar:not([hidden]) { display: grid; }
-  body { padding-bottom: calc(80px + env(safe-area-inset-bottom)); }
+  body { padding-bottom: calc(80px + 76px + env(safe-area-inset-bottom)); } /* barra inferior + botón del CEO: lo último se puede subir por encima del botón */
   .home .bar { grid-template-columns: 1fr; padding: 10px 12px; gap: 8px; }
   .home .bar-side { width: 100%; justify-content: space-between; }
   .home .bar .bar-sub { font-size: 12.5px; }
@@ -1117,7 +1126,10 @@ details.z-projects[open] > summary { margin-bottom: 12px; }
   border: 0; border-radius: 999px; background: var(--accent); color: #fff; font: 700 14px/1 var(--sans); box-shadow: 0 6px 18px oklch(0 0 0 / .25); cursor: pointer; }
 .ceo-fab:focus-visible { outline: 3px solid var(--ink); outline-offset: 2px; }
 @media (max-width: 760px) { .ceo-fab { bottom: calc(76px + env(safe-area-inset-bottom)); right: 12px; padding: 0 14px; } .ceo-fab-t { display: none; } .ceo-fab { width: 52px; justify-content: center; } }
-dialog.ceo-chat { padding: 0; width: min(460px, 100vw); max-width: 100vw; height: 100dvh; max-height: 100dvh; margin: 0 0 0 auto; border-radius: 0; border: 0; border-left: 1px solid var(--line); }
+dialog.ceo-chat { padding: 0; width: min(460px, 100vw); max-width: 100vw; height: var(--vvh, 100dvh); max-height: var(--vvh, 100dvh); margin: 0 0 0 auto !important; overflow: hidden; border-radius: 0; border: 0; border-left: 1px solid var(--line); }
+/* Respuesta nueva mientras Antonio lee más arriba: aviso discreto, no un salto. */
+.ceo-nuevo { align-self: center; margin: -46px auto 6px; position: relative; z-index: 2; box-shadow: 0 4px 12px oklch(0 0 0 / .2); }
+.ceo-err p { margin: 0 0 6px; }
 dialog.ceo-chat::backdrop { background: oklch(0 0 0 / .25); }
 .ceo-body { display: flex; flex-direction: column; height: 100%; padding: calc(10px + env(safe-area-inset-top)) 14px calc(10px + env(safe-area-inset-bottom)); gap: 8px; box-sizing: border-box; }
 .ceo-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
@@ -1389,3 +1401,18 @@ dialog.alq-ficha { width: min(680px, 100%); padding: 16px 16px calc(16px + env(s
 /* Tarjetas pulsables de Dirección: toda la tarjeta abre su detalle. */
 .pulsable { cursor: pointer; }
 .pulsable:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+/* «Te necesita» en una tarea de la hoja: una frase y Resolver (no párrafos en una tarjeta estrecha). */
+.road-t-need { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 6px; padding: 8px 10px; border-radius: 10px; background: var(--warn-bg, #fff4d6); }
+.road-t-need p { margin: 0; flex: 1 1 14rem; overflow-wrap: anywhere; }
+
+/* COPIA DE SEGURIDAD ECOAPP (web/copia.js) */
+dialog.cp-dlg { width: min(860px, calc(100vw - 24px)); overflow: auto; }
+.cp-box { border: 1px solid var(--line); border-left: 4px solid var(--line); border-radius: 8px; padding: 8px 12px; margin: 10px 0; }
+.cp-box.t-ok { border-left-color: var(--ok); } .cp-box.t-work { border-left-color: var(--work); } .cp-box.t-warn { border-left-color: var(--warn); } .cp-box.t-wait { border-left-color: var(--wait); }
+.cp-box h3 { margin: 0 0 6px; font-size: 15px; }
+.cp-row { display: grid; grid-template-columns: minmax(9em, 16em) 1fr; gap: 8px; padding: 2px 0; overflow-wrap: anywhere; }
+.cp-box progress { width: 100%; height: 10px; }
+.cp-btns { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+.cp-list { margin: 6px 0; padding-left: 18px; max-height: 40vh; overflow: auto; overflow-wrap: anywhere; }
+.cp-list li { margin: 3px 0; }
+@media (max-width: 560px) { .cp-row { grid-template-columns: 1fr; gap: 0; } }

@@ -20,6 +20,22 @@ export function volver(d) {
 }
 
 export function ventanasUniversales(doc = document) {
+  // Teclado del móvil: alto visible real (--vvh) y lo que tapa el teclado (--kb), para que las ventanas tipo hoja quepan
+  // encima de él. Sin visualViewport (PC antiguo) no se pone nada y rige 100dvh.
+  const vv = doc.defaultView?.visualViewport;
+  if (vv) {
+    const ajustar = () => {
+      const r = doc.documentElement.style;
+      r.setProperty('--vvh', `${Math.round(vv.height)}px`);
+      r.setProperty('--kb', `${Math.max(0, Math.round(doc.defaultView.innerHeight - vv.height - vv.offsetTop))}px`);
+      // El campo que se está escribiendo sigue a la vista al abrirse el teclado.
+      const a = doc.activeElement;
+      if (a?.closest?.('dialog[open]') && /^(TEXTAREA|INPUT|SELECT)$/.test(a.tagName)) a.scrollIntoView({ block: 'nearest' });
+    };
+    vv.addEventListener('resize', ajustar);
+    vv.addEventListener('scroll', ajustar);
+    ajustar();
+  }
   let desde = null;
   doc.addEventListener('pointerdown', (e) => {
     const d = e.target;

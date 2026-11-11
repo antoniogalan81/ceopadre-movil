@@ -28,7 +28,7 @@ const TIPO_NEC = { CONEXION: 'Conectar una cuenta', DATO: 'Un dato', ACCION: 'Al
   KPI: 'Revisar un comando de medición' };
 // Estado de una tarea de la hoja tal como lo ve Antonio.
 const TAREA = { PENDIENTE: ['Pendiente', 'idle'], EN_CURSO: ['Ahora', 'work'], BLOQUEADA: ['Te necesita', 'ask'], PAUSADA: ['En pausa', 'idle'], HECHA: ['Hecho', 'ok'],
-  ELIMINADA: ['Quitada', 'idle'], DESCARTADA: ['Descartada por el CEO', 'idle'] };
+  ELIMINADA: ['Quitada', 'idle'], DESCARTADA: ['Descartada por el CEO', 'idle'], NO_NECESARIA: ['No necesaria tras el cierre', 'idle'] };
 const fecha = (iso) => (iso ? new Date(iso).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '');
 const chip = (label, tone) => h('span', { class: `a-chip t-${tone}` }, label);
 // Resúmenes de la vista principal en lenguaje claro (web/dom.js claro: sin comandos, rutas ni hashes; nada inventado).
@@ -148,7 +148,7 @@ export function negocioUi({ api, ask, toast, show, data, run, viewText }) {
       linea('QUÉ HA HECHO', 'ok', lista(hechas.length ? [...hechas].reverse() : v.hecho, (t) => `${t.texto ? corto(t.texto) : `${t.proyecto}: ${corto(t.objetivo)}`} ✓`, 'Nada terminado todavía.')),
       linea('QUÉ ESTÁ HACIENDO', 'work', lista(ahora, (t) => `${t.proyecto}: ${t.pausado ? 'en pausa' : t.te_necesita ? 'esperando algo tuyo' : corto(t.ahora && t.ahora !== 'Aún no se ha hecho nada' ? t.ahora : t.objetivo)}${t.ultima_actividad ? '' : ''}`,
         o.estado === 'PAUSADA' ? 'En pausa.' : o.estado === 'DEFINIENDO' ? 'Investigando y preparando la hoja de ruta.' : 'Nada en marcha ahora.')),
-      linea('QUÉ HARÁ DESPUÉS', 'next', despues.length ? lista(despues, (t) => corto(t.texto), '') : h('p', { class: 'small' }, v.despues || (o.estado === 'EN_SEGUIMIENTO' ? `Medir el resultado ${o.proxima_revision ? `el ${fecha(o.proxima_revision)}` : 'periódicamente'} (sin IA).` : 'El CEO decide al terminar lo que hay en marcha.'))),
+      linea('QUÉ HARÁ DESPUÉS', 'next', despues.length ? lista(despues, (t) => corto(t.texto), '') : h('p', { class: 'small' }, CLOSED.includes(o.estado) ? 'Nada: el objetivo está cerrado y no vuelve a ejecutarse.' : v.despues || (o.estado === 'EN_SEGUIMIENTO' ? `Medir el resultado ${o.proxima_revision ? `el ${fecha(o.proxima_revision)}` : 'periódicamente'} (sin IA).` : 'El CEO decide al terminar lo que hay en marcha.'))),
       linea('QUÉ NECESITA DE TI', necesito.length ? 'need' : 'ok', necesito.length ? lista(necesito, (x) => corto(x, 160), '') : h('p', { class: 'muted small' }, 'Nada ahora.')),
       v.entendido ? h('p', { class: 'q4-entendido' }, h('b', {}, 'ÚLTIMO CAMBIO ENTENDIDO: '), v.entendido) : null);
   }
@@ -258,10 +258,11 @@ export function negocioUi({ api, ask, toast, show, data, run, viewText }) {
     const closed = CLOSED.includes(o.estado);
     // EXTERNO: lo ejecuta otra sesión; aquí no hay director que reciba instrucciones ni pausas (no se ofrece lo que no actúa).
     if (o.seleccion?.modo === 'EXTERNO') return h('div', { class: 'a-acts obj-acts' },
-      !closed ? B('✓ Aceptar resultado', (b) => aceptarRes(o, b), 'ghost', { title: 'Das el resultado por bueno tal como está' }) : null,
+      !closed ? B('✓ Dar por cumplido y cerrar', (b) => aceptarRes(o, b), 'ghost', { title: 'Das el objetivo por cumplido: se cierra y no vuelve a pedirte nada' }) : null,
       B('💬 Consultar al CEO', () => window.dispatchEvent(new CustomEvent('ceo:abrir', { detail: { ref: `meta:${o.id}` } }))));
     return h('div', { class: 'a-acts obj-acts' },
-      o.estado === 'EN_SEGUIMIENTO' ? B('✓ Aceptar resultado', (b) => aceptarRes(o, b), 'primary', { title: 'Das el resultado por bueno: queda «Aceptado por Antonio» y no se vuelve a pedir tu conformidad' }) : null,
+      // Visible (no escondido en «Más»): cerrar un objetivo cumplido es una decisión habitual de Antonio.
+      ['EN_SEGUIMIENTO', 'ACTIVA', 'ESPERANDO_ANTONIO', 'PAUSADA', 'BLOQUEADA'].includes(o.estado) && !o.trabajos?.en_curso ? B('✓ Dar por cumplido y cerrar', (b) => aceptarRes(o, b), o.estado === 'EN_SEGUIMIENTO' ? 'primary' : 'ghost', { title: 'Das el objetivo por cumplido: se cierra, deja de trabajar y no vuelve a pedirte nada' }) : null,
       !closed ? B('Nueva instrucción', (b) => instruir(o, b), o.estado === 'EN_SEGUIMIENTO' ? 'ghost' : 'primary') : null,
       o.estado === 'PAUSADA' ? B('▶ Continuar', (b) => after(cmd('negocio.reanudar', { id: o.id }, 'Continúa', b)), 'primary')
         : !closed && o.estado !== 'BLOQUEADA' ? B('⏸ Pausar', (b) => after(cmd('negocio.pausar', { id: o.id }, 'Objetivo en pausa', b)), 'ghost', { title: 'Pausa TODO el objetivo: no empieza nada nuevo y lo que está en marcha se detiene sin perder lo hecho' }) : null,
@@ -269,8 +270,7 @@ export function negocioUi({ api, ask, toast, show, data, run, viewText }) {
       h('details', { class: 'a-more' }, h('summary', { class: 'btn ghost small' }, 'Más'), h('div', { class: 'a-menu' },
         !closed ? B('Modificar el objetivo o los proyectos', (b) => editarObjetivo(o, b)) : null,
         ['ACTIVA', 'ESPERANDO_ANTONIO', 'PAUSADA', 'EN_SEGUIMIENTO'].includes(o.estado) ? B('Medir ahora', (b) => after(cmd('negocio.medir', { id: o.id }, 'Medido', b))) : null,
-        ['ACTIVA', 'ESPERANDO_ANTONIO', 'PAUSADA', 'BLOQUEADA'].includes(o.estado) && !o.trabajos?.en_curso ? B('Aceptar el resultado tal como está', (b) => aceptarRes(o, b)) : null,
-        ['ACTIVA', 'ESPERANDO_ANTONIO', 'PAUSADA', 'BLOQUEADA', 'EN_SEGUIMIENTO'].includes(o.estado) ? B('Darlo por terminado', (b) => cerrar(o, b)) : null,
+        ['ACTIVA', 'ESPERANDO_ANTONIO', 'PAUSADA', 'BLOQUEADA', 'EN_SEGUIMIENTO'].includes(o.estado) ? B('Terminar y seguir midiendo el resultado', (b) => cerrar(o, b)) : null,
         !closed ? B('Cancelar el objetivo', (b) => cancelar(o, b), 'ghost-danger') : null)));
   }
   // TARJETA COMPACTA de la lista: título, estado, lo que hace ahora, cuánto lleva y la acción principal.
@@ -299,10 +299,10 @@ export function negocioUi({ api, ask, toast, show, data, run, viewText }) {
     if (r) await after(cmd('negocio.instruccion', { id: o.id, texto: r.texto }, 'Recibida: el CEO revisa el plan', btn));
   }
   async function aceptarRes(o, btn) {
-    const r = await ask({ title: `Aceptar el resultado de «${o.titulo}»`, ok: 'Aceptar resultado',
-      help: 'Quedará «Aceptado por Antonio» con fecha y no se te volverá a pedir conformidad. Lo que los indicadores no hayan comprobado se queda anotado como «comprobación técnica pendiente»: no se inventa.',
-      fields: [{ name: 'motivo', label: 'Comentario (opcional)', type: 'textarea', required: false }] });
-    if (r) await after(cmd('negocio.aceptar', { id: o.id, motivo: r.motivo || 'Aceptado desde el detalle' }, 'Resultado aceptado', btn));
+    const r = await ask({ title: `¿Dar por cumplido y cerrar «${o.titulo}»?`, ok: 'Dar por cumplido y cerrar',
+      help: `Quedará «Cerrado por Antonio» con fecha y motivo. Se conservan todos los trabajos y resultados; ${o.hoja?.cuenta?.pendientes ? `las ${o.hoja.cuenta.pendientes} tarea(s) sin hacer quedan como «No necesaria tras el cierre» (no se marcan como hechas)` : 'no queda ninguna tarea por hacer'}, se retiran sus preguntas y no se vuelve a ejecutar ni a pedirte nada. Lo que los indicadores no hayan comprobado se anota como «comprobación técnica pendiente»: no se inventa.`,
+      fields: [{ name: 'motivo', label: 'Motivo (opcional; p. ej. «ya lo envié yo»)', type: 'textarea', required: false }] });
+    if (r) await after(cmd('negocio.aceptar', { id: o.id, motivo: r.motivo || 'Dado por cumplido desde el detalle' }, 'Objetivo cerrado', btn));
   }
   async function cancelar(o, btn) {
     const r = await ask({ title: `¿Cancelar «${o.titulo}»?`, ok: 'Sí, cancelar', danger: true, help: 'El director deja de lanzar trabajos. No se revierte nada de lo hecho.',
@@ -337,8 +337,31 @@ export function negocioUi({ api, ask, toast, show, data, run, viewText }) {
         { name: 'primera', label: 'Prioritaria (lo siguiente)', type: 'checkbox' }] });
     if (r) await hojaCmd(o, { op: 'añadir', texto: r.texto, fase: r.fase, primera: r.primera }, 'Tarea añadida', btn);
   }
+  // RESOLVER lo que una tarea necesita de Antonio, sin salir del objetivo (el trabajo puede estar en cola y no verse en la
+  // ficha del proyecto): lo que pide, entero, y las tres respuestas posibles por sus órdenes de siempre.
+  async function resolverTarea(o, t, btn) {
+    const r = await ask({ title: `${t.id} · necesita tu intervención`, ok: 'Enviar',
+      help: `${t.espera?.descripcion || t.necesita || 'Mira su ficha: espera una decisión tuya.'}
+
+Elige qué hacer:`,
+      fields: [{ name: 'accion', label: 'Qué haces', type: 'choice', value: t.espera ? '' : 'instruccion', options: [
+        ...(t.espera ? [{ value: 'hecho', label: 'Ya lo he hecho: que siga' }] : []),
+        { value: 'instruccion', label: 'Darle otra instrucción (sustituye lo que pedía)' },
+        { value: 'consultar', label: 'Consultar al CEO antes de decidir' }] },
+      { name: 'texto', label: 'Instrucción o comentario (obligatorio si das otra instrucción)', type: 'textarea', required: false }] });
+    if (!r) return;
+    if (r.accion === 'consultar') { window.dispatchEvent(new CustomEvent('ceo:abrir', { detail: { ref: `trabajo:${t.trabajo}` } })); return; }
+    if (r.accion === 'hecho') { await after(cmd('espera.resolver', { id: t.espera.id, resultado: 'CUMPLIDA', texto: r.texto || 'Antonio lo ha hecho' }, 'Hecho: el trabajo sigue', btn)); return; }
+    if (!r.texto) { toast('Escribe la instrucción', 'bad'); return; }
+    await after(cmd('objetivo.anadir', { trabajo: t.trabajo, texto: r.texto }, 'Instrucción enviada', btn));
+  }
   async function editarTarea(o, t, btn) {
-    const r = await ask({ title: `Modificar ${t.id}`, ok: 'Guardar', help: t.estado === 'EN_CURSO' ? 'Está en marcha: el cambio le llega ahora y lo ajusta sin rehacer lo que siga valiendo.' : '',
+    // Guardar ≠ enviar: con trabajo vivo, el cambio es una INSTRUCCIÓN que se entrega a su ejecutor (y sustituye lo que te
+    // estaba pidiendo); sin trabajo, sólo se guarda y se aplicará cuando la tarea empiece.
+    const viva = t.estado === 'EN_CURSO';
+    const r = await ask({ title: `Modificar ${t.id}`, ok: viva ? 'Guardar y enviar instrucción' : 'Guardar cambios',
+      help: viva ? 'Está en marcha: tu cambio se envía a su ejecutor como instrucción. Si estaba esperando algo tuyo, eso deja de pedírsete. Verás si se entregó o si espera turno.'
+        : t.estado === 'PENDIENTE' ? 'Aún no ha empezado: se guarda y se hará así cuando empiece.' : '',
       fields: [{ name: 'texto', label: 'Qué hay que hacer', type: 'textarea', value: t.texto }, ...(o.hoja.fases.length ? [{ name: 'fase', label: 'Fase', type: 'choice', value: t.fase || '', options: faseOpts(o) }] : [])] });
     if (r) await hojaCmd(o, { op: 'editar', tarea: t.id, texto: r.texto, fase: r.fase }, 'Tarea modificada', btn);
   }
@@ -367,7 +390,10 @@ export function negocioUi({ api, ask, toast, show, data, run, viewText }) {
     return h('li', { class: `road-t t-${tone}`, 'data-tarea': t.id },
       h('div', { class: 'road-t-main' }, chip(label, tone),
         h('span', { class: 'road-t-txt', title: 'Pulsa para ver entera', onclick: (e) => e.currentTarget.classList.toggle('abierta') }, t.texto),
-        h('small', { class: 'muted' }, [t.quien ? `${t.quien}` : t.proyecto, t.origen !== 'CEO' ? 'tuya' : null, t.estado === 'EN_CURSO' && t.ahora && t.ahora !== 'Aún no se ha hecho nada' ? corto(t.ahora, 90) : null, t.nota && !abierta ? t.nota : null].filter(Boolean).join(' · '))),
+        h('small', { class: 'muted' }, [t.quien ? `${t.quien}` : t.proyecto, t.origen !== 'CEO' ? 'tuya' : null, t.estado === 'EN_CURSO' && t.visible !== 'BLOQUEADA' && t.ahora && t.ahora !== 'Aún no se ha hecho nada' ? corto(t.ahora, 90) : null, t.nota && !abierta ? t.nota : null].filter(Boolean).join(' · ')),
+        // «Te necesita»: UNA acción clara y «Resolver», que abre su ficha con la explicación completa y las opciones.
+        t.visible === 'BLOQUEADA' ? h('div', { class: 'road-t-need' }, h('p', {}, h('b', {}, 'Necesita tu intervención: '), claro(t.necesita || 'mira qué espera en su ficha')),
+          h('button', { class: 'btn primary small', type: 'button', onclick: (e) => resolverTarea(o, t, e.currentTarget) }, 'Resolver')) : null),
       editable && abierta ? h('div', { class: 'road-t-acts' },
         t.estado === 'PENDIENTE' ? ico('↑', `Subir prioridad de ${t.id}`, (b) => hojaCmd(o, { op: 'mover', tarea: t.id, a: 'arriba' }, 'Prioridad cambiada', b)) : null,
         t.estado === 'PENDIENTE' ? ico('↓', `Bajar prioridad de ${t.id}`, (b) => hojaCmd(o, { op: 'mover', tarea: t.id, a: 'abajo' }, 'Prioridad cambiada', b)) : null,
@@ -381,7 +407,7 @@ export function negocioUi({ api, ask, toast, show, data, run, viewText }) {
       return h('section', { class: 'panel' }, h('h4', {}, 'Hoja de ruta'), h('p', { class: 'muted' }, o.estado === 'DEFINIENDO' ? 'El CEO está investigando y la preparará en cuanto termine.' : 'Sin hoja de ruta todavía.'));
     }
     const editable = !CLOSED.includes(o.estado);
-    const vivas = (t) => !['ELIMINADA', 'DESCARTADA'].includes(t.estado);
+    const vivas = (t) => !['ELIMINADA', 'DESCARTADA', 'NO_NECESARIA'].includes(t.estado);
     const quitadas = hj.tareas.filter((t) => !vivas(t));
     const sinFase = hj.tareas.filter((t) => vivas(t) && !hj.fases.some((f) => f.id === t.fase));
     const fase = (f, i) => {

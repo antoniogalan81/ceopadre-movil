@@ -9,6 +9,7 @@ import { negocioUi } from './negocio.js';
 import { mamaUi } from './mama.js';
 import { aiEditor } from './redactor.js';
 import { alquileresUi } from './alquiler.js';
+import { copiaUi } from './copia.js';
 import { borrador, ventanasUniversales } from './modal.js';
 
 ventanasUniversales(); // V3.9: clic fuera = Volver/Cerrar en TODAS las ventanas modales (web/modal.js)
@@ -16,6 +17,9 @@ ventanasUniversales(); // V3.9: clic fuera = Volver/Cerrar en TODAS las ventanas
 const LOCAL = ['127.0.0.1', 'localhost'].includes(location.hostname);
 // GESTIÓN · ALQUILERES: tarjeta de cada inquilino («Me ha pagado») dentro de GESTIONES. run/ask se usan al pulsar.
 const ALQ = alquileresUi({ run: (...a) => run(...a), ask: (o) => ask(o), cmd: (op, p) => api.cmd(op, p), toast: (m, k) => toast(m, k), LOCAL });
+// COPIA DE SEGURIDAD ECOAPP: sólo en el PC (el disco y el motor están aquí); se crea al abrir Agentes por primera vez.
+let COPIA = null;
+const copiaMinis = () => (LOCAL ? (COPIA ??= copiaUi({ cmd: (op, p) => api.cmd(op, p), toast: (m, k) => toast(m, k), ask: (o) => ask(o) })).minis() : []);
 const $ = (s) => document.querySelector(s);
 
 // ------------------------------------------------------------------ transporte
@@ -274,7 +278,9 @@ async function run(op, params, okMsg, btn) {
   if (btn) btn.disabled = true;
   try {
     const r = await api.cmd(op, params);
-    if (r?.ok) toast(r.data?.mensaje || okMsg, 'ok'); else toast(r?.error || 'No se pudo', 'bad');
+    // Lo escrito en la última ventana se conserva hasta que el PC CONFIRMA la orden: si falla (PC desconectado, caducada…),
+    // al reabrir la misma ventana vuelve el texto (antes se perdía al pulsar Aceptar).
+    if (r?.ok) { toast(r.data?.mensaje || okMsg, 'ok'); for (const k of enviados) borrador.borrar(k); enviados.clear(); } else toast(`${r?.error || 'No se pudo'}${enviados.size ? ' · Lo que escribiste se conserva: vuelve a abrir la ventana.' : ''}`, 'bad');
     detailCache = null; // tras una orden, DETALLES (y el mapa) se vuelven a pedir: nada de estado viejo en pantalla
     await refresh();
     return r?.ok;
@@ -282,13 +288,15 @@ async function run(op, params, okMsg, btn) {
 }
 
 // Hoja modal reutilizable. fields: [{name, label, type:'textarea'|'text', value, placeholder}]
+const enviados = new Set(); // borradores de ventanas aceptadas cuya orden aún no ha confirmado el PC (la confirmación de contraseña también abre una)
 function ask({ title, help = '', fields = [], ok = 'Aceptar', danger = false }) {
   const dlg = $('#dlg');
   // Lo escrito y cerrado sin aceptar (fuera, Escape o Volver) vuelve al reabrir la misma pregunta (web/modal.js).
   const clave = `${title}|${fields.map((f) => f.name).join(',')}`;
   const previo = borrador.leer(clave);
   const inicial = Object.fromEntries(fields.map((f) => [f.name, f.value || '']));
-  if (previo) fields = fields.map((f) => (previo[f.name] && !f.value && ['textarea', 'text', undefined].includes(f.type) ? { ...f, value: previo[f.name] } : f));
+  // Sólo se guardó lo que Antonio cambió: vuelve aunque el campo traiga valor (p. ej. el texto de la tarea que modificaba).
+  if (previo) fields = fields.map((f) => (previo[f.name] && ['textarea', 'text', undefined].includes(f.type) ? { ...f, value: previo[f.name] } : f));
   $('#dlg-title').textContent = title;
   $('#dlg-help').textContent = help;
   $('#dlg-help').hidden = !help;
@@ -326,10 +334,12 @@ function ask({ title, help = '', fields = [], ok = 'Aceptar', danger = false }) 
         borrador.guardar(clave, escrito);
         return resolve(null);
       }
-      borrador.borrar(clave);
       const out = {};
       for (const f of fields) { const el = box.querySelector(`[name="${f.name}"]`); out[f.name] = f.type === 'checkbox' ? el.checked : f.type === 'password' ? el.value : el.value.trim(); }
       for (const el of box.querySelectorAll('input[type=password]')) el.value = ''; // la contraseña no se queda en el formulario
+      const escrito = {};
+      for (const f of fields) if (!f.type || f.type === 'text' || f.type === 'textarea') { if (out[f.name] && out[f.name] !== inicial[f.name]) escrito[f.name] = out[f.name]; }
+      borrador.guardar(clave, escrito); if (Object.keys(escrito).length) enviados.add(clave);
       resolve(out);
     }, { once: true });
   });
@@ -1237,11 +1247,19 @@ function cambioBox(m, d, aplicados) {
     h('p', {}, h('b', {}, `${CAMBIO_T[k] || 'CAMBIO PROPUESTO'}: `), d.cambio.resumen || d.cambio.texto),
     k === 'ALTERNATIVA' && d.cambio.texto ? h('details', { class: 'msg-more' }, h('summary', {}, 'Qué se ejecutará exactamente'), h('p', {}, d.cambio.texto)) : null,
     aplicados.has(m.id) ? h('p', { class: 'small ok' }, '✓ Aplicado')
+      : aplicados.descartados?.has(m.id) ? h('p', { class: 'small muted' }, 'Descartada por ti: no se ejecutó')
       : vieja ? h('p', { class: 'small muted' }, cur ? 'Propuesto para una versión anterior de la decisión: vuelve a preguntar.' : 'La decisión ya no está pendiente.')
         : h('button', { class: 'btn primary small', type: 'button', onclick: async (e) => {
           if (decide) { await decidirCeo(k, e.currentTarget, m.id, d.version); return; }
           if (await run('ceo.aplicar', { mensaje: m.id }, 'Aplicado', e.currentTarget)) void refreshCeo();
-        } }, k === 'ALTERNATIVA' ? `Elegir: ${d.cambio.resumen || 'la alternativa'}` : k === 'APROBAR' ? (cur?.aprobar || ACC.APROBAR) : k === 'RECHAZAR' ? (cur?.rechazar || ACC.RECHAZAR) : 'Aplicar este cambio'));
+        } }, k === 'ALTERNATIVA' ? `Elegir: ${d.cambio.resumen || 'la alternativa'}` : k === 'APROBAR' ? (cur?.aprobar || ACC.APROBAR) : k === 'RECHAZAR' ? (cur?.rechazar || ACC.RECHAZAR) : 'Aceptar y ejecutar'),
+    // Modificar / descartar (no en las decisiones: ésas tienen sus propios botones de aprobar y rechazar).
+    !decide && !vieja && !aplicados.has(m.id) && !aplicados.descartados?.has(m.id) ? h('div', { class: 'row small-gap' },
+      ['INSTRUCCION', 'OBJETIVO_NUEVO'].includes(k) ? h('button', { class: 'btn ghost small', type: 'button', onclick: async (e) => {
+        const r = await ask({ title: 'Modificar y enviar', help: 'Ajusta lo que el CEO propone. Se envía al mismo trabajo con tu texto.', ok: 'Enviar instrucción', fields: [{ name: 't', label: 'Instrucción', type: 'textarea', value: d.cambio.texto }] });
+        if (r?.t && await run('ceo.aplicar', { mensaje: m.id, texto: r.t }, 'Enviado', e.currentTarget)) void refreshCeo();
+      } }, 'Modificar') : null,
+      h('button', { class: 'btn ghost small', type: 'button', onclick: async (e) => { if (await run('ceo.descartar', { mensaje: m.id }, 'Descartada', e.currentTarget)) void refreshCeo(); } }, 'Descartar')) : null);
 }
 function paintCeo() {
   const c = ceo.conv;
@@ -1256,6 +1274,8 @@ function paintCeo() {
     vb.onclick = () => { cerrarCeo(false); if (k === 'proyecto') { const p = (data.proyectos || []).find((x) => x.id === c.vuelta.proyecto); if (p) actions.details(p); } else if (k === 'objetivo') nui?.openOne(c.vuelta.objetivo); else if (k === 'agentes') goTab('autos'); else goTab('home'); };
   }
   const aplicados = new Set(c.mensajes.filter((m) => m.rol === 'sistema').map((m) => Number((/^Aplicado \(#(\d+)\)/.exec(m.texto) || [])[1])).filter(Boolean));
+  const descartados = new Set(c.mensajes.filter((m) => m.rol === 'sistema').map((m) => Number((/^Descartado \(#(\d+)\)/.exec(m.texto) || [])[1])).filter(Boolean));
+  aplicados.descartados = descartados;
   fill($('#ceo-dec'), ceoDecision(c));
   if (!c.decision) fill($('#ceo-res'), c.ref.startsWith('decision:') && c.aplicados?.length ? h('p', { class: 'ceo-res ok small' }, h('b', {}, 'Resuelta. '), c.aplicados.at(-1).texto.replace(/^(Aplicado \(#\d+\)|Decidido):\s*/, '')) : null);
   const sel = $('#ceo-otras');
@@ -1263,10 +1283,35 @@ function paintCeo() {
   if (c.anteriores?.length) fill(sel, h('option', { value: '' }, `Anteriores (${c.anteriores.length})`),
     c.anteriores.map((x) => h('option', { value: x.id }, `${new Date(x.updated_at).toLocaleString('es-ES', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })} · ${x.n} mensajes`)));
   const box = $('#ceo-msgs');
+  // POSICIÓN DE LECTURA (11-11): antes cada sondeo (1,5 s mientras piensa) repintaba y bajaba al final, sacando a Antonio
+  // de lo que leía y cerrando los desplegables. Ahora: sin cambios no se repinta; sólo se baja si ya estaba abajo (o si
+  // acaba de escribir él); si no, se conserva su posición y se avisa de la respuesta nueva.
+  const firma = `${c.id}|${c.mensajes.length}|${c.mensajes.at(-1)?.id}|${c.pensando}|${c.error}`;
+  if (firma === box.dataset.firma && !forzarAbajo) return;
+  const nuevos = box.dataset.conv === c.id ? c.mensajes.length - Number(box.dataset.n || 0) : 0;
+  const abajo = forzarAbajo || box.dataset.conv !== c.id || box.scrollHeight - box.scrollTop - box.clientHeight < 60;
+  const y = box.scrollTop;
+  box.dataset.firma = firma; box.dataset.conv = c.id; box.dataset.n = String(c.mensajes.length);
   fill(box, c.mensajes.length ? c.mensajes.map((m) => ceoMsg(m, aplicados)) : h('p', { class: 'muted ceo-vacio' }, c.ref === 'general' ? 'Pregúntale lo que quieras sobre tus proyectos: «¿Qué es lo más importante que nos queda pendiente?»' : 'Pregúntale lo que quieras sobre esto. Responde con los datos actuales de CEOPadre.'),
-    c.pensando ? h('div', { class: 'msg ceo pensando', role: 'status' }, h('p', {}, h('span', { class: 'dots', 'aria-hidden': 'true' }, '• • •'), ' El CEO está respondiendo…')) : null);
+    c.pensando ? h('div', { class: 'msg ceo pensando', role: 'status' }, h('p', {}, h('span', { class: 'dots', 'aria-hidden': 'true' }, '• • •'), ' Recibida. El CEO está respondiendo…')) : null,
+    // El fallo se ve (antes sólo desaparecía «respondiendo…») y se reintenta SIN volver a guardar la pregunta.
+    !c.pensando && c.error && c.mensajes.at(-1)?.rol === 'antonio' ? h('div', { class: 'msg sis ceo-err', role: 'alert' }, h('p', {}, h('b', {}, 'El CEO no ha podido responder: '), c.error),
+      h('button', { class: 'btn primary small', type: 'button', onclick: async (e) => { if (await run('ceo.reintentar', { conversacion: c.id }, 'Reintentando', e.currentTarget)) { ceo.t0 = Date.now(); void refreshCeo(); pollCeo(); } } }, 'Reintentar')) : null);
   $('#ceo-send').disabled = !!c.pensando;
-  box.scrollTop = box.scrollHeight;
+  if (abajo) box.scrollTop = box.scrollHeight;
+  else { box.scrollTop = y; if (nuevos > 0) avisoNuevo(box); }
+  forzarAbajo = false;
+}
+let forzarAbajo = false; // Antonio acaba de escribir: su mensaje y la respuesta se ven aunque estuviera leyendo arriba
+/** Aviso discreto «Respuesta nueva ↓» cuando llega algo mientras Antonio lee más arriba. */
+function avisoNuevo(box) {
+  let b = $('#ceo-nuevo');
+  if (!b) {
+    b = h('button', { id: 'ceo-nuevo', class: 'btn primary small ceo-nuevo', type: 'button', onclick: () => { box.scrollTo({ top: box.scrollHeight, behavior: 'smooth' }); b.hidden = true; } }, 'Respuesta nueva ↓');
+    box.after(b);
+    box.addEventListener('scroll', () => { if (box.scrollHeight - box.scrollTop - box.clientHeight < 60) b.hidden = true; }, { passive: true });
+  }
+  b.hidden = false;
 }
 async function refreshCeo() {
   if (!ceo.conv) return;
@@ -1289,7 +1334,8 @@ async function enviarCeo(texto) {
   if (!r?.ok) { toast(r?.error || 'No se pudo enviar', 'bad'); return; }
   borradorCEO.set(ceo.ref, '');
   $('#ceo-input').value = '';
-  ceo.conv = { ...ceo.conv, pensando: true, mensajes: [...ceo.conv.mensajes, { id: -1, rol: 'antonio', texto: t }] };
+  ceo.conv = { ...ceo.conv, pensando: true, error: null, mensajes: [...ceo.conv.mensajes, { id: -1, rol: 'antonio', texto: t }] };
+  forzarAbajo = true;
   paintCeo();
   ceo.t0 = Date.now();
   pollCeo();
@@ -1370,7 +1416,7 @@ async function openConexiones(foco = null) {
 window.addEventListener('ceo:conexiones', (e) => openConexiones(e.detail?.servicio || null));
 
 const MOOD_NEGOCIO = { DEFINIENDO: 'Preparando el plan', ESPERANDO_APROBACION: 'Plan por aprobar', ACTIVA: 'En marcha', ESPERANDO_ANTONIO: 'Te necesita', PAUSADA: 'En pausa', ALCANZADA: 'Alcanzado', BLOQUEADA: 'Bloqueado',
-  EN_SEGUIMIENTO: 'Hecho; resultado pendiente de acreditar', CERRADA: 'Cerrado sin acreditar', ACEPTADA: 'Aceptado por Antonio' };
+  EN_SEGUIMIENTO: 'Hecho; resultado pendiente de acreditar', CERRADA: 'Cerrado sin acreditar', ACEPTADA: 'Cumplido · cerrado por Antonio' };
 
 function view(title, text, src = null) {
   $('#viewer-title').textContent = title;
@@ -1892,7 +1938,7 @@ async function start() {
   }
   const ai = aiEditor({ api, toast, onApplied: () => void refresh() }); // EDITAR CON IA (uno solo para todas las bandejas)
   rui ??= remoteUi({ api, ask, toast, show, data: () => data, ago, local: LOCAL, ai });
-  aui ??= autoUi({ api, ask, toast, show, data: () => data, run, viewText: (t, x) => view(t, x), ai, alquileres: () => ALQ.minis(data.proyectos) });
+  aui ??= autoUi({ api, ask, toast, show, data: () => data, run, viewText: (t, x) => view(t, x), ai, alquileres: () => [...copiaMinis(), ...ALQ.minis(data.proyectos)] });
   nui ??= negocioUi({ api, ask, toast, show, data: () => data, run, viewText: (t, x) => view(t, x) });
   mui ??= mamaUi({ api, toast, show, local: LOCAL });
   show('p-list');

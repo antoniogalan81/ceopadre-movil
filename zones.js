@@ -105,9 +105,9 @@ export function quotaView(rows, now = Date.now()) {
   };
 }
 
-// CLAUDE 7D: el % que QUEDA en la ventana semanal de Claude y si se está gastando demasiado deprisa. Rojo cuando
+// CLAUDE 7D: el % que QUEDA en la ventana semanal de Claude y si se gasta demasiado deprisa: rojo cuando
 // restante / días hasta el reinicio (con fracción) < RITMO_MIN puntos por día. Sólo la fila «CLAUDE 7D» (nunca 5H, MES ni
-// Codex). Sin fila o sin % → null («No disponible»). Reinicio ya pasado → el dato es de la ventana anterior: sin ritmo.
+// Codex). Sin fila o sin % → null. Reinicio desconocido o ya pasado (dato de la ventana anterior) → nunca rojo inventado.
 export const RITMO_MIN = 10;
 export function claude7d(rows, now = Date.now()) {
   const r = (Array.isArray(rows) ? rows : []).find((x) => x?.provider === 'CLAUDE 7D');
@@ -115,13 +115,13 @@ export function claude7d(rows, now = Date.now()) {
   const reset = Date.parse(r.reset_at || '');
   const dias = Number.isFinite(reset) ? (reset - now) / 86400e3 : null;
   const porDia = dias > 0 ? r.available_percent / dias : null;
-  return { disponible: r.available_percent, dias, porDia, rojo: porDia !== null && porDia < RITMO_MIN, caducado: dias !== null && dias <= 0,
-    faltan: dias > 0 ? faltaText(dias) : '—', reinicio: resetText(r.reset_at, now), leida: resetText(r.updated_at, now), error: r.error ?? null };
+  return { disponible: r.available_percent, dias, porDia, rojo: porDia !== null && porDia < RITMO_MIN };
 }
-// «3 d 4 h» / «5 h 12 min» / «12 min».
-export function faltaText(dias) {
-  const min = Math.floor(dias * 1440), d = Math.floor(min / 1440), h = Math.floor((min % 1440) / 60), m = min % 60;
-  return d ? `${d} d ${h} h` : h ? `${h} h ${m} min` : `${m} min`;
+// «HH:MM» (hora de España) de la última lectura correcta: la más reciente de las filas con dato. Una lectura fallida no
+// toca updated_at (src/usage.js conserva el dato anterior con su hora). Nunca una lectura → «no disponible».
+export function actualizado(rows) {
+  const t = Math.max(...(Array.isArray(rows) ? rows : []).filter((r) => Number.isFinite(r?.used_percent)).map((r) => Date.parse(r.updated_at || '')).filter(Number.isFinite));
+  return Number.isFinite(t) ? new Date(t).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Madrid' }) : 'no disponible';
 }
 
 // Límite PRÁCTICO de un prompt para Claude (no uno de interfaz): lo aplican el PC y el editor. Nunca se recorta.

@@ -1,7 +1,7 @@
 // CEOPadre en el navegador. En el PC habla con la API local; en el móvil, con Supabase.
 // No ejecuta nada: pinta el estado y deja órdenes. Todo el texto se inserta como texto (nunca HTML).
 import { cleanGoal, conditionsText, decisionCount, decisionsText, direccion, esPotente, esperaHumana, gestText, mood, needsDecision, netStatus, office, passwordAt, pcOnline, priority, PROMPT_LIMIT, PROMPT_WARN, quotaView, REAUTH_MS, claude7d, actualizado, waitingConditions, zone } from './zones.js';
-import { h } from './dom.js';
+import { claro, h } from './dom.js';
 import { advice, comunes, decideRow, EFECTO, explica, mapBody, mapPanel, pendingDecisions, proposals } from './map.js';
 import { remoteUi } from './remoto.js';
 import { autoUi } from './automatizaciones.js';
@@ -527,7 +527,8 @@ function buttonsFor(c) {
   return [T(e === 'PAUSADO' ? 'REANUDAR' : 'REINTENTAR', 'resume'), add, instr, stop, info];
 }
 
-const line = (label, text, cls = '') => h('p', { class: `ln ${cls}` }, h('b', {}, label), ' ', text || '—');
+// En las tarjetas, lenguaje claro (sin comandos, rutas ni hashes); el texto íntegro al pasar el ratón y en el detalle.
+const line = (label, text, cls = '') => h('p', { class: `ln ${cls}`, title: text || '' }, h('b', {}, label), ' ', claro(text) || '—');
 // Regla 0 €: una autorización de gasto se enseña con el bloque literal (qué, cuánto, para qué, alternativa gratis) y con
 // botones que dicen que se autoriza GASTAR DINERO; el resto de decisiones, como siempre.
 const esGasto = (x) => (x.propuesta || '').startsWith('⚠️ AUTORIZACIÓN DE GASTO');
@@ -612,11 +613,24 @@ function needLine(c) {
   if (c.estado === 'LISTO') return line('TE TOCA', c.modo === 'MANUAL' ? 'Claude terminó su parte: envía la siguiente instrucción.' : 'Claude terminó su parte: pulsa Continuar o da una instrucción.');
   return null;
 }
+// TARJETA PULSABLE: toda la tarjeta abre su detalle (lo mismo que el botón «i»); los controles de dentro conservan su
+// propia acción (no se dispara también el detalle) y seleccionar texto no la abre. Ratón, toque y teclado (Intro/Espacio).
+function pulsable(el, abrir, nombre) {
+  el.tabIndex = 0;
+  el.classList.add('pulsable');
+  el.setAttribute('aria-label', `${nombre}: abrir detalles`);
+  el.addEventListener('click', (e) => {
+    if (e.target.closest('button, a, input, select, textarea, summary, details, label, [role=button]') || String(window.getSelection?.() || '')) return;
+    abrir();
+  });
+  el.addEventListener('keydown', (e) => { if ((e.key === 'Enter' || e.key === ' ') && e.target === el) { e.preventDefault(); abrir(); } });
+  return el;
+}
 function desk(c) {
   const running = ['TRABAJANDO', 'SIN_ACTIVIDAD'].includes(c.estado);
   const decision = jobDecision(c);
   const need = needLine(c);
-  return h('article', { class: `desk m-${mood(c)}`, 'data-id': c.id },
+  return pulsable(h('article', { class: `desk m-${mood(c)}`, 'data-id': c.id },
     h('header', { class: 'unit-head' }, logo(c),
       h('div', { class: 'title' }, h('h3', { title: c.nombre }, c.nombre), status(c)),
       c.estado === 'TRABAJANDO' ? h('span', { class: 'beacon', title: 'Trabajando ahora', 'aria-hidden': 'true' }) : null),
@@ -630,7 +644,7 @@ function desk(c) {
     c.anadidos ? h('p', { class: 'ln muted' }, h('b', {}, 'AÑADIDO'), ` ${c.anadidos} sin incorporar todavía`) : null,
     decision || superadaBox(c),
     canonDecisionLine(c),
-    h('div', { class: 'actions' }, buttonsFor(c)));
+    h('div', { class: 'actions' }, buttonsFor(c))), () => actions.details(c), c.nombre);
 }
 
 /** Otro objetivo del proyecto que espera algo que sólo puedes hacer tú (renovar un permiso…): qué y el botón que lo resuelve. */
@@ -653,7 +667,7 @@ function waitCard(x) {
   const hum = esperaHumana(e?.descripcion || x.condicion || '');
   const que = hum.que ? hum.que.charAt(0).toUpperCase() + hum.que.slice(1) : 'Algo que no depende del CEO.';
   const hasta = e?.hasta ? new Date(e.hasta).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' }) : '';
-  return h('article', { class: 'wait-card', 'data-id': `${c.id}:${x.trabajo}` },
+  return pulsable(h('article', { class: 'wait-card', 'data-id': `${c.id}:${x.trabajo}` },
     h('header', { class: 'unit-head' }, logo(c), h('div', { class: 'title' }, h('h3', {}, `${c.nombre} — ${hum.titulo}`),
       h('small', { class: 'muted goal1', title: x.objetivo }, hum.asunto || cleanGoal(x.objetivo)))),
     h('p', { class: 'wait-lead' }, 'Este trabajo sigue en cuanto ocurra. CEOPadre lo comprueba solo y continúa: no tienes que hacer nada.'),
@@ -665,17 +679,17 @@ function waitCard(x) {
       h('button', { class: 'btn small', type: 'button', onclick: () => openCeo(e ? `espera:${e.id}` : `trabajo:${x.trabajo}`, { pregunta: '¿Qué falta exactamente, para qué sirve y dónde debo dejarlo?' }) }, 'Ver qué falta'),
       h('button', { class: 'btn ghost small', type: 'button', onclick: () => openCeo(e ? `espera:${e.id}` : `trabajo:${x.trabajo}`) }, '💬 Consultar al CEO'),
       e ? h('button', { class: 'btn ghost small', type: 'button', onclick: (ev) => run('espera.comprobar', { id: e.id }, 'Comprobado', ev.currentTarget) }, 'Comprobar ahora') : null,
-      h('button', { class: 'link', type: 'button', onclick: () => actions.details(c) }, 'Ver detalles')));
+      h('button', { class: 'link', type: 'button', onclick: () => actions.details(c) }, 'Ver detalles'))), () => actions.details(c), c.nombre);
 }
 
 /** Azulejo (EN ESPERA): logo, nombre, estado mínimo y las acciones de siempre (y, si espera, qué espera). */
 function tile(c) {
-  return h('article', { class: `tile m-${mood(c)}`, 'data-id': c.id },
+  return pulsable(h('article', { class: `tile m-${mood(c)}`, 'data-id': c.id },
     logo(c),
     h('div', { class: 'title' }, h('h3', { title: c.nombre }, c.nombre), status(c),
       c.estado === 'ESPERANDO_CONDICION' && c.condicion ? h('small', { class: 'muted cond', title: c.condicion }, c.condicion) : null,
       c.estado === 'ESPERANDO_ANTONIO' && c.te_necesita ? h('small', { class: 'muted cond', title: c.te_necesita }, c.te_necesita) : null),
-    h('div', { class: 'actions' }, buttonsFor(c)));
+    h('div', { class: 'actions' }, buttonsFor(c))), () => actions.details(c), c.nombre);
 }
 
 // GESTIONES: una unidad más de la oficina (mismo tamaño que sus vecinas) que se abre como un cajón, en la misma página.
@@ -804,7 +818,7 @@ function paintGoals() {
       // El intento cuenta aunque falle (sin red / PC caído): sin esto, finally → paintGoals → otra llamada al instante, en bucle.
       .finally(() => { goals.at = Date.now(); goals.busy = false; paintGoals(); });
   }
-  const list = n ? (goals.list || []).filter((g) => !['ALCANZADA', 'CANCELADA', 'CERRADA'].includes(g.estado)) : [];
+  const list = n ? (goals.list || []).filter((g) => !['ALCANZADA', 'CANCELADA', 'CERRADA', 'ACEPTADA'].includes(g.estado)) : [];
   const kpi = (g) => { const x = g.kpis.find((k) => k.disponible && k.valor != null); return x ? `${x.nombre}: ${x.valor}${x.unidad ? ` ${x.unidad}` : ''} de ${x.objetivo}` : g.kpis.length ? 'resultados aún sin medir' : 'sin indicadores aprobados'; };
   const sig = JSON.stringify([n, list.map((g) => [g.id, g.estado, kpi(g), g.trabajos.terminados, g.trabajos.en_curso?.ahora])]);
   const box = $('#s-goals');
@@ -1356,7 +1370,7 @@ async function openConexiones(foco = null) {
 window.addEventListener('ceo:conexiones', (e) => openConexiones(e.detail?.servicio || null));
 
 const MOOD_NEGOCIO = { DEFINIENDO: 'Preparando el plan', ESPERANDO_APROBACION: 'Plan por aprobar', ACTIVA: 'En marcha', ESPERANDO_ANTONIO: 'Te necesita', PAUSADA: 'En pausa', ALCANZADA: 'Alcanzado', BLOQUEADA: 'Bloqueado',
-  EN_SEGUIMIENTO: 'Hecho; resultado pendiente de acreditar', CERRADA: 'Cerrado sin acreditar' };
+  EN_SEGUIMIENTO: 'Hecho; resultado pendiente de acreditar', CERRADA: 'Cerrado sin acreditar', ACEPTADA: 'Aceptado por Antonio' };
 
 function view(title, text, src = null) {
   $('#viewer-title').textContent = title;

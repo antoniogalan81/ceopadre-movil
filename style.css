@@ -1343,6 +1343,9 @@ dialog.alq-ficha { width: min(680px, 100%); padding: 16px 16px calc(16px + env(s
 .quota .q-max.q-low { color: oklch(0.6 0.22 27); }
 
 .mama-side { display: flex; flex-direction: column; gap: 14px; }
+.mama-codigo { border: 1px dashed var(--line, #8884); border-radius: 10px; padding: 10px; margin: 8px 0; }
+.mama-codigo-v { font: 700 1.6rem/1.2 ui-monospace, "Cascadia Mono", Consolas, monospace; letter-spacing: .14em; margin: 4px 0; user-select: all; }
+.mama-movil-bot { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
 .mama-side .side-card { margin: 0; }
 .mama-comp li + li { margin-top: 4px; }
 
@@ -1377,3 +1380,12 @@ dialog.alq-ficha { width: min(680px, 100%); padding: 16px 16px calc(16px + env(s
 @media (max-width: 560px) { .road-f-sum { grid-template-columns: auto minmax(0, 1fr); } .road-f-sum .a-chip { grid-column: 2; justify-self: start; } }
 /* Resumen de 4 columnas del objetivo: cada línea en 2 renglones como máximo (el detalle está en la hoja de ruta). */
 .q4-grid .mlist li:not(.more) { display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
+/* Progreso real del objetivo (tareas hechas / alcance actual): barra fina junto al nombre, sin saturar la tarjeta. */
+.prog { display: grid; gap: 3px; margin: 6px 0 2px; }
+.prog-bar { height: 8px; border-radius: 999px; background: var(--idle-bg); overflow: hidden; }
+.prog-bar > span { display: block; height: 100%; border-radius: inherit; background: var(--ok); }
+.prog small { font-size: 12.5px; color: var(--ink-2); }
+.prog.compacto { margin: 2px 0 0; } .prog.compacto .prog-bar { height: 6px; }
+/* Tarjetas pulsables de Dirección: toda la tarjeta abre su detalle. */
+.pulsable { cursor: pointer; }
+.pulsable:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }

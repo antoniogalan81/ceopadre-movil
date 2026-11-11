@@ -4,14 +4,26 @@
 // V3.9: crear = «qué quieres conseguir» + proyectos (los identifica el CEO o los eliges); después el CEO trabaja solo.
 // Un objetivo abierto enseña primero lo esencial (hecho · ahora · después · te necesito) y la HOJA DE RUTA VIVA, que se
 // edita aquí mismo (añadir, modificar, quitar, reordenar tareas y fases) sin rehacer el objetivo.
-import { h } from './dom.js';
+import { claro, h } from './dom.js';
 import { EFECTOS_NEC, proyectosEn } from './zones.js';
 import { advice, comunes, decideRow, explica } from './map.js';
 import { miniTarjeta } from './tarjeta.js';
 
 const TONE = { DEFINIENDO: 'work', ESPERANDO_APROBACION: 'ask', ACTIVA: 'work', ESPERANDO_ANTONIO: 'ask', PAUSADA: 'idle', ALCANZADA: 'ok', BLOQUEADA: 'bad', CANCELADA: 'idle',
-  EN_SEGUIMIENTO: 'wait', CERRADA: 'idle' };
-const CLOSED = ['ALCANZADA', 'CANCELADA', 'CERRADA'];
+  EN_SEGUIMIENTO: 'wait', CERRADA: 'idle', ACEPTADA: 'ok' };
+const CLOSED = ['ALCANZADA', 'CANCELADA', 'CERRADA', 'ACEPTADA'];
+// PROGRESO REAL (sin IA, sin tokens): tareas HECHAS de la hoja de ruta frente a las del alcance actual (las quitadas o
+// descartadas no cuentan). Sin hoja no se inventa un porcentaje. Es avance de TAREAS, no de esfuerzo ni del resultado.
+export function progreso(hj, compacto = false) {
+  const c = hj?.cuenta;
+  const total = c ? c.hechas + c.en_curso + c.pendientes : 0;
+  if (!total) return null;
+  const pct = Math.round((100 * c.hechas) / total);
+  return h('div', { class: `prog${compacto ? ' compacto' : ''}`, title: 'Tareas de la hoja de ruta hechas y verificadas frente a las del alcance actual (no mide esfuerzo ni el resultado de negocio)' },
+    h('div', { class: 'prog-bar', role: 'progressbar', 'aria-valuemin': '0', 'aria-valuemax': String(total), 'aria-valuenow': String(c.hechas), 'aria-label': `${c.hechas} de ${total} tareas hechas` },
+      h('span', { style: `width:${pct}%` })),
+    h('small', {}, `${c.hechas} de ${total} tareas hechas · ${pct} %${c.en_curso ? ` · ${c.en_curso} en marcha` : ''}${compacto ? '' : ` · ${c.pendientes} por hacer`}`));
+}
 const TIPO_NEC = { CONEXION: 'Conectar una cuenta', DATO: 'Un dato', ACCION: 'Algo que sólo puedes hacer tú', DECISION: 'Una decisión', CAPACIDAD: 'Herramienta nueva para el catálogo', AUTOMATIZACION: 'Activar una automatización',
   KPI: 'Revisar un comando de medición' };
 // Estado de una tarea de la hoja tal como lo ve Antonio.
@@ -19,7 +31,8 @@ const TAREA = { PENDIENTE: ['Pendiente', 'idle'], EN_CURSO: ['Ahora', 'work'], B
   ELIMINADA: ['Quitada', 'idle'], DESCARTADA: ['Descartada por el CEO', 'idle'] };
 const fecha = (iso) => (iso ? new Date(iso).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '');
 const chip = (label, tone) => h('span', { class: `a-chip t-${tone}` }, label);
-const corto = (s, n = 140) => { const t = String(s || '').split('\n')[0]; return t.length > n ? `${t.slice(0, n - 1)}…` : t; };
+// Resúmenes de la vista principal en lenguaje claro (web/dom.js claro: sin comandos, rutas ni hashes; nada inventado).
+const corto = (s, n = 140) => { const t = claro(String(s || '').split('\n')[0]); return t.length > n ? `${t.slice(0, n - 1)}…` : t; };
 
 export function negocioUi({ api, ask, toast, show, data, run, viewText }) {
   let mode = null, list = [], viewing = null, sig = '', timer = null;
@@ -124,7 +137,8 @@ export function negocioUi({ api, ask, toast, show, data, run, viewText }) {
     const linea = (t, cls, body) => h('div', { class: `q4 ${cls}` }, h('p', { class: 'lbl' }, t), body);
     const lista = (xs, f, empty) => (xs?.length ? h('ul', { class: 'mlist' }, xs.slice(0, 3).map((x) => h('li', {}, f(x))), xs.length > 3 ? h('li', { class: 'more' }, `+${xs.length - 3} más`) : null) : h('p', { class: 'muted small' }, empty));
     const hechas = hj.tareas.filter((t) => t.estado === 'HECHA');
-    const ahora = v.ahora || [];
+    // Objetivo externo: lo que está en marcha son sus tareas EN_CURSO sin trabajo de CEOPadre detrás.
+    const ahora = [...(v.ahora || []), ...hj.tareas.filter((t) => t.estado === 'EN_CURSO' && !t.trabajo).map((t) => ({ proyecto: t.proyecto, ahora: t.nota && t.nota !== 'en marcha' ? t.nota : t.texto }))];
     const despues = hj.tareas.filter((t) => t.estado === 'PENDIENTE');
     const necesito = [...(v.te_necesito || []).map((n) => n.que), ...(o.pregunta && ['ESPERANDO_ANTONIO', 'BLOQUEADA'].includes(o.estado) ? [o.pregunta] : []),
       ...ahora.filter((t) => t.te_necesita).map((t) => `${t.proyecto}: un trabajo espera algo tuyo`)];
@@ -240,14 +254,20 @@ export function negocioUi({ api, ask, toast, show, data, run, viewText }) {
   // Acciones del objetivo: una principal a la vista; el resto, en «Más».
   function actions(o) {
     const closed = CLOSED.includes(o.estado);
+    // EXTERNO: lo ejecuta otra sesión; aquí no hay director que reciba instrucciones ni pausas (no se ofrece lo que no actúa).
+    if (o.seleccion?.modo === 'EXTERNO') return h('div', { class: 'a-acts obj-acts' },
+      !closed ? B('✓ Aceptar resultado', (b) => aceptarRes(o, b), 'ghost', { title: 'Das el resultado por bueno tal como está' }) : null,
+      B('💬 Consultar al CEO', () => window.dispatchEvent(new CustomEvent('ceo:abrir', { detail: { ref: `meta:${o.id}` } }))));
     return h('div', { class: 'a-acts obj-acts' },
-      !closed ? B('Nueva instrucción', (b) => instruir(o, b), 'primary') : null,
+      o.estado === 'EN_SEGUIMIENTO' ? B('✓ Aceptar resultado', (b) => aceptarRes(o, b), 'primary', { title: 'Das el resultado por bueno: queda «Aceptado por Antonio» y no se vuelve a pedir tu conformidad' }) : null,
+      !closed ? B('Nueva instrucción', (b) => instruir(o, b), o.estado === 'EN_SEGUIMIENTO' ? 'ghost' : 'primary') : null,
       o.estado === 'PAUSADA' ? B('▶ Continuar', (b) => after(cmd('negocio.reanudar', { id: o.id }, 'Continúa', b)), 'primary')
         : !closed && o.estado !== 'BLOQUEADA' ? B('⏸ Pausar', (b) => after(cmd('negocio.pausar', { id: o.id }, 'Objetivo en pausa', b)), 'ghost', { title: 'Pausa TODO el objetivo: no empieza nada nuevo y lo que está en marcha se detiene sin perder lo hecho' }) : null,
       B('💬 Consultar al CEO', () => window.dispatchEvent(new CustomEvent('ceo:abrir', { detail: { ref: `meta:${o.id}` } }))),
       h('details', { class: 'a-more' }, h('summary', { class: 'btn ghost small' }, 'Más'), h('div', { class: 'a-menu' },
         !closed ? B('Modificar el objetivo o los proyectos', (b) => editarObjetivo(o, b)) : null,
         ['ACTIVA', 'ESPERANDO_ANTONIO', 'PAUSADA', 'EN_SEGUIMIENTO'].includes(o.estado) ? B('Medir ahora', (b) => after(cmd('negocio.medir', { id: o.id }, 'Medido', b))) : null,
+        ['ACTIVA', 'ESPERANDO_ANTONIO', 'PAUSADA', 'BLOQUEADA'].includes(o.estado) && !o.trabajos?.en_curso ? B('Aceptar el resultado tal como está', (b) => aceptarRes(o, b)) : null,
         ['ACTIVA', 'ESPERANDO_ANTONIO', 'PAUSADA', 'BLOQUEADA', 'EN_SEGUIMIENTO'].includes(o.estado) ? B('Darlo por terminado', (b) => cerrar(o, b)) : null,
         !closed ? B('Cancelar el objetivo', (b) => cancelar(o, b), 'ghost-danger') : null)));
   }
@@ -261,8 +281,9 @@ export function negocioUi({ api, ask, toast, show, data, run, viewText }) {
       estado: [necesita && !['ESPERANDO_ANTONIO', 'BLOQUEADA', 'ESPERANDO_APROBACION'].includes(o.estado) ? 'Te necesita' : o.estado_texto, necesita ? 'ask' : TONE[o.estado] || 'idle'],
       sub: o.proyectos.map((p) => p.nombre).join(' · ') || (o.seleccion?.modo === 'AUTO' ? 'El CEO elige los proyectos' : ''),
       desc: ahora ? `Ahora · ${ahora.proyecto}: ${corto(ahora.ahora && ahora.ahora !== 'Aún no se ha hecho nada' ? ahora.ahora : ahora.objetivo, 120)}` : o.evaluacion || corto(o.texto, 160),
-      extra: hj ? h('p', { class: 'obj-cuenta' }, h('span', { class: 't-ok' }, `${hj.hechas} hecho`), h('span', { class: 't-work' }, `${hj.en_curso} ahora`), h('span', {}, `${hj.pendientes} pendiente${hj.pendientes === 1 ? '' : 's'}`),
-        hj.bloqueadas ? h('span', { class: 't-ask' }, `${hj.bloqueadas} bloqueada${hj.bloqueadas === 1 ? '' : 's'}`) : null) : null,
+      // Una sola línea de avance (antes la barra y «N hecho · N ahora · N pendientes» repetían lo mismo); lo bloqueado, aparte.
+      extra: hj ? h('div', {}, progreso(o.hoja, true),
+        hj.bloqueadas ? h('p', { class: 'obj-cuenta' }, h('span', { class: 't-ask' }, `${hj.bloqueadas} tarea${hj.bloqueadas === 1 ? '' : 's'} esperando algo tuyo`)) : null) : null,
       accion: { txt: necesita ? 'Resolver' : 'Ver', on: abrir, cls: necesita ? 'primary' : 'ghost' } });
   }
 
@@ -274,6 +295,12 @@ export function negocioUi({ api, ask, toast, show, data, run, viewText }) {
   async function instruir(o, btn) {
     const r = await ask({ title: 'Nueva instrucción o cambio de estrategia', help: 'Llega YA a los trabajos en marcha (la incorporan sin empezar de cero) y el CEO replanifica: verás qué ha entendido en «Último cambio entendido». Si algo en marcha queda contradicho, lo para sin perder lo hecho.', ok: 'Enviar', fields: [{ name: 'texto', label: 'Instrucción', type: 'textarea' }] });
     if (r) await after(cmd('negocio.instruccion', { id: o.id, texto: r.texto }, 'Recibida: el CEO revisa el plan', btn));
+  }
+  async function aceptarRes(o, btn) {
+    const r = await ask({ title: `Aceptar el resultado de «${o.titulo}»`, ok: 'Aceptar resultado',
+      help: 'Quedará «Aceptado por Antonio» con fecha y no se te volverá a pedir conformidad. Lo que los indicadores no hayan comprobado se queda anotado como «comprobación técnica pendiente»: no se inventa.',
+      fields: [{ name: 'motivo', label: 'Comentario (opcional)', type: 'textarea', required: false }] });
+    if (r) await after(cmd('negocio.aceptar', { id: o.id, motivo: r.motivo || 'Aceptado desde el detalle' }, 'Resultado aceptado', btn));
   }
   async function cancelar(o, btn) {
     const r = await ask({ title: `¿Cancelar «${o.titulo}»?`, ok: 'Sí, cancelar', danger: true, help: 'El director deja de lanzar trabajos. No se revierte nada de lo hecho.',
@@ -409,8 +436,8 @@ export function negocioUi({ api, ask, toast, show, data, run, viewText }) {
   function one() {
     const o = viewing;
     return [h('section', { class: 'panel dir' }, h('div', { class: 'dir-head' }, chip(o.estado_texto, TONE[o.estado] || 'idle'),
-      h('p', { class: 'muted small obj-proys-line' }, `${o.seleccion?.modo === 'AUTO' ? 'Proyectos elegidos por el CEO' : 'Proyectos elegidos por ti (el CEO puede sumar otros)'}: ${o.proyectos.map((p) => p.nombre).join(', ') || '—'}`)),
-      cuatro(o), actions(o), needBox(o)),
+      h('p', { class: 'muted small obj-proys-line' }, o.seleccion?.modo === 'EXTERNO' ? `Lo ejecuta ${o.seleccion.responsable || 'otra sesión'}: CEOPadre sólo lo sigue (no lanza trabajos). Proyectos: ${o.proyectos.map((p) => p.nombre).join(', ') || '—'}` : `${o.seleccion?.modo === 'AUTO' ? 'Proyectos elegidos por el CEO' : 'Proyectos elegidos por ti (el CEO puede sumar otros)'}: ${o.proyectos.map((p) => p.nombre).join(', ') || '—'}`)),
+      progreso(o.hoja), cuatro(o), actions(o), needBox(o)),
     aprobacion(o), necesidades(o), hojaView(o), resultados(o), planView(o),
     Object.keys(o.respuestas || {}).length ? h('details', { class: 'panel fold' }, h('summary', {}, 'Tus respuestas e instrucciones'), h('ul', { class: 'a-pend' }, Object.entries(o.respuestas).map(([k, v]) => h('li', {}, h('b', {}, k), ` · ${v}`)))) : null,
     h('details', { class: 'panel fold' }, h('summary', {}, `Trabajos realizados (${o.trabajos_lista.length})`), o.trabajos_lista.length ? o.trabajos_lista.map((t) => h('article', { class: `a-runrow t-${t.estado === 'TERMINADO' ? 'ok' : ['CANCELADO'].includes(t.estado) ? 'idle' : 'work'}` },

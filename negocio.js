@@ -140,7 +140,9 @@ export function negocioUi({ api, ask, toast, show, data, run, viewText }) {
     // Objetivo externo: lo que está en marcha son sus tareas EN_CURSO sin trabajo de CEOPadre detrás.
     const ahora = [...(v.ahora || []), ...hj.tareas.filter((t) => t.estado === 'EN_CURSO' && !t.trabajo).map((t) => ({ proyecto: t.proyecto, ahora: t.nota && t.nota !== 'en marcha' ? t.nota : t.texto }))];
     const despues = hj.tareas.filter((t) => t.estado === 'PENDIENTE');
-    const necesito = [...(v.te_necesito || []).map((n) => n.que), ...(o.pregunta && ['ESPERANDO_ANTONIO', 'BLOQUEADA'].includes(o.estado) ? [o.pregunta] : []),
+    // Objetivo externo: lo que espera a Antonio son sus tareas pendientes marcadas «falta tu autorización/decisión».
+    const externas = o.seleccion?.modo === 'EXTERNO' ? hj.tareas.filter((t) => t.estado === 'PENDIENTE' && /falta tu (autorizaci[oó]n|decisi[oó]n)/i.test(t.texto)).map((t) => t.texto) : [];
+    const necesito = [...externas, ...(v.te_necesito || []).map((n) => n.que),...(o.pregunta && ['ESPERANDO_ANTONIO', 'BLOQUEADA'].includes(o.estado) ? [o.pregunta] : []),
       ...ahora.filter((t) => t.te_necesita).map((t) => `${t.proyecto}: un trabajo espera algo tuyo`)];
     return h('div', { class: 'q4-grid' },
       linea('QUÉ HA HECHO', 'ok', lista(hechas.length ? [...hechas].reverse() : v.hecho, (t) => `${t.texto ? corto(t.texto) : `${t.proyecto}: ${corto(t.objetivo)}`} ✓`, 'Nada terminado todavía.')),
@@ -393,7 +395,7 @@ export function negocioUi({ api, ask, toast, show, data, run, viewText }) {
       const clave = `${o.id}:${f.id}`;
       const abierta = FASES_ABIERTAS.has(clave) ? FASES_ABIERTAS.get(clave) : enMarcha;
       const sig = ts.find((t) => t.estado === 'EN_CURSO') || ts.find((t) => t.estado === 'PENDIENTE');
-      const [fl, ft] = est?.cumplida ? ['Cumplida', 'ok'] : enMarcha ? ['En marcha', 'work'] : ts.length && hechas === ts.length ? ['Hecha · sin acreditar', 'warn'] : hechas ? ['Empezada', 'idle'] : ['Pendiente', 'idle'];
+      const [fl, ft] = est?.cumplida ? ['Cumplida', 'ok'] : enMarcha ? ['En marcha', 'work'] : ts.length && hechas === ts.length ? (ts.every((t) => /^Hecha · (acreditada|aceptada por Antonio)/.test(t.nota || '')) ? ['Hecha', 'ok'] : ['Hecha · sin acreditar', 'warn']) : hechas ? ['Empezada', 'idle'] : ['Pendiente', 'idle'];
       return h('li', { class: `road-f${enMarcha ? ' now' : est?.cumplida ? ' done' : hechas ? ' some' : ''}` }, h('details', { class: 'road-fold', open: abierta },
         // Sólo un clic de Antonio cuenta (el «toggle» también salta al pintar la fase abierta por defecto).
         h('summary', { class: 'road-f-sum', onclick: (e) => FASES_ABIERTAS.set(clave, !e.currentTarget.parentElement.open) }, h('span', { class: 'road-n', 'aria-hidden': 'true' }, String(i + 1)),

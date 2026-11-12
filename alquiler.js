@@ -64,6 +64,12 @@ export function alquileresUi({ run, ask, cmd, toast, LOCAL }) {
     let det, prev;
     try {
       det = await cmd('alquiler.recibo_detalle', { alquiler: a.id, mes });
+      if (det?.ok && det.data.estado === 'COBRADO_SIN_RECIBO' && !params.fecha_pago) {
+        const f = await ask({ title: `Justificante de ${det.data.etiqueta}`, ok: 'Seguir', help: 'El cobro ya está confirmado. Para el justificante hace falta la fecha REAL en que cobraste (no se inventa).',
+          fields: [{ name: 'fecha_pago', label: 'Fecha del cobro', type: 'date', max: new Date().toISOString().slice(0, 10) }] });
+        if (!f) return;
+        params = { ...params, fecha_pago: f.fecha_pago };
+      }
       if (det?.ok && ['NO_EMITIDO', 'COBRADO_SIN_RECIBO'].includes(det.data.estado)) prev = await cmd('alquiler.vista_previa', { alquiler: a.id, ...params, mes });
     } finally { ocupado.delete(a.id); if (btn) btn.disabled = false; }
     if (!det?.ok) { toast(det?.error || 'No se pudo abrir el recibo', 'bad'); return; }
@@ -401,11 +407,18 @@ export function alquileresUi({ run, ask, cmd, toast, LOCAL }) {
     // Suministros: TODAS las facturas (también lo que deben inquilinos anteriores, que no tienen ficha de alquiler).
     const fs = facturasDe(lst);
     const sum = fs.reduce((s, f) => s + (f.pendiente || 0), 0);
-    const cobradas = lst.flatMap((a) => (a.historial || []).filter((x) => x.pago === 'PAGADO' && ((x.recibo && (x.recibo.fecha_pago || '').startsWith(mes))
-      || (x.sin_recibo && ((x.cobro_sin_recibo?.fecha_pago || '').startsWith(mes) || (!x.cobro_sin_recibo?.fecha_pago && x.mes === mes))))).map((x) => ({ a, x })));
-    const cobRenta = cobradas.reduce((s, { x }) => s + (x.recibo ? x.recibo.importe_cent : x.cobro_sin_recibo?.importe_cent || 0), 0);
-    const porConfirmar = cobradas.filter(({ x }) => !x.recibo && x.cobro_sin_recibo && x.cobro_sin_recibo.importe_cent == null).map(({ a }) => a.inquilino.split(' ')[0]);
-    const detalleRenta = cobradas.map(({ a, x }) => `${a.inquilino.split(' ')[0]} ${x.recibo ? eur(x.recibo.importe_cent) : x.cobro_sin_recibo?.importe_cent != null ? eur(x.cobro_sin_recibo.importe_cent) : 'importe por confirmar'}`).join(' · ');
+    const nombre = (a) => a.inquilino.split(' ')[0];
+    const importeDe = (x) => (x.recibo ? x.recibo.importe_cent : x.cobro_sin_recibo?.importe_cent ?? null);
+    const fechaDe = (x) => (x.recibo ? x.recibo.fecha_pago : x.cobro_sin_recibo?.fecha_pago || null);
+    const pagadas = lst.flatMap((a) => (a.historial || []).filter((x) => x.pago === 'PAGADO').map((x) => ({ a, x })));
+    // Rentas de ESTE mes cobradas (la mensualidad), con o sin fecha.
+    const delMes = pagadas.filter(({ x }) => x.mes === mes);
+    const rentasMes = delMes.reduce((s, { x }) => s + (importeDe(x) || 0), 0);
+    const detalleMes = delMes.map(({ a, x }) => `${nombre(a)} ${importeDe(x) != null ? eur(importeDe(x)) : 'importe por confirmar'}`).join(' · ');
+    // Dinero RECIBIDO este mes: sólo cobros con fecha acreditada dentro del mes (de cualquier mensualidad).
+    const recibido = pagadas.filter(({ x }) => (fechaDe(x) || '').startsWith(mes));
+    const cobRenta = recibido.reduce((s, { x }) => s + (importeDe(x) || 0), 0);
+    const sinFecha = delMes.filter(({ x }) => !fechaDe(x)).map(({ a }) => nombre(a));
     const cobSum = fs.flatMap((f) => f.partes.flatMap((x) => x.cobros)).filter((c) => c.estado === 'VALIDO' && (c.fecha_pago || '').startsWith(mes)).reduce((s, c) => s + c.importe_cent, 0);
     const recibos = lst.reduce((s, a) => s + (a.recibos_sin_enviar || 0), 0), sinComunicar = lst.reduce((s, a) => s + (a.recibos_sin_comunicar || 0), 0);
     const kpi = (t, v, tone) => h('div', { class: `alq-kpi t-${tone}` }, h('small', {}, t), h('strong', {}, v));
@@ -413,8 +426,10 @@ export function alquileresUi({ run, ask, cmd, toast, LOCAL }) {
       kpi('Alquileres activos', String(lst.length), 'idle'),
       kpi('Rentas pendientes', eur(renta), renta ? 'wait' : 'ok'),
       kpi('Suministros pendientes', eur(sum), sum ? 'wait' : 'ok'),
-      h('div', { class: 'alq-kpi t-ok' }, h('small', {}, 'Cobrado este mes'), h('strong', {}, `${eur(cobRenta)} renta${porConfirmar.length ? ' + importe por confirmar' : ''} · ${eur(cobSum)} suministros`),
-        detalleRenta ? h('small', { class: 'muted' }, detalleRenta) : null),
+      h('div', { class: 'alq-kpi t-ok' }, h('small', {}, `Rentas de ${MESES[Number(mes.slice(5, 7)) - 1]} cobradas`), h('strong', {}, `${eur(rentasMes)} · ${delMes.length} de ${lst.length}`),
+        detalleMes ? h('small', { class: 'muted' }, detalleMes) : null),
+      h('div', { class: 'alq-kpi t-ok' }, h('small', {}, 'Recibido este mes (con fecha)'), h('strong', {}, `${eur(cobRenta)} renta · ${eur(cobSum)} suministros`),
+        sinFecha.length ? h('small', { class: 'muted' }, `Sin fecha de cobro: ${sinFecha.join(', ')}`) : null),
       kpi('Recibos sin enviar', `${recibos}${sinComunicar ? ` · ${sinComunicar} confirmados sin comunicar` : ''}`, recibos ? 'bad' : 'ok'));
   };
   const tarjetaAlquiler = (a) => {

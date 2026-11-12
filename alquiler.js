@@ -101,8 +101,9 @@ export function alquileresUi({ run, ask, cmd, toast, LOCAL }) {
         { name: 'unidad', label: 'Unidad (piso, habitación…)', value: a.unidad || '', required: false },
         { name: 'titular', label: 'Titular (persona o sociedad)', value: a.titular || '', required: false },
         { name: 'lugar', label: 'Lugar de emisión', value: a.lugar },
+        { name: 'observaciones', label: 'Observaciones (datos pendientes, cuenta de cobro…)', type: 'textarea', value: a.observaciones || '', required: false },
       ] });
-    const vacioVale = (k) => ['contacto', 'unidad'].includes(k) || (k === 'telefono' && r?.envio === 'MANO');
+    const vacioVale = (k) => ['contacto', 'unidad', 'observaciones'].includes(k) || (k === 'telefono' && r?.envio === 'MANO');
     if (r) await run('alquiler.guardar', { alquiler: a.id, ...Object.fromEntries(Object.entries(r).filter(([k, v]) => v !== '' || vacioVale(k))) }, 'Ficha guardada');
   }
 
@@ -126,7 +127,8 @@ export function alquileresUi({ run, ask, cmd, toast, LOCAL }) {
           h('td', {}, x.recibo ? [
             ojo(a, x.recibo.id, `Ver recibo ${x.recibo.numero}`),
             x.recibo.versiones > 1 ? h('small', { class: 'muted' }, ` · rectificado (${x.recibo.numero})`) : null,
-            ' · ', h('button', { class: 'link', type: 'button', onclick: () => rectificar(a, x) }, 'Rectificar')] : '—')))))));
+            ' · ', h('button', { class: 'link', type: 'button', onclick: () => rectificar(a, x) }, 'Rectificar')]
+            : x.sin_recibo ? h('button', { class: 'link', type: 'button', onclick: (e) => previaYConfirmar(a, { mes: x.mes }, e.currentTarget) }, 'Emitir recibo') : '—')))))));
     return det;
   }
 
@@ -150,6 +152,7 @@ export function alquileresUi({ run, ask, cmd, toast, LOCAL }) {
         a.inmueble ? [h('dt', {}, 'Inmueble'), h('dd', {}, `${a.inmueble}${a.unidad ? ` · ${a.unidad}` : ''}`)] : null,
         h('dt', {}, 'Titular'), h('dd', {}, a.titular || a.arrendador),
         a.contacto ? [h('dt', {}, 'Contacto'), h('dd', {}, a.contacto)] : null,
+        a.observaciones ? [h('dt', {}, 'Observaciones'), h('dd', { class: 'small' }, a.observaciones)] : null,
         h('dt', {}, 'Pendiente'), h('dd', {}, a.pendiente_cent ? chip(a.pendiente_txt, 'wait') : chip('Nada', 'ok')),
         h('dt', {}, 'Próxima acción'), h('dd', {}, a.proxima),
         h('dt', {}, 'Mes'), h('dd', {}, pend.length > 1 ? pend.map(mesTitulo).join(' · ') : mesTitulo(mes)),
@@ -162,7 +165,8 @@ export function alquileresUi({ run, ask, cmd, toast, LOCAL }) {
         r?.wa_estado === 'ERROR' ? h('button', { class: 'btn small', type: 'button', disabled: busy,
           onclick: (e) => orden(a, 'alquiler.reintentar', { recibo: r.id }, 'Reintentando', e.currentTarget) }, 'Reintentar envío') : null,
         h('button', { class: 'link', type: 'button', onclick: (e) => modificar(a, e.currentTarget) }, 'Modificar datos del cobro')),
-      historial(a));
+      historial(a),
+      h('h3', { class: 'alq-sec' }, 'Agua y suministros'), suministrosFicha(a));
   }
 
   // VENTANA de la ficha. Clic fuera / Escape / Cerrar la cierran (web/modal.js); abrirla no registra, genera ni envía nada.
@@ -187,43 +191,44 @@ export function alquileresUi({ run, ask, cmd, toast, LOCAL }) {
     abierta.cuerpo.replaceChildren(detalle(a));
   }
 
-  // TARJETA COMPACTA (la misma de los agentes, web/tarjeta.js). El mes relevante va en el estado. La acción principal:
-  // pendiente → «Me ha pagado», que SÓLO abre la vista previa (nada se registra ni se envía sin «Confirmar pago y
-  // enviar»); envío fallido → «Ver problema»; al día → «Ver ficha». Nunca cobra ni envía con un solo clic.
-  function mini(a, gestion) {
-    const pend = a.pendientes;
-    const ultimo = a.historial.find((x) => x.recibo);
-    const r = ultimo?.recibo;
-    const mes = (m) => MESES[Number(m.slice(5, 7)) - 1];
-    const metodo = a.metodos.find((m) => m.valor === a.metodo)?.nombre || a.metodo;
-    const busy = ocupado.has(a.id);
-    const abrir = () => abrirFicha(a);
-    const [estado, accion] = r?.wa_estado === 'ERROR' ? [['Recibo sin enviar', 'bad'], { txt: 'Ver problema', on: abrir }]
-      : pend.length > 1 ? [[`${pend.length} mensualidades pendientes`, 'bad'], { txt: busy ? 'Registrando…' : 'Me ha pagado', on: (b) => modificar(a, b), cls: 'primary', disabled: busy }]
-      : pend.length ? [[`Pendiente de pago · ${mes(pend[0])}`, 'wait'], { txt: busy ? 'Registrando…' : 'Me ha pagado', on: (b) => previaYConfirmar(a, {}, b), cls: 'primary', disabled: busy }]
-      : r?.wa_estado === 'ENVIANDO' ? [['Enviando recibo…', 'work'], { txt: 'Ver ficha', on: abrir }]
-      : [[`Pagado · al día${ultimo ? ` · ${mes(ultimo.mes)}` : ''}`, 'ok'], { txt: 'Ver ficha', on: abrir }];
-    const el = miniTarjeta({ id: `alq:${a.id}`, titulo: a.inquilino, sub: gestion?.nombre && gestion.nombre !== 'Alquileres' ? `Alquileres · ${gestion.nombre}` : 'Alquileres · Gestión', clase: 'alq-mini',
-      desc: `Recibo mensual por WhatsApp · ${eur(a.importe)} al mes · ${metodo}`, estado, accion, abrir });
-    return { tono: estado[1] === 'wait' ? 'ask' : estado[1], texto: `${a.inquilino} alquileres alquiler ${gestion?.nombre || ''}`, el };
-  }
-
-  // ---------------------------------------------------------------- PANEL «Alquileres» (Agentes → Alquileres)
-  // Todos los alquileres en una tabla (inmueble, unidad, titular, inquilino, renta, estado, pendiente, último movimiento,
-  // próxima acción) y «Agua y suministros» con su reparto. Nada se cobra ni se envía sin confirmarlo Antonio.
+  // ---------------------------------------------------------------- AGENTE «Alquileres» (Agentes → Alquileres)
+  // UN solo agente para todos los inmuebles (12-11-2026: los inquilinos ya no son tarjetas propias). Dentro: resumen,
+  // fichas de cada alquiler y pestañas Rentas · Suministros · Recibos y mensajes · Historial. Renta y suministros se
+  // cuentan por separado. Nada se cobra ni se envía sin que Antonio lo confirme; un cobro confirmado deja de ser pendiente.
   const fecha = (f) => (f ? `${f.slice(8, 10)}/${f.slice(5, 7)}/${f.slice(0, 4)}` : '—');
-  const MOV = { COBRADO: 'Cobro registrado', RECTIFICADO: 'Recibo rectificado', ENVIADO: 'Recibo enviado', ENVIANDO: 'Enviando recibo', ENVIO_ERROR: 'Envío fallido',
-    REINTENTO: 'Reintento de envío', FICHA: 'Ficha modificada', CONFIGURADO: 'Alta del alquiler', RECONFIGURADO: 'Ficha reconfigurada', SUMINISTRO_COBRADO: 'Suministro cobrado' };
-  const PAGO_PROV = { DESCONOCIDO: 'sin comprobar', PENDIENTE: 'pendiente', PAGADA: 'pagada', DOMICILIADA: 'domiciliada' };
+  const MOV = { COBRADO: 'Renta cobrada', RECTIFICADO: 'Recibo rectificado', ENVIADO: 'Recibo enviado', ENVIANDO: 'Enviando recibo', ENVIO_ERROR: 'Envío fallido',
+    REINTENTO: 'Reintento de envío', FICHA: 'Ficha modificada', CONFIGURADO: 'Alta del alquiler', RECONFIGURADO: 'Ficha reconfigurada',
+    SUMINISTRO_COBRADO: 'Suministro cobrado', SUMINISTRO_COBRO_ANULADO: 'Cobro de suministro anulado', COBRADO_SIN_RECIBO: 'Renta cobrada (recibo pendiente)' };
+  const PAGO_PROV = { DESCONOCIDO: 'sin confirmar', PENDIENTE: 'pendiente', PAGADA: 'pagada', DOMICILIADA: 'domiciliada' };
+  const EST = { PENDIENTE: ['Pendiente', 'wait'], PARCIAL: ['Pagada en parte', 'ask'], PAGADA: ['Pagada', 'ok'], SIN_REPARTIR: ['Sin repartir', 'idle'], ANULADA: ['Anulada', 'idle'] };
+  const estChip = (e) => chip(...(EST[e] || [e, 'idle']));
   const todos = (gestiones) => gestiones.flatMap((c) => (c.alquileres || []).map((a) => ({ ...a, gestion: c })));
   const facturasDe = (lista) => { const m = new Map(); for (const a of lista) for (const f of a.suministros || []) m.set(f.id, f); return [...m.values()].sort((x, y) => y.fecha.localeCompare(x.fecha)); };
   const firma = (gestiones) => JSON.stringify(gestiones.flatMap((c) => c.alquileres || []));
+  const hoy = () => new Date().toISOString().slice(0, 10);
+  const vista = { tab: 'suministros', filtro: 'PENDIENTES' }; // sobrevive al repintado
+  let lista = []; // la última lista pintada (para los diálogos)
 
+  // «Me ha pagado» de una parte de suministro: total o parcial, fecha, forma de pago y nota. La operación lleva un id: si se
+  // pulsa dos veces (o se reintenta), el PC lo reconoce y no cobra dos veces.
   async function cobrarParte(x, btn) {
-    const r = await ask({ title: `Cobro de suministro · ${x.obligado}`, ok: 'Confirmar cobro', help: `${x.importe_txt}. Sólo si ya te lo han pagado: queda registrado como cobrado.`,
-      fields: [{ name: 'fecha_pago', label: 'Fecha del pago', type: 'date', value: new Date().toISOString().slice(0, 10) },
-        { name: 'metodo', label: 'Forma de pago', type: 'choice', value: 'TRANSFERENCIA', options: [{ value: 'TRANSFERENCIA', label: 'Transferencia' }, { value: 'BIZUM', label: 'Bizum' }, { value: 'EFECTIVO', label: 'Efectivo' }] }] });
-    if (r) await run('suministro.cobrar', { parte: x.id, ...r }, 'Cobro registrado', btn);
+    const op = crypto.randomUUID();
+    const r = await ask({ title: `Me ha pagado · ${x.obligado}`, ok: 'Confirmar cobro',
+      help: `Le quedan ${eur(x.pendiente)} de ${x.importe_txt}. Sólo cuenta como cobrado cuando lo confirmas aquí.`,
+      fields: [
+        { name: 'tipo', label: 'Pago', type: 'choice', value: 'TOTAL', options: [{ value: 'TOTAL', label: `Total: ${eur(x.pendiente)}` }, { value: 'PARCIAL', label: 'Parcial (indica el importe)' }] },
+        { name: 'importe', label: 'Importe si es parcial (€)', inputmode: 'decimal', required: false },
+        { name: 'fecha_pago', label: 'Fecha del pago', type: 'date', value: hoy(), max: hoy() },
+        { name: 'metodo', label: 'Forma de pago', type: 'choice', value: 'EFECTIVO', options: [{ value: 'EFECTIVO', label: 'Efectivo' }, { value: 'TRANSFERENCIA', label: 'Transferencia' }, { value: 'BIZUM', label: 'Bizum' }] },
+        { name: 'nota', label: 'Observación (opcional)', required: false }] });
+    if (!r) return;
+    if (r.tipo === 'PARCIAL' && !r.importe) { toast('Indica el importe del pago parcial', 'bad'); return; }
+    await run('suministro.cobrar', { parte: x.id, op, importe: r.tipo === 'PARCIAL' ? r.importe : '', fecha_pago: r.fecha_pago, metodo: r.metodo, nota: r.nota }, 'Cobro registrado', btn);
+  }
+  async function anularCobro(c, x) {
+    const r = await ask({ title: `Anular el cobro de ${c.importe_txt} de ${x.obligado}`, ok: 'Anular el cobro', danger: true,
+      help: 'Se conserva en el historial como anulado y la cantidad vuelve a estar pendiente.', fields: [{ name: 'motivo', label: 'Motivo', placeholder: 'p. ej. lo registré dos veces' }] });
+    if (r) await run('suministro.anular_cobro', { cobro: c.id, motivo: r.motivo }, 'Cobro anulado');
   }
   async function mensajeParte(x) {
     const v = await cmd('suministro.mensaje', { parte: x.id });
@@ -233,19 +238,27 @@ export function alquileresUi({ run, ask, cmd, toast, LOCAL }) {
     if (!r?.texto) return;
     try { await navigator.clipboard.writeText(r.texto); toast('Texto copiado: envíalo tú cuando quieras'); } catch { toast('No se pudo copiar: selecciónalo y cópialo', 'bad'); }
   }
-  async function repartirFactura(f, lista) {
+  // Reparto: la propuesta (si la hay) llega marcada, nunca aplicada; Antonio elige responsables y escribe el criterio.
+  async function repartirFactura(f) {
     const cand = lista.filter((a) => !a.inmueble || a.inmueble === f.inmueble);
+    const prop = f.propuesta?.ok ? f.propuesta.partes : [];
     const r = await ask({ title: `Repartir ${f.importe_txt} · ${f.proveedor} ${fecha(f.fecha)}`, ok: 'Guardar reparto',
-      help: 'A partes iguales entre los marcados (el céntimo impar va al primero). Comprueba antes quién vivía en el inmueble en ese periodo.',
-      fields: [...cand.map((a) => ({ name: `a:${a.id}`, label: a.inquilino, type: 'checkbox', value: true })),
-        { name: 'otro', label: 'Otro obligado (p. ej. un inquilino anterior)', required: false },
-        { name: 'criterio', label: 'Por qué se reparte así', type: 'textarea', placeholder: 'p. ej. ambos vivían en el inmueble todo el periodo de la factura' }] });
+      help: `${f.propuesta?.ok ? `Propuesta (${f.propuesta.probable ? 'con datos probables: revísala' : 'con datos confirmados'}): ${f.propuesta.criterio}.` : `${f.periodo ? `Periodo ${fecha(f.periodo.desde)}–${fecha(f.periodo.hasta)}. ` : ''}${f.propuesta?.motivo || ''}`} A partes iguales entre los marcados (el céntimo impar va al primero).`,
+      fields: [...cand.map((a) => ({ name: `a:${a.id}`, label: a.inquilino, type: 'checkbox', value: prop.some((p) => p.alquiler === a.id) })),
+        { name: 'otro', label: 'Otro responsable (p. ej. un inquilino anterior)', value: prop.find((p) => !p.alquiler)?.obligado || '', required: false },
+        { name: 'criterio', label: 'Por qué se reparte así', type: 'textarea', value: f.propuesta?.ok ? f.propuesta.criterio : '' }] });
     if (!r) return;
     const partes = [...cand.filter((a) => r[`a:${a.id}`]).map((a) => ({ obligado: a.inquilino, alquiler: a.id })), ...(r.otro ? [{ obligado: r.otro }] : [])];
-    if (!partes.length) { toast('Marca al menos un obligado', 'bad'); return; }
+    if (!partes.length) { toast('Marca al menos un responsable', 'bad'); return; }
     await run('suministro.repartir', { factura: f.id, partes, criterio: r.criterio }, 'Reparto guardado');
   }
-  async function registrarFactura(lista) {
+  async function pagoProveedor(f) {
+    const r = await ask({ title: `Pago a ${f.proveedor} · ${f.importe_txt}`, ok: 'Guardar', help: 'Lo que tú pagas al proveedor. No cambia lo que te deben los inquilinos.',
+      fields: [{ name: 'estado', label: 'Estado', type: 'choice', value: f.pago_proveedor === 'DESCONOCIDO' ? '' : f.pago_proveedor,
+        options: [{ value: 'PENDIENTE', label: 'Pendiente de pagar' }, { value: 'PAGADA', label: 'Pagada' }, { value: 'DOMICILIADA', label: 'Domiciliada en el banco' }] }] });
+    if (r) await run('suministro.pago_proveedor', { factura: f.id, estado: r.estado }, 'Guardado');
+  }
+  async function registrarFactura() {
     const g = lista[0]?.gestion;
     if (!g) return;
     const inm = [...new Set(lista.map((a) => a.inmueble).filter(Boolean))];
@@ -263,85 +276,183 @@ export function alquileresUi({ run, ask, cmd, toast, LOCAL }) {
     if (r) await run('suministro.registrar', { proyecto: g.id, fuente: 'Registrada a mano por Antonio', ...Object.fromEntries(Object.entries(r).filter(([, v]) => v !== '')) }, 'Factura registrada');
   }
 
-  function filaPanel(a) {
-    const pend = a.pendientes;
-    const estado = pend.length > 1 ? chip(`${pend.length} meses pendientes`, 'bad') : pend.length ? chip(`Pendiente · ${mesTitulo(pend[0])}`, 'wait') : chip('Al día', 'ok');
-    const pagar = (e) => (pend.length > 1 ? modificar(a, e.currentTarget) : previaYConfirmar(a, {}, e.currentTarget));
-    const tr = h('tr', {},
-      h('td', {}, a.inmueble || '—', a.unidad ? h('small', { class: 'muted' }, ` · ${a.unidad}`) : null),
-      h('td', {}, a.titular || a.arrendador),
-      h('td', {}, h('button', { class: 'link', type: 'button', onclick: () => abrirFicha(a) }, a.inquilino), a.contacto ? h('small', { class: 'muted alq-motivo' }, `vía ${a.contacto}`) : null),
-      h('td', { class: 'num' }, eur(a.importe)),
-      h('td', {}, estado),
-      h('td', { class: 'num' }, a.pendiente_cent ? eur(a.pendiente_cent) : '—'),
-      h('td', {}, a.ultimo ? `${MOV[a.ultimo.tipo] || a.ultimo.tipo} · ${fecha(a.ultimo.at.slice(0, 10))}` : '—'),
-      h('td', { class: 'alq-prox' }, a.proxima),
-      h('td', {}, pend.length ? h('button', { class: 'btn primary small', type: 'button', disabled: ocupado.has(a.id), onclick: pagar }, 'Me ha pagado')
-        : h('button', { class: 'btn ghost small', type: 'button', onclick: () => abrirFicha(a) }, 'Ficha')));
-    // En el móvil cada fila es una tarjeta: cada celda lleva su etiqueta (CSS ::before).
-    [...tr.children].forEach((td, i) => { if (COLS[i]) td.dataset.l = COLS[i]; });
-    return tr;
-  }
-  const COLS = ['Inmueble', 'Titular', 'Inquilino', 'Renta', 'Estado', 'Pendiente', 'Último movimiento', 'Próxima acción', ''];
-  function facturaPanel(f, lista) {
-    const parte = (x) => h('li', {}, `${x.obligado}: ${x.importe_txt} `, x.estado === 'COBRADO' ? chip(`Cobrado ${fecha(x.fecha_pago)}`, 'ok') : [chip('Pendiente', 'wait'),
-      ' ', h('button', { class: 'link', type: 'button', onclick: (e) => cobrarParte(x, e.currentTarget) }, 'Me ha pagado'),
-      ' · ', h('button', { class: 'link', type: 'button', onclick: () => mensajeParte(x) }, 'Preparar mensaje')]);
-    const tipo = f.tipo === 'AGUA' ? 'Agua' : f.tipo.charAt(0) + f.tipo.slice(1).toLowerCase();
-    return h('article', { class: `alq-card alq-fact${f.sin_repartir || f.partes.some((x) => x.estado === 'PENDIENTE') ? ' need' : ''}` },
-      h('header', { class: 'alq-head' }, h('div', {}, h('h3', {}, `${tipo} · ${f.proveedor} · ${f.importe_txt}`),
-        h('small', { class: 'muted' }, `${f.inmueble} · factura del ${fecha(f.fecha)}${f.periodo ? ` · periodo ${fecha(f.periodo.desde)}–${fecha(f.periodo.hasta)}` : ''}`))),
-      h('p', { class: 'muted' }, `Pago al proveedor: ${PAGO_PROV[f.pago_proveedor] || f.pago_proveedor}. El cobro a los inquilinos va aparte.`),
-      f.nota ? h('p', { class: 'alq-motivo' }, f.nota) : null,
-      f.sin_repartir ? h('div', { class: 'alq-acciones' }, chip('Sin repartir', 'wait'), ' ', h('button', { class: 'btn small', type: 'button', onclick: () => repartirFactura(f, lista) }, 'Repartir'))
-        : [h('ul', { class: 'alq-partes' }, f.partes.map(parte)), h('small', { class: 'muted' }, f.partes[0]?.criterio || '')]);
-  }
-  function cuerpoPanel(gestiones) {
-    const lista = todos(gestiones);
-    const total = lista.reduce((s, a) => s + (a.pendiente_cent || 0), 0);
-    const facturas = facturasDe(lista);
+  // Detalle de una factura (ventana): documento, propuesta o criterio, responsables, cobros (con anular) y acciones.
+  let detFactura = null; // { id, dlg, cuerpo }
+  function cuerpoFactura(f) {
+    const filaParte = (x) => h('div', { class: 'alq-parte' },
+      h('div', { class: 'alq-parte-top' }, h('strong', {}, x.obligado), ' ', estChip(x.estado)),
+      h('p', { class: 'small' }, `Le corresponde ${x.importe_txt} · cobrado ${eur(x.cobrado)} · pendiente ${eur(x.pendiente)}`),
+      x.cobros.length ? h('ul', { class: 'alq-cobros' }, x.cobros.map((c) => h('li', { class: c.estado === 'ANULADO' ? 'muted' : '' },
+        `${c.importe_txt} · ${fecha(c.fecha_pago)} · ${({ EFECTIVO: 'efectivo', TRANSFERENCIA: 'transferencia', BIZUM: 'Bizum' })[c.metodo] || c.metodo}${c.nota ? ` · ${c.nota}` : ''}`,
+        c.estado === 'ANULADO' ? ` · ANULADO (${c.anulado_motivo})` : c.id ? [' · ', h('button', { class: 'link', type: 'button', onclick: () => anularCobro(c, x) }, 'Anular')] : null))) : null,
+      x.pendiente > 0 ? h('div', { class: 'alq-acciones' },
+        h('button', { class: 'btn primary small', type: 'button', onclick: (e) => cobrarParte(x, e.currentTarget) }, 'Me ha pagado'),
+        h('button', { class: 'btn ghost small', type: 'button', onclick: () => mensajeParte(x) }, 'Preparar mensaje')) : null);
     return h('div', { class: 'alq-panel' },
-      h('p', {}, `${lista.length} ${lista.length === 1 ? 'alquiler' : 'alquileres'} · pendiente total `, total ? chip(eur(total), 'wait') : chip('nada', 'ok'),
-        h('small', { class: 'muted' }, ' · un cobro sólo cuenta cuando tú lo confirmas')),
-      h('div', { class: 'alq-scroll' }, h('table', { class: 'alq-tabla alq-panel-tabla' },
-        h('thead', {}, h('tr', {}, ['Inmueble', 'Titular', 'Inquilino', 'Renta', 'Estado', 'Pendiente', 'Último movimiento', 'Próxima acción', ''].map((t) => h('th', {}, t)))),
-        h('tbody', {}, lista.map(filaPanel)))),
-      h('h3', { class: 'alq-sec' }, 'Agua y suministros'),
-      h('div', { class: 'alq-acciones' }, h('button', { class: 'btn small', type: 'button', onclick: () => registrarFactura(lista) }, 'Registrar factura')),
-      facturas.length ? h('div', { class: 'alq-list' }, facturas.map((f) => facturaPanel(f, lista))) : h('p', { class: 'muted' }, 'Aún no hay facturas de suministros registradas.'));
+      h('dl', { class: 'alq-dl' },
+        h('dt', {}, 'Inmueble'), h('dd', {}, f.inmueble),
+        h('dt', {}, 'Periodo'), h('dd', {}, f.periodo ? `${fecha(f.periodo.desde)} – ${fecha(f.periodo.hasta)}` : 'sin indicar'),
+        h('dt', {}, 'Factura'), h('dd', {}, `${f.proveedor}${f.contrato ? ` · contrato ${f.contrato}` : ''} · ${fecha(f.fecha)} · ${f.importe_txt}`),
+        h('dt', {}, 'Estado'), h('dd', {}, estChip(f.estado), f.partes.length ? ` cobrado ${eur(f.cobrado)} · pendiente ${eur(f.pendiente)}` : ''),
+        h('dt', {}, 'Pago al proveedor'), h('dd', {}, PAGO_PROV[f.pago_proveedor] || f.pago_proveedor, ' · ', h('button', { class: 'link', type: 'button', onclick: () => pagoProveedor(f) }, 'Cambiar')),
+        h('dt', {}, 'Documento'), h('dd', { class: 'small' }, f.documento ? 'PDF guardado en GalanContable' : 'Sin PDF local', ` · fuente: ${f.fuente}`),
+        f.nota ? [h('dt', {}, 'Nota'), h('dd', { class: 'small' }, f.nota)] : null),
+      f.sin_repartir
+        ? h('div', { class: 'alq-prop' }, h('p', {}, f.propuesta?.ok ? `Propuesta (pendiente de tu confirmación): ${f.propuesta.criterio}` : f.propuesta?.motivo || 'Sin propuesta.'),
+          h('button', { class: 'btn small', type: 'button', onclick: () => repartirFactura(f) }, f.propuesta?.ok ? 'Revisar y repartir' : 'Repartir a mano'))
+        : [h('h3', { class: 'alq-sec' }, 'Responsables'), ...f.partes.map(filaParte), h('p', { class: 'small muted' }, `Criterio: ${f.partes[0]?.criterio || '—'}`),
+          h('button', { class: 'link', type: 'button', onclick: () => repartirFactura(f) }, 'Corregir el reparto (lo cobrado se conserva)')]);
   }
-  let panel = null; // { dlg, cuerpo, sig }
+  function abrirFactura(f) {
+    if (detFactura?.dlg.open) detFactura.dlg.close();
+    const cuerpo = h('div', { class: 'alq-ficha-body' }, cuerpoFactura(f));
+    const dlg = h('dialog', { class: 'sheet alq-ficha', 'aria-label': `Factura ${f.proveedor} ${fecha(f.fecha)}` },
+      h('header', { class: 'cmp-head' }, h('h2', {}, `${f.tipo === 'AGUA' ? 'Agua' : f.tipo} · ${fecha(f.fecha)} · ${f.importe_txt}`), h('button', { class: 'btn ghost small', type: 'button', onclick: () => dlg.close() }, 'Cerrar')), cuerpo);
+    dlg.addEventListener('close', () => { dlg.remove(); if (detFactura?.dlg === dlg) detFactura = null; });
+    document.body.append(dlg);
+    detFactura = { id: f.id, dlg, cuerpo, sig: JSON.stringify(f) };
+    dlg.showModal();
+  }
+
+  // Suministros de UN alquiler (dentro de su ficha): lo que debe y lo que ya pagó, con «Me ha pagado».
+  function suministrosFicha(a) {
+    const mias = (a.suministros || []).flatMap((f) => f.partes.filter((x) => x.alquiler === a.id).map((x) => ({ f, x })));
+    if (!mias.length) return h('p', { class: 'small muted' }, 'Sin suministros repartidos a este alquiler.');
+    return h('ul', { class: 'alq-partes' }, mias.map(({ f, x }) => h('li', {},
+      h('button', { class: 'link', type: 'button', onclick: () => abrirFactura(f) }, `${f.tipo === 'AGUA' ? 'Agua' : f.tipo} ${f.periodo ? `${fecha(f.periodo.desde)}–${fecha(f.periodo.hasta)}` : fecha(f.fecha)}`),
+      ` · ${x.importe_txt} `, estChip(x.estado), x.pendiente > 0 ? [' ', h('button', { class: 'link', type: 'button', onclick: (e) => cobrarParte(x, e.currentTarget) }, 'Me ha pagado')] : null)));
+  }
+
+  const resumen = (lst) => {
+    const mes = hoy().slice(0, 7);
+    const renta = lst.reduce((s, a) => s + (a.renta_pendiente_cent || 0), 0);
+    // Suministros: TODAS las facturas (también lo que deben inquilinos anteriores, que no tienen ficha de alquiler).
+    const fs = facturasDe(lst);
+    const sum = fs.reduce((s, f) => s + (f.pendiente || 0), 0);
+    const cobRenta = lst.flatMap((a) => a.historial || []).filter((x) => x.recibo && (x.recibo.fecha_pago || '').startsWith(mes)).reduce((s, x) => s + x.recibo.importe_cent, 0);
+    const cobSum = fs.flatMap((f) => f.partes.flatMap((x) => x.cobros)).filter((c) => c.estado === 'VALIDO' && (c.fecha_pago || '').startsWith(mes)).reduce((s, c) => s + c.importe_cent, 0);
+    const recibos = lst.reduce((s, a) => s + (a.recibos_sin_enviar || 0), 0);
+    const kpi = (t, v, tone) => h('div', { class: `alq-kpi t-${tone}` }, h('small', {}, t), h('strong', {}, v));
+    return h('div', { class: 'alq-resumen' },
+      kpi('Alquileres activos', String(lst.length), 'idle'),
+      kpi('Rentas pendientes', eur(renta), renta ? 'wait' : 'ok'),
+      kpi('Suministros pendientes', eur(sum), sum ? 'wait' : 'ok'),
+      kpi('Cobrado este mes', `${eur(cobRenta)} renta · ${eur(cobSum)} suministros`, 'ok'),
+      kpi('Recibos sin enviar', String(recibos), recibos ? 'bad' : 'ok'));
+  };
+  const tarjetaAlquiler = (a) => {
+    const pend = a.pendientes;
+    return h('article', { class: `alq-mini-ficha${a.pendiente_cent ? ' need' : ''}`, tabindex: '0', role: 'button', 'aria-label': `Ficha del alquiler de ${a.inquilino}`,
+      onclick: (e) => { if (!e.target.closest('button')) abrirFicha(a); }, onkeydown: (e) => { if (e.key === 'Enter' && e.target === e.currentTarget) abrirFicha(a); } },
+    h('small', { class: 'muted' }, `${a.inmueble || 'Inmueble sin indicar'}${a.unidad ? ` · ${a.unidad}` : ''}`),
+    h('h3', {}, a.inquilino), a.contacto ? h('small', { class: 'muted' }, `vía ${a.contacto}`) : null,
+    h('p', { class: 'small' }, `${eur(a.importe)}/mes · `, pend.length ? chip(`Renta pendiente · ${mesTitulo(pend[0])}`, 'wait') : chip('Renta al día', 'ok'),
+      a.suministros_pendiente_cent ? [' ', chip(`Suministros ${eur(a.suministros_pendiente_cent)}`, 'wait')] : null),
+    h('p', { class: 'small muted' }, a.proxima),
+    h('div', { class: 'alq-acciones' }, pend.length ? h('button', { class: 'btn primary small', type: 'button', disabled: ocupado.has(a.id),
+      onclick: (e) => (pend.length > 1 ? modificar(a, e.currentTarget) : previaYConfirmar(a, {}, e.currentTarget)) }, 'Me ha pagado la renta') : null,
+    h('button', { class: 'btn ghost small', type: 'button', onclick: () => abrirFicha(a) }, 'Ficha')));
+  };
+
+  function tabRentas(lst) {
+    const filas = lst.flatMap((a) => a.historial.map((x) => ({ a, x })));
+    return h('div', { class: 'alq-scroll' }, h('table', { class: 'alq-tabla alq-panel-tabla' },
+      h('thead', {}, h('tr', {}, ['Alquiler', 'Mes', 'Renta', 'Estado', 'Recibo'].map((t) => h('th', {}, t)))),
+      h('tbody', {}, filas.map(({ a, x }) => {
+        const tr = h('tr', {}, h('td', {}, a.inquilino), h('td', {}, x.etiqueta), h('td', { class: 'num' }, eur(x.importe)),
+          h('td', {}, x.pago === 'PAGADO' ? chip(x.sin_recibo ? 'Cobrada · sin recibo' : 'Cobrada', 'ok') : chip('Pendiente', 'wait')),
+          h('td', {}, x.recibo ? [ojo(a, x.recibo.id, `Ver recibo ${x.recibo.numero}`), ` ${x.recibo.numero}`]
+            : x.sin_recibo ? h('button', { class: 'link', type: 'button', onclick: (e) => previaYConfirmar(a, { mes: x.mes }, e.currentTarget) }, 'Emitir recibo') : '—'));
+        [...tr.children].forEach((td, i) => { td.dataset.l = ['Alquiler', 'Mes', 'Renta', 'Estado', 'Recibo'][i]; });
+        return tr;
+      }))));
+  }
+  const FILTROS = [['PENDIENTES', 'Pendientes'], ['PARCIAL', 'Parcialmente pagados'], ['PAGADA', 'Pagados'], ['TODOS', 'Todos']];
+  function tabSuministros(lst, repintar) {
+    const fs = facturasDe(lst);
+    const pasa = (f) => (vista.filtro === 'TODOS' ? true : vista.filtro === 'PENDIENTES' ? ['PENDIENTE', 'PARCIAL', 'SIN_REPARTIR'].includes(f.estado) : f.estado === vista.filtro);
+    const vis = fs.filter(pasa);
+    const fila = (f) => h('button', { class: 'alq-fact-fila', type: 'button', onclick: () => abrirFactura(f) },
+      h('span', { class: 'alq-ff-a' }, h('strong', {}, `${f.tipo === 'AGUA' ? 'Agua' : f.tipo} ${f.periodo ? `${fecha(f.periodo.desde)} – ${fecha(f.periodo.hasta)}` : fecha(f.fecha)}`),
+        h('small', { class: 'muted' }, ` ${f.inmueble} · ${f.importe_txt}`)),
+      h('span', { class: 'alq-ff-b small' }, f.partes.length ? f.partes.map((x) => `${x.obligado.split(' ')[0]} ${x.importe_txt}${x.estado === 'PAGADA' ? ' ✓' : x.estado === 'PARCIAL' ? ` (faltan ${eur(x.pendiente)})` : ''}`).join(' · ')
+        : (f.propuesta?.ok ? 'Propuesta pendiente de confirmar' : 'Sin propuesta: falta saber quién vivía')),
+      h('span', { class: 'alq-ff-c' }, estChip(f.estado), f.partes.length && f.pendiente ? h('small', {}, ` ${eur(f.pendiente)}`) : null));
+    return h('div', { class: 'alq-panel' },
+      h('div', { class: 'alq-filtros', role: 'tablist' }, FILTROS.map(([k, t]) => h('button', { class: `btn small ${vista.filtro === k ? 'primary' : 'ghost'}`, type: 'button', role: 'tab', 'aria-selected': String(vista.filtro === k),
+        onclick: () => { vista.filtro = k; repintar(); } }, `${t} (${fs.filter((f) => (k === 'TODOS' ? true : k === 'PENDIENTES' ? ['PENDIENTE', 'PARCIAL', 'SIN_REPARTIR'].includes(f.estado) : f.estado === k)).length})`)),
+      h('button', { class: 'btn small', type: 'button', onclick: () => registrarFactura() }, 'Registrar factura')),
+      vis.length ? h('div', { class: 'alq-fact-lista' }, vis.map(fila)) : h('p', { class: 'muted' }, vista.filtro === 'PENDIENTES' ? 'Nada pendiente de cobrar en suministros.' : 'Ninguna factura en este filtro.'));
+  }
+  function tabRecibos(lst) {
+    const recibos = lst.flatMap((a) => a.historial.filter((x) => x.recibo).map((x) => ({ a, x })));
+    const partes = facturasDe(lst).flatMap((f) => f.partes.filter((x) => x.pendiente > 0).map((x) => ({ f, x })));
+    return h('div', { class: 'alq-panel' },
+      h('h3', { class: 'alq-sec' }, 'Recibos de renta'),
+      recibos.length ? h('ul', { class: 'alq-partes' }, recibos.map(({ a, x }) => h('li', {}, ojo(a, x.recibo.id, `Ver recibo ${x.recibo.numero}`), ` ${x.recibo.numero} · ${a.inquilino} · `,
+        a.envio === 'MANO' ? chip('Entrega en mano', 'idle') : waCell(x)))) : h('p', { class: 'muted small' }, 'Aún no hay recibos emitidos.'),
+      h('h3', { class: 'alq-sec' }, 'Mensajes de suministros por preparar'),
+      partes.length ? h('ul', { class: 'alq-partes' }, partes.map(({ f, x }) => h('li', {}, `${x.obligado} · ${eur(x.pendiente)} (${f.tipo === 'AGUA' ? 'agua' : f.tipo} ${fecha(f.fecha)}) `,
+        h('button', { class: 'link', type: 'button', onclick: () => mensajeParte(x) }, 'Preparar mensaje')))) : h('p', { class: 'muted small' }, 'No hay importes de suministros pendientes que reclamar.'),
+      h('p', { class: 'small muted' }, 'CEOPadre prepara los textos; no envía nada sin ti.'));
+  }
+  function tabHistorial(lst) {
+    // Rentas y fichas (por alquiler) + TODOS los cobros de suministros, también de inquilinos anteriores y los anulados.
+    const sums = facturasDe(lst).flatMap((f) => f.partes.flatMap((x) => x.cobros.map((c) => ({ at: c.fecha_pago, quien: x.obligado, importe: c.importe_cent,
+      tipo: c.estado === 'ANULADO' ? 'SUMINISTRO_COBRO_ANULADO' : 'SUMINISTRO_COBRADO', mes: null, extra: ` · ${f.tipo === 'AGUA' ? 'agua' : f.tipo} ${fecha(f.fecha)}${c.estado === 'ANULADO' ? ` (${c.anulado_motivo})` : ''}` }))));
+    const movs = [...lst.flatMap((a) => (a.movimientos || []).filter((m) => !m.tipo.startsWith('SUMINISTRO_')).map((m) => ({ ...m, quien: a.inquilino }))), ...sums]
+      .sort((x, y) => String(y.at).localeCompare(String(x.at))).slice(0, 80);
+    return movs.length ? h('ul', { class: 'alq-partes' }, movs.map((m) => h('li', {}, `${fecha(String(m.at).slice(0, 10))} · ${m.quien} · ${MOV[m.tipo] || m.tipo}${m.importe ? ` · ${eur(m.importe)}` : ''}${m.mes ? ` · ${mesTitulo(m.mes)}` : ''}${m.extra || ''}`)))
+      : h('p', { class: 'muted small' }, 'Sin movimientos todavía.');
+  }
+  const TABS = [['rentas', 'Rentas'], ['suministros', 'Suministros'], ['recibos', 'Recibos y mensajes'], ['historial', 'Historial']];
+  function cuerpoPanel(gestiones, repintar) {
+    lista = todos(gestiones);
+    const proximas = lista.filter((a) => a.pendiente_cent || a.recibos_sin_enviar).map((a) => `${a.inquilino.split(' ')[0]}: ${a.proxima}`);
+    const tab = { rentas: () => tabRentas(lista), suministros: () => tabSuministros(lista, repintar), recibos: () => tabRecibos(lista), historial: () => tabHistorial(lista) }[vista.tab];
+    return h('div', { class: 'alq-panel' },
+      resumen(lista),
+      proximas.length ? h('p', { class: 'small' }, h('strong', {}, 'Próximas acciones: '), proximas.join(' · ')) : null,
+      h('h3', { class: 'alq-sec' }, 'Alquileres'),
+      h('div', { class: 'alq-list' }, lista.map(tarjetaAlquiler)),
+      h('div', { class: 'alq-tabs', role: 'tablist' }, TABS.map(([k, t]) => h('button', { class: `alq-tab${vista.tab === k ? ' on' : ''}`, type: 'button', role: 'tab', 'aria-selected': String(vista.tab === k),
+        onclick: () => { vista.tab = k; repintar(); } }, t))),
+      tab());
+  }
+  let panel = null; // { dlg, cuerpo, sig, gestiones }
   function abrirPanel(gestiones) {
     if (panel?.dlg.open) panel.dlg.close();
-    const cuerpo = h('div', { class: 'alq-ficha-body' }, cuerpoPanel(gestiones));
-    const dlg = h('dialog', { class: 'sheet alq-ficha alq-panel-dlg', 'aria-label': 'Panel de alquileres' },
+    const cuerpo = h('div', { class: 'alq-ficha-body' });
+    const repintar = () => { if (panel) cuerpo.replaceChildren(cuerpoPanel(panel.gestiones, repintar)); };
+    const dlg = h('dialog', { class: 'sheet alq-ficha alq-panel-dlg', 'aria-label': 'Agente Alquileres' },
       h('header', { class: 'cmp-head' }, h('h2', {}, 'Alquileres'), h('button', { class: 'btn ghost small', type: 'button', onclick: () => dlg.close() }, 'Cerrar')), cuerpo);
     dlg.addEventListener('close', () => { dlg.remove(); if (panel?.dlg === dlg) panel = null; });
     document.body.append(dlg);
-    panel = { dlg, cuerpo, sig: firma(gestiones) };
+    panel = { dlg, cuerpo, sig: firma(gestiones), gestiones, repintar };
+    repintar();
     dlg.showModal();
   }
   function syncPanel(gestiones) {
-    if (!panel) return;
     const sig = firma(gestiones);
-    if (sig === panel.sig) return;
-    panel.sig = sig;
-    panel.cuerpo.replaceChildren(cuerpoPanel(gestiones));
+    if (detFactura) { const f = facturasDe(todos(gestiones)).find((x) => x.id === detFactura.id); const s = JSON.stringify(f || null); if (f && s !== detFactura.sig) { detFactura.sig = s; detFactura.cuerpo.replaceChildren(cuerpoFactura(f)); } }
+    if (!panel || sig === panel.sig) return;
+    panel.sig = sig; panel.gestiones = gestiones;
+    panel.repintar();
   }
   function miniPanel(gestiones) {
-    const lista = todos(gestiones);
-    const total = lista.reduce((s, a) => s + (a.pendiente_cent || 0), 0);
-    const sinRepartir = facturasDe(lista).filter((f) => f.sin_repartir).length;
-    const estado = total ? [`Pendiente ${eur(total)}`, 'wait'] : sinRepartir ? [`${sinRepartir} factura${sinRepartir > 1 ? 's' : ''} sin repartir`, 'wait'] : ['Todo al día', 'ok'];
+    const lst = todos(gestiones);
+    const renta = lst.reduce((s, a) => s + (a.renta_pendiente_cent || 0), 0), sum = facturasDe(lst).reduce((s, f) => s + (f.pendiente || 0), 0);
+    const estado = renta || sum ? [`Por cobrar ${eur(renta + sum)}`, 'wait'] : ['Todo cobrado', 'ok'];
     const abrir = () => abrirPanel(gestiones);
-    const el = miniTarjeta({ id: 'alq:panel', titulo: 'Alquileres', sub: 'Agente · panel completo', clase: 'alq-mini',
-      desc: `${lista.length} ${lista.length === 1 ? 'alquiler' : 'alquileres'}: cobros, recibos, historial, agua y suministros`, estado, accion: { txt: 'Abrir panel', on: abrir, cls: 'primary' }, abrir });
-    return { tono: estado[1] === 'wait' ? 'ask' : estado[1], texto: 'alquileres alquiler panel agua suministros inquilinos recibos', el };
+    const el = miniTarjeta({ id: 'alq:panel', titulo: 'Alquileres', sub: `Agente · ${lst.length} ${lst.length === 1 ? 'alquiler' : 'alquileres'}`, clase: 'alq-mini',
+      desc: `Rentas ${eur(renta)} · suministros ${eur(sum)} pendientes. Fichas, recibos, agua e historial.`, estado, accion: { txt: 'Abrir', on: abrir, cls: 'primary' }, abrir });
+    return { tono: estado[1] === 'wait' ? 'ask' : estado[1], texto: `alquileres alquiler agua suministros inquilinos recibos ${lst.map((a) => a.inquilino).join(' ')}`, el };
   }
 
-  /** Tarjetas compactas: el panel y cada alquiler que traen las gestiones (vacío si no hay); fichas y panel al día. */
+  /** UN solo agente (la tarjeta Alquileres); los inquilinos viven dentro de su panel. Fichas, facturas y panel al día. */
   return {
-    minis: (gestiones) => (todos(gestiones).length ? [miniPanel(gestiones), ...gestiones.flatMap((c) => (c.alquileres || []).map((a) => mini(a, c)))] : []),
+    minis: (gestiones) => (todos(gestiones).length ? [miniPanel(gestiones)] : []),
     sync: (gestiones) => { sync(gestiones); syncPanel(gestiones); }, abrirFicha, abrirPanel,
+    suministrosFicha,
   };
 }

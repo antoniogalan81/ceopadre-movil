@@ -1351,6 +1351,27 @@ dialog.alq-panel-dlg { width: min(1180px, 100%); }
 .alq-partes { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
 .alq-partes button.link { min-height: 36px; }
 .a-chip.t-idle { background: var(--paper-2, #eee); color: var(--ink-2, #555); }
+/* Agente Alquileres v2 (12-11): resumen, fichas compactas, pestañas, facturas en filas compactas */
+.alq-resumen { display: grid; gap: 8px; grid-template-columns: repeat(auto-fit, minmax(min(100%, 160px), 1fr)); }
+.alq-kpi { border: 1px solid var(--line); border-radius: var(--radius); padding: 8px 10px; display: grid; gap: 2px; min-width: 0; }
+.alq-kpi small { color: var(--ink-3); } .alq-kpi strong { font-size: 16px; overflow-wrap: anywhere; }
+.alq-kpi.t-wait { box-shadow: inset 4px 0 0 var(--wait); } .alq-kpi.t-bad { box-shadow: inset 4px 0 0 var(--bad); }
+.alq-mini-ficha { border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 12px; display: grid; gap: 4px; cursor: pointer; min-width: 0; background: var(--paper); }
+.alq-mini-ficha.need { box-shadow: inset 4px 0 0 var(--ask); }
+.alq-mini-ficha h3 { margin: 0; font-size: 15px; overflow-wrap: anywhere; } .alq-mini-ficha p { margin: 0; }
+.alq-tabs { display: flex; flex-wrap: wrap; gap: 4px; border-bottom: 1px solid var(--line); margin-top: 6px; }
+.alq-tab { min-height: 44px; padding: 0 12px; border: 0; background: none; color: var(--ink-2); font-weight: 650; cursor: pointer; border-bottom: 3px solid transparent; }
+.alq-tab.on { color: var(--accent); border-bottom-color: var(--accent); }
+.alq-filtros { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.alq-fact-lista { display: grid; gap: 6px; }
+.alq-fact-fila { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 2fr) auto; gap: 8px; align-items: center; text-align: left; width: 100%;
+  border: 1px solid var(--line); border-radius: var(--radius); background: var(--paper); padding: 8px 10px; min-height: 48px; cursor: pointer; color: inherit; font: inherit; }
+.alq-fact-fila:hover { border-color: var(--accent); }
+.alq-ff-a, .alq-ff-b { min-width: 0; overflow-wrap: anywhere; } .alq-ff-c { white-space: nowrap; }
+.alq-parte { border: 1px solid var(--line); border-radius: var(--radius); padding: 8px 10px; display: grid; gap: 4px; }
+.alq-parte p { margin: 0; } .alq-cobros { margin: 0; padding-left: 18px; font-size: 13px; }
+.alq-prop { border: 1px dashed var(--line); border-radius: var(--radius); padding: 8px 10px; display: grid; gap: 6px; } .alq-prop p { margin: 0; }
+@media (max-width: 699px) { .alq-fact-fila { grid-template-columns: minmax(0, 1fr) auto; } .alq-ff-b { grid-column: 1 / -1; grid-row: 2; } }
 @media (max-width: 699px) {
   .alq-panel-tabla thead { display: none; }
   .alq-panel-tabla, .alq-panel-tabla tbody, .alq-panel-tabla tr, .alq-panel-tabla td { display: block; }

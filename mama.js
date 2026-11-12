@@ -92,7 +92,7 @@ export function mamaUi({ api, toast, show, local }) {
     const c = canal;
     const card = (...hijos) => h('section', { class: 'side-card mama-movil', 'aria-labelledby': 'm-mov-h' }, h('h2', { id: 'm-mov-h' }, 'Móvil'), ...hijos);
     if (!c) return card(h('p', { class: 'muted small' }, 'Estado del canal móvil no disponible.'));
-    const estado = h('p', { class: 'small' }, c.conectado ? `Canal cifrado conectado${c.ultimo_ciclo ? ` · último ciclo ${fecha(c.ultimo_ciclo)}` : ''}` : c.configurado ? 'Canal configurado, sin conexión ahora' : 'Canal sin configurar en este PC (node tools/mama-remoto.mjs)',
+    const estado = h('p', { class: 'small' }, c.conectado ? `Canal cifrado conectado${c.ultimo_ciclo ? ` · último ciclo ${fecha(c.ultimo_ciclo)}` : ''}` : c.configurado ? 'Canal configurado, sin conexión ahora' : 'Canal sin sesión en este PC (la crea CEOPadre: node tools/mama-sesion.mjs --autonomo)',
       c.error && c.configurado ? h('span', { class: 'muted' }, ` · ${c.error}`) : null);
     const par = c.par ? h('p', { class: 'small' }, chip(c.par.confirmado ? 'Emparejado' : 'Pendiente de confirmar', c.par.confirmado ? 'ok' : 'ask'), ' ',
       h('strong', {}, c.par.dispositivo || 'Móvil'), h('span', { class: 'muted small' }, ` · desde ${fecha(c.par.desde)}`)) : h('p', { class: 'muted small' }, 'Ningún móvil emparejado.');

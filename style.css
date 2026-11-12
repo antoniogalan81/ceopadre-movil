@@ -1340,6 +1340,24 @@ dialog.alq-ficha { width: min(680px, 100%); padding: 16px 16px calc(16px + env(s
 .alq-ficha .cmp-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
 .alq-ficha .cmp-head h2 { margin: 0; font-size: 18px; overflow-wrap: anywhere; }
 .alq-ficha .alq-card { border: 0; padding: 0; box-shadow: none; }
+/* Panel de alquileres (12-11): tabla con scroll propio, facturas de suministros en tarjetas con borde */
+dialog.alq-panel-dlg { width: min(1180px, 100%); }
+.alq-panel { display: grid; gap: 10px; min-width: 0; }
+.alq-panel-tabla td { vertical-align: top; }
+.alq-panel-tabla td.alq-prox { white-space: normal; min-width: 180px; max-width: 280px; }
+.alq-sec { margin: 8px 0 0; font-size: 16px; }
+.alq-panel .alq-card.alq-fact { border: 1px solid var(--line); padding: 12px 14px; }
+.alq-panel .alq-card.alq-fact.need { border-color: var(--ask); box-shadow: inset 4px 0 0 var(--ask); }
+.alq-partes { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
+.alq-partes button.link { min-height: 36px; }
+.a-chip.t-idle { background: var(--paper-2, #eee); color: var(--ink-2, #555); }
+@media (max-width: 699px) {
+  .alq-panel-tabla thead { display: none; }
+  .alq-panel-tabla, .alq-panel-tabla tbody, .alq-panel-tabla tr, .alq-panel-tabla td { display: block; }
+  .alq-panel-tabla tr { border: 1px solid var(--line); border-radius: var(--radius); padding: 8px 12px; margin-bottom: 8px; }
+  .alq-panel-tabla td, .alq-panel-tabla td.num, .alq-panel-tabla td.alq-prox { border: 0; padding: 3px 0; text-align: left; white-space: normal; max-width: none; min-width: 0; }
+  .alq-panel-tabla td[data-l]::before { content: attr(data-l) ' · '; color: var(--ink-3); font-size: 12px; }
+}
 .ag-mini-desc { line-height: 1.4; min-height: 2.8em; } /* siempre 2 líneas: todas las tarjetas miden igual */
 .ag-mini h3 { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; } .ag-mini-top > h3 { flex: 1; }
 

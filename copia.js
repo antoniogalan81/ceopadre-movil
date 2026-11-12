@@ -91,7 +91,11 @@ export function copiaUi({ cmd, toast, ask }) {
     if (btn) btn.disabled = true;
     try {
       const r = await cmd(op, params);
-      if (!r?.ok) { toast(r?.error || 'No se pudo', 'bad'); return null; }
+      if (!r?.ok) {
+        // función nueva en la página pero el servidor aún no se ha reiniciado: se dice tal cual
+        toast(/Orden desconocida: copia\./.test(r?.error || '') ? 'Disponible tras el próximo reinicio de CEOPadre' : r?.error || 'No se pudo', 'bad');
+        return null;
+      }
       if (okMsg) toast(okMsg, 'ok');
       if (r.data?.historial) st = r.data;
       return r.data;
@@ -156,7 +160,8 @@ export function copiaUi({ cmd, toast, ask }) {
       h('section', { class: `cp-box t-${d ? 'ok' : 'wait'}` }, h('h3', {}, 'Disco externo'),
         d ? [fila('Estado', [chip(d.vinculado ? 'Conectado y vinculado' : 'Conectado (se vinculará en la primera copia)', 'ok')]),
           fila('Unidad', `${d.letra}: · ${d.etiqueta} · serie ${Number(d.serie).toString(16).toUpperCase()}`),
-          fila('Espacio libre', `${bytes(d.libre)} de ${bytes(d.total)}`)]
+          fila('Espacio libre', `${bytes(d.libre)} de ${bytes(d.total)}`),
+          diag(d)]
           : fila('Estado', [chip('No conectado', 'wait'), ' Se identifica por etiqueta, número de serie y marca de vinculación, nunca sólo por la letra.']),
         ...(st.discos_rechazados || []).filter((x) => x.etiqueta).map((x) => fila(`Rechazado ${x.letra}:`, [chip('No es el disco vinculado', 'bad'), ` «${x.etiqueta}»: ${x.motivo}. No se escribe nada en él.`]))),
       st.borrado_pendiente ? h('section', { class: 'cp-box t-warn' }, h('h3', {}, 'Detenida por seguridad: necesita tu confirmación'),
@@ -207,6 +212,20 @@ export function copiaUi({ cmd, toast, ask }) {
         h('ul', { class: 'cp-list' }, (st.historial || []).map((r) => h('li', {}, chip(...est(r.estado)),
           ` #${r.id} ${r.tipo} · ${fecha(r.inicio)}${r.fin ? ` → ${fecha(r.fin)}` : ''} · ${r.modo || ''} · ${num(r.archivos)} archivos, ${bytes(r.bytes)}, ${num(r.movidos)} movidos, ${num(r.versiones)} versiones, ${num(r.adoptados)} ya presentes, ${num(r.listadas)} carpetas leídas${r.arranques > 1 ? ` · ${r.arranques} arranques` : ''}${r.tipo === 'verificacion' ? ` · ${num(r.verif_ok)} bien / ${num(r.verif_mal)} mal` : ''}${r.nota ? ` · ${r.nota}` : ''}`)))),
       cerrarBtn(), aviso].filter(Boolean)); // replaceChildren pinta «null» si se le pasa
+  }
+
+  // COMPROBAR DISCO: resultado real de escribir, leer, renombrar, fechas y rutas largas en el propio disco.
+  function diag(d) {
+    const x = st.diagnostico_disco;
+    const t = x?.pruebas || {};
+    const btn = h('button', { class: 'btn ghost small', type: 'button', disabled: busy || st.en_curso, onclick: async (ev) => {
+      const r = await orden('copia.diagnostico', null, ev.currentTarget);
+      if (r) toast(r.ok ? 'Disco comprobado: todo correcto' : 'El disco tiene avisos: míralos en la ficha', r.ok ? 'ok' : 'bad');
+    } }, x ? 'Volver a comprobar el disco' : 'Comprobar el disco');
+    if (!x || x.serie !== Number(d.serie).toString(16).toUpperCase().padStart(8, '0')) return fila('Comprobación', [btn, ' escribe una prueba en _agente y la borra; no copia nada']);
+    return [fila('Comprobación', [chip(x.ok ? 'Correcto' : 'Con avisos', x.ok ? 'ok' : 'bad'),
+      ` ${fecha(x.ts)} · ${x.sistema_archivos} · escritura ${t.escritura_fsync_MB_s ?? '—'} MB/s · rutas largas ${t.ruta_larga ? 'sí' : 'no'} · fechas exactas ${t.fecha_precisa_100ns ? 'sí' : 'no'} `, btn]),
+      ...(x.avisos || []).map((a) => fila('Aviso', a))];
   }
 
   // BASES DE DATOS: sólo se declara restaurable lo que superó una restauración funcional real en la verificación.

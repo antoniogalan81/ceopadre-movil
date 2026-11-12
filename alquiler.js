@@ -94,10 +94,16 @@ export function alquileresUi({ run, ask, cmd, toast, LOCAL }) {
         { name: 'arrendatario', label: 'Arrendatario', value: a.inquilino },
         { name: 'importe', label: 'Mensualidad (€)', value: (a.importe / 100).toLocaleString('es-ES', { minimumFractionDigits: 2 }), inputmode: 'decimal' },
         { name: 'metodo', label: 'Forma de pago', type: 'choice', value: a.metodo || 'BIZUM', options: a.metodos.map((m) => ({ value: m.valor, label: m.nombre })) },
-        { name: 'telefono', label: 'WhatsApp del inquilino', value: a.telefono, inputmode: 'tel' },
+        { name: 'envio', label: 'Entrega del recibo', type: 'choice', value: a.envio, options: [{ value: 'WHATSAPP', label: 'Por WhatsApp' }, { value: 'MANO', label: 'En mano (no se envía)' }] },
+        { name: 'telefono', label: 'WhatsApp del inquilino', value: a.telefono, inputmode: 'tel', required: false },
+        { name: 'contacto', label: 'Contacto para las comunicaciones (si no es el inquilino)', value: a.contacto || '', required: false },
+        { name: 'inmueble', label: 'Inmueble', value: a.inmueble || '', required: false },
+        { name: 'unidad', label: 'Unidad (piso, habitación…)', value: a.unidad || '', required: false },
+        { name: 'titular', label: 'Titular (persona o sociedad)', value: a.titular || '', required: false },
         { name: 'lugar', label: 'Lugar de emisión', value: a.lugar },
       ] });
-    if (r) await run('alquiler.guardar', { alquiler: a.id, ...r }, 'Ficha guardada');
+    const vacioVale = (k) => ['contacto', 'unidad'].includes(k) || (k === 'telefono' && r?.envio === 'MANO');
+    if (r) await run('alquiler.guardar', { alquiler: a.id, ...Object.fromEntries(Object.entries(r).filter(([k, v]) => v !== '' || vacioVale(k))) }, 'Ficha guardada');
   }
 
   const waCell = (x) => {
@@ -141,9 +147,14 @@ export function alquileresUi({ run, ask, cmd, toast, LOCAL }) {
         h('div', { class: 'row' }, ojo(a, pend.length ? null : r?.id ?? null, pend.length ? 'Ver documento (borrador, no emitido)' : 'Ver documento'),
           h('button', { class: 'link', type: 'button', onclick: () => ficha(a) }, 'Ficha'))),
       h('dl', { class: 'alq-dl' },
+        a.inmueble ? [h('dt', {}, 'Inmueble'), h('dd', {}, `${a.inmueble}${a.unidad ? ` · ${a.unidad}` : ''}`)] : null,
+        h('dt', {}, 'Titular'), h('dd', {}, a.titular || a.arrendador),
+        a.contacto ? [h('dt', {}, 'Contacto'), h('dd', {}, a.contacto)] : null,
+        h('dt', {}, 'Pendiente'), h('dd', {}, a.pendiente_cent ? chip(a.pendiente_txt, 'wait') : chip('Nada', 'ok')),
+        h('dt', {}, 'Próxima acción'), h('dd', {}, a.proxima),
         h('dt', {}, 'Mes'), h('dd', {}, pend.length > 1 ? pend.map(mesTitulo).join(' · ') : mesTitulo(mes)),
         h('dt', {}, 'Estado'), h('dd', {}, estado),
-        r ? [h('dt', {}, 'WhatsApp'), h('dd', {}, chip(wa[0], wa[1]), ` ${r.numero}`, r.wa_motivo ? h('small', { class: 'muted alq-motivo' }, r.wa_motivo) : null)] : null),
+        r ? [h('dt', {}, 'Recibo'), h('dd', {}, a.envio === 'MANO' ? chip('Entrega en mano', 'idle') : chip(wa[0], wa[1]), ` ${r.numero}`, r.wa_motivo ? h('small', { class: 'muted alq-motivo' }, r.wa_motivo) : null)] : null),
       h('div', { class: 'row alq-acciones' },
         pend.length ? h('button', { class: 'btn primary alq-pagado', type: 'button', disabled: busy,
           onclick: (e) => (pend.length > 1 ? modificar(a, e.currentTarget) : previaYConfirmar(a, {}, e.currentTarget)) },
@@ -197,6 +208,140 @@ export function alquileresUi({ run, ask, cmd, toast, LOCAL }) {
     return { tono: estado[1] === 'wait' ? 'ask' : estado[1], texto: `${a.inquilino} alquileres alquiler ${gestion?.nombre || ''}`, el };
   }
 
-  /** Tarjetas compactas de todos los alquileres que traen las gestiones (vacío si no hay) y la ficha abierta al día. */
-  return { minis: (gestiones) => gestiones.flatMap((c) => (c.alquileres || []).map((a) => mini(a, c))), sync, abrirFicha };
+  // ---------------------------------------------------------------- PANEL «Alquileres» (Agentes → Alquileres)
+  // Todos los alquileres en una tabla (inmueble, unidad, titular, inquilino, renta, estado, pendiente, último movimiento,
+  // próxima acción) y «Agua y suministros» con su reparto. Nada se cobra ni se envía sin confirmarlo Antonio.
+  const fecha = (f) => (f ? `${f.slice(8, 10)}/${f.slice(5, 7)}/${f.slice(0, 4)}` : '—');
+  const MOV = { COBRADO: 'Cobro registrado', RECTIFICADO: 'Recibo rectificado', ENVIADO: 'Recibo enviado', ENVIANDO: 'Enviando recibo', ENVIO_ERROR: 'Envío fallido',
+    REINTENTO: 'Reintento de envío', FICHA: 'Ficha modificada', CONFIGURADO: 'Alta del alquiler', RECONFIGURADO: 'Ficha reconfigurada', SUMINISTRO_COBRADO: 'Suministro cobrado' };
+  const PAGO_PROV = { DESCONOCIDO: 'sin comprobar', PENDIENTE: 'pendiente', PAGADA: 'pagada', DOMICILIADA: 'domiciliada' };
+  const todos = (gestiones) => gestiones.flatMap((c) => (c.alquileres || []).map((a) => ({ ...a, gestion: c })));
+  const facturasDe = (lista) => { const m = new Map(); for (const a of lista) for (const f of a.suministros || []) m.set(f.id, f); return [...m.values()].sort((x, y) => y.fecha.localeCompare(x.fecha)); };
+  const firma = (gestiones) => JSON.stringify(gestiones.flatMap((c) => c.alquileres || []));
+
+  async function cobrarParte(x, btn) {
+    const r = await ask({ title: `Cobro de suministro · ${x.obligado}`, ok: 'Confirmar cobro', help: `${x.importe_txt}. Sólo si ya te lo han pagado: queda registrado como cobrado.`,
+      fields: [{ name: 'fecha_pago', label: 'Fecha del pago', type: 'date', value: new Date().toISOString().slice(0, 10) },
+        { name: 'metodo', label: 'Forma de pago', type: 'choice', value: 'TRANSFERENCIA', options: [{ value: 'TRANSFERENCIA', label: 'Transferencia' }, { value: 'BIZUM', label: 'Bizum' }, { value: 'EFECTIVO', label: 'Efectivo' }] }] });
+    if (r) await run('suministro.cobrar', { parte: x.id, ...r }, 'Cobro registrado', btn);
+  }
+  async function mensajeParte(x) {
+    const v = await cmd('suministro.mensaje', { parte: x.id });
+    if (!v?.ok) { toast(v?.error || 'No se pudo preparar el mensaje', 'bad'); return; }
+    const r = await ask({ title: `Mensaje para ${v.data.destinatario}`, ok: 'Copiar texto', help: v.data.aviso,
+      fields: [{ name: 'texto', label: 'Texto (puedes cambiarlo antes de copiarlo)', type: 'textarea', value: v.data.texto }] });
+    if (!r?.texto) return;
+    try { await navigator.clipboard.writeText(r.texto); toast('Texto copiado: envíalo tú cuando quieras'); } catch { toast('No se pudo copiar: selecciónalo y cópialo', 'bad'); }
+  }
+  async function repartirFactura(f, lista) {
+    const cand = lista.filter((a) => !a.inmueble || a.inmueble === f.inmueble);
+    const r = await ask({ title: `Repartir ${f.importe_txt} · ${f.proveedor} ${fecha(f.fecha)}`, ok: 'Guardar reparto',
+      help: 'A partes iguales entre los marcados (el céntimo impar va al primero). Comprueba antes quién vivía en el inmueble en ese periodo.',
+      fields: [...cand.map((a) => ({ name: `a:${a.id}`, label: a.inquilino, type: 'checkbox', value: true })),
+        { name: 'otro', label: 'Otro obligado (p. ej. un inquilino anterior)', required: false },
+        { name: 'criterio', label: 'Por qué se reparte así', type: 'textarea', placeholder: 'p. ej. ambos vivían en el inmueble todo el periodo de la factura' }] });
+    if (!r) return;
+    const partes = [...cand.filter((a) => r[`a:${a.id}`]).map((a) => ({ obligado: a.inquilino, alquiler: a.id })), ...(r.otro ? [{ obligado: r.otro }] : [])];
+    if (!partes.length) { toast('Marca al menos un obligado', 'bad'); return; }
+    await run('suministro.repartir', { factura: f.id, partes, criterio: r.criterio }, 'Reparto guardado');
+  }
+  async function registrarFactura(lista) {
+    const g = lista[0]?.gestion;
+    if (!g) return;
+    const inm = [...new Set(lista.map((a) => a.inmueble).filter(Boolean))];
+    const r = await ask({ title: 'Registrar factura de suministro', ok: 'Registrar', help: 'Con los datos del documento original. Una factura repetida no se duplica.',
+      fields: [
+        inm.length ? { name: 'inmueble', label: 'Inmueble', type: 'choice', value: inm.length === 1 ? inm[0] : '', options: inm.map((x) => ({ value: x, label: x })) } : { name: 'inmueble', label: 'Inmueble' },
+        { name: 'tipo', label: 'Suministro', type: 'choice', value: 'AGUA', options: [{ value: 'AGUA', label: 'Agua' }, { value: 'LUZ', label: 'Luz' }, { value: 'GAS', label: 'Gas' }, { value: 'OTRO', label: 'Otro' }] },
+        { name: 'proveedor', label: 'Proveedor', value: 'EMASESA' },
+        { name: 'contrato', label: 'Nº de contrato', required: false },
+        { name: 'fecha_factura', label: 'Fecha de la factura', type: 'date' },
+        { name: 'periodo_desde', label: 'Periodo: desde', type: 'date', required: false },
+        { name: 'periodo_hasta', label: 'Periodo: hasta', type: 'date', required: false },
+        { name: 'importe', label: 'Importe total (€)', inputmode: 'decimal' },
+        { name: 'nota', label: 'Nota', type: 'textarea', required: false }] });
+    if (r) await run('suministro.registrar', { proyecto: g.id, fuente: 'Registrada a mano por Antonio', ...Object.fromEntries(Object.entries(r).filter(([, v]) => v !== '')) }, 'Factura registrada');
+  }
+
+  function filaPanel(a) {
+    const pend = a.pendientes;
+    const estado = pend.length > 1 ? chip(`${pend.length} meses pendientes`, 'bad') : pend.length ? chip(`Pendiente · ${mesTitulo(pend[0])}`, 'wait') : chip('Al día', 'ok');
+    const pagar = (e) => (pend.length > 1 ? modificar(a, e.currentTarget) : previaYConfirmar(a, {}, e.currentTarget));
+    const tr = h('tr', {},
+      h('td', {}, a.inmueble || '—', a.unidad ? h('small', { class: 'muted' }, ` · ${a.unidad}`) : null),
+      h('td', {}, a.titular || a.arrendador),
+      h('td', {}, h('button', { class: 'link', type: 'button', onclick: () => abrirFicha(a) }, a.inquilino), a.contacto ? h('small', { class: 'muted alq-motivo' }, `vía ${a.contacto}`) : null),
+      h('td', { class: 'num' }, eur(a.importe)),
+      h('td', {}, estado),
+      h('td', { class: 'num' }, a.pendiente_cent ? eur(a.pendiente_cent) : '—'),
+      h('td', {}, a.ultimo ? `${MOV[a.ultimo.tipo] || a.ultimo.tipo} · ${fecha(a.ultimo.at.slice(0, 10))}` : '—'),
+      h('td', { class: 'alq-prox' }, a.proxima),
+      h('td', {}, pend.length ? h('button', { class: 'btn primary small', type: 'button', disabled: ocupado.has(a.id), onclick: pagar }, 'Me ha pagado')
+        : h('button', { class: 'btn ghost small', type: 'button', onclick: () => abrirFicha(a) }, 'Ficha')));
+    // En el móvil cada fila es una tarjeta: cada celda lleva su etiqueta (CSS ::before).
+    [...tr.children].forEach((td, i) => { if (COLS[i]) td.dataset.l = COLS[i]; });
+    return tr;
+  }
+  const COLS = ['Inmueble', 'Titular', 'Inquilino', 'Renta', 'Estado', 'Pendiente', 'Último movimiento', 'Próxima acción', ''];
+  function facturaPanel(f, lista) {
+    const parte = (x) => h('li', {}, `${x.obligado}: ${x.importe_txt} `, x.estado === 'COBRADO' ? chip(`Cobrado ${fecha(x.fecha_pago)}`, 'ok') : [chip('Pendiente', 'wait'),
+      ' ', h('button', { class: 'link', type: 'button', onclick: (e) => cobrarParte(x, e.currentTarget) }, 'Me ha pagado'),
+      ' · ', h('button', { class: 'link', type: 'button', onclick: () => mensajeParte(x) }, 'Preparar mensaje')]);
+    const tipo = f.tipo === 'AGUA' ? 'Agua' : f.tipo.charAt(0) + f.tipo.slice(1).toLowerCase();
+    return h('article', { class: `alq-card alq-fact${f.sin_repartir || f.partes.some((x) => x.estado === 'PENDIENTE') ? ' need' : ''}` },
+      h('header', { class: 'alq-head' }, h('div', {}, h('h3', {}, `${tipo} · ${f.proveedor} · ${f.importe_txt}`),
+        h('small', { class: 'muted' }, `${f.inmueble} · factura del ${fecha(f.fecha)}${f.periodo ? ` · periodo ${fecha(f.periodo.desde)}–${fecha(f.periodo.hasta)}` : ''}`))),
+      h('p', { class: 'muted' }, `Pago al proveedor: ${PAGO_PROV[f.pago_proveedor] || f.pago_proveedor}. El cobro a los inquilinos va aparte.`),
+      f.nota ? h('p', { class: 'alq-motivo' }, f.nota) : null,
+      f.sin_repartir ? h('div', { class: 'alq-acciones' }, chip('Sin repartir', 'wait'), ' ', h('button', { class: 'btn small', type: 'button', onclick: () => repartirFactura(f, lista) }, 'Repartir'))
+        : [h('ul', { class: 'alq-partes' }, f.partes.map(parte)), h('small', { class: 'muted' }, f.partes[0]?.criterio || '')]);
+  }
+  function cuerpoPanel(gestiones) {
+    const lista = todos(gestiones);
+    const total = lista.reduce((s, a) => s + (a.pendiente_cent || 0), 0);
+    const facturas = facturasDe(lista);
+    return h('div', { class: 'alq-panel' },
+      h('p', {}, `${lista.length} ${lista.length === 1 ? 'alquiler' : 'alquileres'} · pendiente total `, total ? chip(eur(total), 'wait') : chip('nada', 'ok'),
+        h('small', { class: 'muted' }, ' · un cobro sólo cuenta cuando tú lo confirmas')),
+      h('div', { class: 'alq-scroll' }, h('table', { class: 'alq-tabla alq-panel-tabla' },
+        h('thead', {}, h('tr', {}, ['Inmueble', 'Titular', 'Inquilino', 'Renta', 'Estado', 'Pendiente', 'Último movimiento', 'Próxima acción', ''].map((t) => h('th', {}, t)))),
+        h('tbody', {}, lista.map(filaPanel)))),
+      h('h3', { class: 'alq-sec' }, 'Agua y suministros'),
+      h('div', { class: 'alq-acciones' }, h('button', { class: 'btn small', type: 'button', onclick: () => registrarFactura(lista) }, 'Registrar factura')),
+      facturas.length ? h('div', { class: 'alq-list' }, facturas.map((f) => facturaPanel(f, lista))) : h('p', { class: 'muted' }, 'Aún no hay facturas de suministros registradas.'));
+  }
+  let panel = null; // { dlg, cuerpo, sig }
+  function abrirPanel(gestiones) {
+    if (panel?.dlg.open) panel.dlg.close();
+    const cuerpo = h('div', { class: 'alq-ficha-body' }, cuerpoPanel(gestiones));
+    const dlg = h('dialog', { class: 'sheet alq-ficha alq-panel-dlg', 'aria-label': 'Panel de alquileres' },
+      h('header', { class: 'cmp-head' }, h('h2', {}, 'Alquileres'), h('button', { class: 'btn ghost small', type: 'button', onclick: () => dlg.close() }, 'Cerrar')), cuerpo);
+    dlg.addEventListener('close', () => { dlg.remove(); if (panel?.dlg === dlg) panel = null; });
+    document.body.append(dlg);
+    panel = { dlg, cuerpo, sig: firma(gestiones) };
+    dlg.showModal();
+  }
+  function syncPanel(gestiones) {
+    if (!panel) return;
+    const sig = firma(gestiones);
+    if (sig === panel.sig) return;
+    panel.sig = sig;
+    panel.cuerpo.replaceChildren(cuerpoPanel(gestiones));
+  }
+  function miniPanel(gestiones) {
+    const lista = todos(gestiones);
+    const total = lista.reduce((s, a) => s + (a.pendiente_cent || 0), 0);
+    const sinRepartir = facturasDe(lista).filter((f) => f.sin_repartir).length;
+    const estado = total ? [`Pendiente ${eur(total)}`, 'wait'] : sinRepartir ? [`${sinRepartir} factura${sinRepartir > 1 ? 's' : ''} sin repartir`, 'wait'] : ['Todo al día', 'ok'];
+    const abrir = () => abrirPanel(gestiones);
+    const el = miniTarjeta({ id: 'alq:panel', titulo: 'Alquileres', sub: 'Agente · panel completo', clase: 'alq-mini',
+      desc: `${lista.length} ${lista.length === 1 ? 'alquiler' : 'alquileres'}: cobros, recibos, historial, agua y suministros`, estado, accion: { txt: 'Abrir panel', on: abrir, cls: 'primary' }, abrir });
+    return { tono: estado[1] === 'wait' ? 'ask' : estado[1], texto: 'alquileres alquiler panel agua suministros inquilinos recibos', el };
+  }
+
+  /** Tarjetas compactas: el panel y cada alquiler que traen las gestiones (vacío si no hay); fichas y panel al día. */
+  return {
+    minis: (gestiones) => (todos(gestiones).length ? [miniPanel(gestiones), ...gestiones.flatMap((c) => (c.alquileres || []).map((a) => mini(a, c)))] : []),
+    sync: (gestiones) => { sync(gestiones); syncPanel(gestiones); }, abrirFicha, abrirPanel,
+  };
 }

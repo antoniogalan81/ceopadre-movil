@@ -9,6 +9,19 @@ import { EFECTOS_NEC, proyectosEn } from './zones.js';
 import { advice, comunes, decideRow, explica } from './map.js';
 import { miniTarjeta } from './tarjeta.js';
 
+// Estado VERIFICABLE de un trabajo (GOAL maestro 12-11): sale del proceso y de su última señal real, no de lo que diga.
+const hace = (iso) => { const m = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 60000)); return m < 1 ? 'hace menos de 1 min' : m < 120 ? `hace ${m} min` : `hace ${Math.round(m / 60)} h`; };
+const QUIEN = { claude: 'Claude', codex: 'Codex', CEO: 'el CEO', ceo: 'el CEO' };
+function senal(t) {
+  if (t.estado === 'EN_COLA') return ' · en cola: su proyecto está ocupado por otro trabajo';
+  if (t.estado === 'SIN_ACTIVIDAD') return ' · SIN ACTIVIDAD VERIFICABLE (CEOPadre lo vigila y lo retoma solo)';
+  if (t.estado === 'ESPERANDO_CONDICION') return ' · esperando una condición';
+  if (t.estado !== 'TRABAJANDO') return '';
+  if (!t.ultima_actividad) return t.con_proceso ? ' · arrancando' : ' · sin proceso ni señales todavía';
+  const viejo = Date.now() - Date.parse(t.ultima_actividad) > 15 * 60_000;
+  return ` · ${QUIEN[t.ejecutor] || t.ejecutor || 'ejecutor'}${viejo ? `, sin señales desde ${hace(t.ultima_actividad)}` : `, última señal ${hace(t.ultima_actividad)}`}`;
+}
+
 const TONE = { DEFINIENDO: 'work', ESPERANDO_APROBACION: 'ask', ACTIVA: 'work', ESPERANDO_ANTONIO: 'ask', PAUSADA: 'idle', ALCANZADA: 'ok', BLOQUEADA: 'bad', CANCELADA: 'idle',
   EN_SEGUIMIENTO: 'wait', CERRADA: 'idle', ACEPTADA: 'ok' };
 const CLOSED = ['ALCANZADA', 'CANCELADA', 'CERRADA', 'ACEPTADA'];
@@ -146,7 +159,7 @@ export function negocioUi({ api, ask, toast, show, data, run, viewText }) {
       ...ahora.filter((t) => t.te_necesita).map((t) => `${t.proyecto}: un trabajo espera algo tuyo`)];
     return h('div', { class: 'q4-grid' },
       linea('QUÉ HA HECHO', 'ok', lista(hechas.length ? [...hechas].reverse() : v.hecho, (t) => `${t.texto ? corto(t.texto) : `${t.proyecto}: ${corto(t.objetivo)}`} ✓`, 'Nada terminado todavía.')),
-      linea('QUÉ ESTÁ HACIENDO', 'work', lista(ahora, (t) => `${t.proyecto}: ${t.pausado ? 'en pausa' : t.te_necesita ? 'esperando algo tuyo' : corto(t.ahora && t.ahora !== 'Aún no se ha hecho nada' ? t.ahora : t.objetivo)}${t.ultima_actividad ? '' : ''}`,
+      linea('QUÉ ESTÁ HACIENDO', 'work', lista(ahora, (t) => `${t.proyecto}: ${t.pausado ? 'en pausa' : t.te_necesita ? 'esperando algo tuyo' : corto(t.ahora && t.ahora !== 'Aún no se ha hecho nada' ? t.ahora : t.objetivo)}${senal(t)}`,
         o.estado === 'PAUSADA' ? 'En pausa.' : o.estado === 'DEFINIENDO' ? 'Investigando y preparando la hoja de ruta.' : 'Nada en marcha ahora.')),
       linea('QUÉ HARÁ DESPUÉS', 'next', despues.length ? lista(despues, (t) => corto(t.texto), '') : h('p', { class: 'small' }, CLOSED.includes(o.estado) ? 'Nada: el objetivo está cerrado y no vuelve a ejecutarse.' : v.despues || (o.estado === 'EN_SEGUIMIENTO' ? `Medir el resultado ${o.proxima_revision ? `el ${fecha(o.proxima_revision)}` : 'periódicamente'} (sin IA).` : 'El CEO decide al terminar lo que hay en marcha.'))),
       linea('QUÉ NECESITA DE TI', necesito.length ? 'need' : 'ok', necesito.length ? lista(necesito, (x) => corto(x, 160), '') : h('p', { class: 'muted small' }, 'Nada ahora.')),

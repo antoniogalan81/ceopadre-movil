@@ -1371,6 +1371,12 @@ dialog.alq-panel-dlg { width: min(1180px, 100%); }
 .alq-parte { border: 1px solid var(--line); border-radius: var(--radius); padding: 8px 10px; display: grid; gap: 4px; }
 .alq-parte p { margin: 0; } .alq-cobros { margin: 0; padding-left: 18px; font-size: 13px; }
 .alq-prop { border: 1px dashed var(--line); border-radius: var(--radius); padding: 8px 10px; display: grid; gap: 6px; } .alq-prop p { margin: 0; }
+dialog.alq-recibo { width: min(760px, 100%); }
+.alq-recibo .cmp-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.alq-msg { width: 100%; min-height: 96px; font: inherit; padding: 8px; border: 1px solid var(--line); border-radius: var(--radius); box-sizing: border-box; }
+.alq-recibo .alq-acciones input { flex: 1 1 220px; min-height: 40px; padding: 0 8px; border: 1px solid var(--line); border-radius: var(--radius); }
+.alq-pasos { margin: 0; padding-left: 18px; } .alq-recibo .alq-doc-img img { max-height: 420px; object-fit: contain; width: 100%; }
+.alq-fact-item { display: grid; gap: 4px; } .alq-fact-item > .btn { justify-self: end; }
 @media (max-width: 699px) { .alq-fact-fila { grid-template-columns: minmax(0, 1fr) auto; } .alq-ff-b { grid-column: 1 / -1; grid-row: 2; } }
 @media (max-width: 699px) {
   .alq-panel-tabla thead { display: none; }
@@ -1452,6 +1458,7 @@ dialog.cp-dlg { width: min(860px, calc(100vw - 24px)); overflow: auto; }
 .cp-row { display: grid; grid-template-columns: minmax(9em, 16em) 1fr; gap: 8px; padding: 2px 0; overflow-wrap: anywhere; }
 .cp-box progress { width: 100%; height: 10px; }
 .cp-btns { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
+.cp-modos { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 6px; }
 .cp-list { margin: 6px 0; padding-left: 18px; max-height: 40vh; overflow: auto; overflow-wrap: anywhere; }
 .cp-list li { margin: 3px 0; }
 @media (max-width: 560px) { .cp-row { grid-template-columns: 1fr; gap: 0; } }

@@ -61,7 +61,15 @@ export function copiaUi({ cmd, toast, ask }) {
     if (st.borrado_pendiente && !st.en_curso) return [['Necesita tu confirmación', 'ask'], 'Detenida por seguridad: iba a apartar muchos elementos como eliminados. Ábrela y revisa.'];
     if (st.en_curso) {
       const p = st.progreso || {};
-      return [['Copiando', 'work'], `${p.fase || 'trabajando'} · ${bytes(p.bytes_sesion)} transferidos · ${num(st.pendientes?.carpetas)} carpetas pendientes`];
+      const r = p.regulador || {};
+      const ahora = Date.now() / 1000;
+      const cola = `${bytes(p.bytes_sesion)} transferidos · ${num(st.pendientes?.carpetas)} carpetas pendientes`;
+      // «Trabajando» sólo con avance real reciente (bytes o carpetas terminadas); si no, se dice lo que hay
+      if (p.hb && ahora - p.hb > 60) return [['Sin señales del proceso', 'warn'], `Última señal ${fecha(new Date(p.hb * 1000).toISOString())} · ${p.fase || ''}`];
+      if (!p.avance) return [['Preparando', 'work'], `${p.fase || 'arrancando'} · aún sin archivos copiados`];
+      if (ahora - p.avance > 60) return [['Sin avance', 'warn'], `En curso, sin avance desde ${fecha(new Date(p.avance * 1000).toISOString())} · ${p.fase || ''}`];
+      if (r.reduciendo) return [['Trabajando con recursos limitados', 'work'], `${r.motivo || 'cediendo recursos'} · ${cola}`];
+      return [['Trabajando', 'work'], `${p.fase || 'copiando'} · ${cola}`];
     }
     if (st.autorizada && !st.disco) return [['Esperando al disco', 'wait'], 'Conecta «Tocho Disco Duro»: la copia autorizada continuará sola'];
     if (st.pausada) return [['Pausada', 'idle'], 'Pulsa Continuar para seguir donde quedó'];
@@ -141,6 +149,7 @@ export function copiaUi({ cmd, toast, ask }) {
       fila('Archivos copiados (esta copia)', num(run.archivos)),
       fila('Datos transferidos (esta sesión)', bytes(p.bytes_sesion)),
       fila('Velocidad media', `${bytes((p.bytes_sesion || 0) / secs)}/s`),
+      fila('Tiempo estimado', p.eta_s ? `≈ ${dur(p.eta_s)}` : 'sin estimación fiable todavía (hace falta saber lo pendiente y 1 min de ritmo estable)'),
       fila('Movidos sin copiar · versiones', `${num(run.movidos)} · ${num(run.versiones)}`),
       fila('Carpetas pendientes', num(st.pendientes?.carpetas)));
   }
@@ -184,6 +193,7 @@ export function copiaUi({ cmd, toast, ask }) {
         j.uso ? fila('Actividad medida', [`${j.uso.mb_dia} MB/día · el diario (${bytes(j.maximo)}) cubre ${j.uso.dias_de_margen ?? '—'} días`,
           j.uso.aviso ? chip('Diario pequeño para esta actividad', 'warn') : '']) : null,
         j.ultima_completa ? fila('Última revisión completa', `${fecha(j.ultima_completa.ts)} · ${j.ultima_completa.motivo}`) : null),
+      rendimiento(corriendo),
       corriendo ? progreso() : null,
       h('section', { class: 'cp-box' }, h('h3', {}, 'Situación'),
         fila('Última copia completada', st.ultima_completada ? fecha(st.ultima_completada.ts) : 'Ninguna todavía'),
@@ -213,6 +223,37 @@ export function copiaUi({ cmd, toast, ask }) {
           ` #${r.id} ${r.tipo} · ${fecha(r.inicio)}${r.fin ? ` → ${fecha(r.fin)}` : ''} · ${r.modo || ''} · ${num(r.archivos)} archivos, ${bytes(r.bytes)}, ${num(r.movidos)} movidos, ${num(r.versiones)} versiones, ${num(r.adoptados)} ya presentes, ${num(r.listadas)} carpetas leídas${r.arranques > 1 ? ` · ${r.arranques} arranques` : ''}${r.tipo === 'verificacion' ? ` · ${num(r.verif_ok)} bien / ${num(r.verif_mal)} mal` : ''}${r.nota ? ` · ${r.nota}` : ''}`)))),
       cerrarBtn(), aviso].filter(Boolean)); // replaceChildren pinta «null» si se le pasa
   }
+
+  // RENDIMIENTO: el modo se elige aquí (también en plena copia); lo demás es lo que MIDE el regulador del motor.
+  const MODOS = [
+    ['inteligente', 'Inteligente', 'Mide la respuesta del disco E:, la CPU y la memoria cada 2 s: va rápido si el PC está libre y cede en cuanto otros trabajan.'],
+    ['bajo', 'Bajo consumo', 'Para cuando hay varios CMD de Claude/Codex trabajando: 1 archivo a la vez, como mucho 10 MB/s, CPU y memoria con prioridad baja, y aún cede más si el disco o la CPU se cargan.'],
+    ['maximo', 'Máxima velocidad', 'Para con el PC libre: sin límite de ritmo, prioridad normal y tantos hilos como el disco aguante (lo mide). Mismas comprobaciones de integridad.'],
+  ];
+  const EFECTIVO = { libre: ['A pleno ritmo: el PC está libre', 'ok'], limitado: ['Limitado para no molestar', 'work'], bajo_consumo: ['Bajo consumo', 'work'], maxima_velocidad: ['Máxima velocidad', 'ok'] };
+  function rendimiento(corriendo) {
+    const modo = st.modo || 'inteligente';
+    const r = (corriendo && st.progreso?.regulador) || null;
+    const sel = h('div', { class: 'cp-modos', role: 'radiogroup', 'aria-label': 'Modo de rendimiento' }, MODOS.map(([id, txt, ayuda]) =>
+      h('button', { class: `btn small ${id === modo ? 'primary' : 'ghost'}`, type: 'button', role: 'radio', 'aria-checked': String(id === modo), title: ayuda,
+        disabled: busy, onclick: (ev) => { if (id !== modo) orden('copia.modo', corriendo ? `${txt}: se aplica en un segundo` : `Modo ${txt}`, ev.currentTarget, { modo: id }); } }, txt)));
+    const o = r?.origen;
+    const dd = r?.destino;
+    const pr = r?.procesos;
+    return h('section', { class: 'cp-box' }, h('h3', {}, 'Rendimiento'),
+      sel, h('p', { class: 'muted' }, MODOS.find((m) => m[0] === modo)?.[2] || ''),
+      r ? [
+        fila('Funcionando ahora', [chip(...(EFECTIVO[r.efectivo] || [r.efectivo, 'idle'])), r.motivo ? ` ${r.motivo}` : '']),
+        fila('Velocidad actual', `${(r.caudal_mb_s ?? 0).toLocaleString('es-ES')} MB/s${r.limite_mb_s != null ? ` · tope ahora ${r.limite_mb_s.toLocaleString('es-ES')} MB/s` : ' · sin tope'}`),
+        fila('Transferencias simultáneas', `${num(r.activos)} de ${num(r.hilos)} permitidas${r.en_espera ? ` (${num(r.en_espera)} esperando turno)` : ''}${r.prioridad_baja ? ' · CPU y memoria con prioridad baja' : ' · prioridad normal'}`),
+        fila('CPU', r.cpu_total != null ? `${r.cpu_total} % en total · la copia ${r.cpu_copia ?? 0} %` : 'midiendo…'),
+        fila('Memoria en uso', r.memoria != null ? `${r.memoria} %` : '—'),
+        fila(`Disco de origen (${st.origen.slice(0, 2)})`, o ? `responde en ${o.lat_ms} ms · ${o.mb_s} MB/s · ${num(o.ops_s)} operaciones/s (de todos)` : 'sin medida'),
+        fila('Disco externo', dd ? `responde en ${dd.lat_ms} ms · ${dd.mb_s} MB/s` : 'sin medida'),
+        pr ? fila('Otros trabajos', `${num(pr['claude.exe'])} Claude · ${num(pr['codex.exe'])} Codex · ${num(pr['node.exe'])} node (informativo: se decide por lo medido)`) : null,
+      ] : h('p', { class: 'muted' }, 'Las medidas aparecen mientras hay una copia o verificación en curso.'));
+  }
+  const dur = (s) => (s >= 3600 ? `${Math.floor(s / 3600)} h ${Math.round((s % 3600) / 60)} min` : s >= 60 ? `${Math.round(s / 60)} min` : `${s} s`);
 
   // COMPROBAR DISCO: resultado real de escribir, leer, renombrar, fechas y rutas largas en el propio disco.
   function diag(d) {

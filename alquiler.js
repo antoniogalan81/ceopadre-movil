@@ -51,21 +51,93 @@ export function alquileresUi({ run, ask, cmd, toast, LOCAL }) {
   }
 
   // «Me ha pagado» → VISTA PREVIA del PDF real (nada registrado) → «Confirmar pago y enviar» o «Cancelar».
-  async function previaYConfirmar(a, params, btn) {
+  const ESTADO_RECIBO = { NO_EMITIDO: ['No emitido', 'wait'], COBRADO_SIN_RECIBO: ['Cobrado · sin recibo', 'ok'], EMITIDO: ['Emitido · por enviar', 'ask'],
+    CONFIRMADO_SIN_ENVIAR: ['Confirmado · no comunicado', 'ok'], ENVIANDO: ['Enviando…', 'work'], ENVIADO: ['Enviado', 'ok'], ENVIO_FALLIDO: ['Envío fallido', 'bad'] };
+  async function previaYConfirmar(a, params, btn) { await reciboDialogo(a, params?.mes || a.pendientes[0] || a.actual, params || {}, btn); }
+
+  // DETALLE DEL RECIBO (PC y móvil). Nada se registra ni se envía hasta pulsar «Confirmar» (sólo registra y guarda el recibo)
+  // o «Confirmar y enviar» (además lo envía con ESTE mensaje). Con el recibo ya emitido: enviar después o anular el cobro.
+  async function reciboDialogo(a, mes, params = {}, btn = null) {
     if (ocupado.has(a.id)) return;
     ocupado.add(a.id);
     if (btn) btn.disabled = true;
-    let v;
-    try { v = await cmd('alquiler.vista_previa', { alquiler: a.id, ...params }); } finally { ocupado.delete(a.id); if (btn) btn.disabled = false; }
-    if (!v?.ok) { toast(v?.error || 'No se pudo preparar la vista previa', 'bad'); return; }
-    const d = v.data;
-    const si = await visor({ titulo: `Recibo de ${d.etiqueta}`, imagen: d.imagen, confirmar: true,
-      resumen: `${d.importe_txt} · ${d.metodo_txt} · se enviará por WhatsApp a ${a.telefono}. Aún no se ha registrado nada.` });
-    if (si) await orden(a, 'alquiler.cobrar', { ...params, mes: d.mes }, 'Cobro registrado', btn);
+    let det, prev;
+    try {
+      det = await cmd('alquiler.recibo_detalle', { alquiler: a.id, mes });
+      if (det?.ok && ['NO_EMITIDO', 'COBRADO_SIN_RECIBO'].includes(det.data.estado)) prev = await cmd('alquiler.vista_previa', { alquiler: a.id, ...params, mes });
+    } finally { ocupado.delete(a.id); if (btn) btn.disabled = false; }
+    if (!det?.ok) { toast(det?.error || 'No se pudo abrir el recibo', 'bad'); return; }
+    if (prev && !prev.ok) { toast(prev.error || 'No se pudo preparar la vista previa', 'bad'); return; }
+    const d = det.data, pv = prev?.data;
+    const porEmitir = !!pv;
+    const puedeEnviar = d.entrega === 'WHATSAPP';
+    const [est, tono] = ESTADO_RECIBO[d.estado] || [d.estado, 'idle'];
+    return new Promise((resolve) => {
+      const dlg = h('dialog', { class: 'sheet alq-ficha alq-recibo', 'aria-label': `Recibo de ${d.etiqueta}` });
+      const fin = (v) => { dlg.close(); resolve(v); };
+      const txt = h('textarea', { rows: 4, class: 'alq-msg', 'aria-label': 'Mensaje que se enviará' }); txt.value = d.mensaje;
+      const instr = h('input', { type: 'text', placeholder: 'Pide algo al CEO (opcional): «más formal», «recuérdale el agua»…', 'aria-label': 'Petición al CEO' });
+      const botones = [];
+      const ocupar = (on) => { for (const b of botones) b.disabled = on; };
+      const ayuda = h('button', { class: 'btn ghost small', type: 'button', onclick: async () => {
+        ocupar(true); ayuda.textContent = 'El CEO está redactando…';
+        const r = await cmd('alquiler.redactar', { alquiler: a.id, mes, mensaje: txt.value, instruccion: instr.value });
+        ocupar(false); ayuda.textContent = 'Pedir ayuda al CEO';
+        if (!r?.ok) { toast(r?.error || 'El CEO no ha podido proponer un texto', 'bad'); return; }
+        txt.value = r.data.propuesta; toast('Propuesta del CEO en el mensaje: revísala antes de confirmar');
+      } }, 'Pedir ayuda al CEO');
+      const restaurar = h('button', { class: 'link', type: 'button', onclick: () => { txt.value = d.mensaje_recomendado; } }, 'Restaurar el recomendado');
+      // Si la orden falla, la ventana sigue abierta (con el mensaje escrito) para corregir y reintentar.
+      const accion = async (op, p, okMsg) => { ocupar(true); try { if (await run(op, p, okMsg)) fin(true); } finally { ocupar(false); } };
+      const datosCobro = pv ? `${pv.importe_txt} · ${pv.metodo_txt}` : d.recibo ? `${eur(d.recibo.importe_cent)} · cobrado el ${d.recibo.fecha_pago}` : '';
+      const yaCobrado = d.estado === 'COBRADO_SIN_RECIBO';
+      const pasos = porEmitir
+        ? h('ul', { class: 'small alq-pasos' }, h('li', {}, yaCobrado ? `El cobro de ${d.etiqueta} ya está confirmado: el recibo saldrá con ${datosCobro} (corrígelo con «Modificar datos del cobro» si no es así)` : `Registrar el cobro de ${d.etiqueta}: ${datosCobro}`),
+          h('li', {}, 'Generar y guardar el recibo PDF'),
+          h('li', {}, puedeEnviar ? `Enviar por WhatsApp a ${d.destinatario} SÓLO con «Confirmar y enviar»` : 'Sin envío: este alquiler recibe el recibo en mano'))
+        : null;
+      const acciones = [];
+      if (porEmitir) {
+        acciones.push(h('button', { class: 'btn ghost', type: 'button', onclick: () => fin(false) }, 'Cancelar'));
+        acciones.push(h('button', { class: `btn ${puedeEnviar ? '' : 'primary'}`, type: 'button', onclick: () => accion('alquiler.cobrar', { alquiler: a.id, ...params, mes, enviar: false, mensaje: txt.value }, 'Cobro confirmado (sin enviar)') }, 'Confirmar'));
+        if (puedeEnviar) acciones.push(h('button', { class: 'btn primary', type: 'button', onclick: () => accion('alquiler.cobrar', { alquiler: a.id, ...params, mes, enviar: true, mensaje: txt.value }, 'Cobro confirmado y enviando') }, 'Confirmar y enviar'));
+      } else {
+        acciones.push(h('button', { class: 'btn ghost', type: 'button', onclick: () => fin(false) }, 'Cerrar'));
+        if (d.recibo && puedeEnviar && ['CONFIRMADO_SIN_ENVIAR', 'EMITIDO', 'ENVIO_FALLIDO'].includes(d.estado)) {
+          acciones.push(h('button', { class: 'btn primary', type: 'button', onclick: () => accion('alquiler.enviar_recibo', { recibo: d.recibo.id, mensaje: txt.value }, 'Enviando') }, 'Enviar ahora'));
+        }
+        acciones.push(h('button', { class: 'btn ghost', type: 'button', onclick: async () => {
+          const r = await ask({ title: `Anular el cobro de ${d.etiqueta}`, ok: 'Anular el cobro', danger: true,
+            help: `La mensualidad vuelve a quedar pendiente${d.recibo ? ` y el recibo ${d.recibo.numero} queda anulado (no se borra)` : ''}. Queda en el historial.`,
+            fields: [{ name: 'motivo', label: 'Motivo', placeholder: 'p. ej. lo registré en el inquilino equivocado' }] });
+          if (r) await accion('alquiler.anular_cobro', { alquiler: a.id, mes, motivo: r.motivo }, 'Cobro anulado');
+        } }, 'Anular cobro'));
+      }
+      botones.push(...acciones, ayuda);
+      const editable = porEmitir || ['CONFIRMADO_SIN_ENVIAR', 'EMITIDO', 'ENVIO_FALLIDO'].includes(d.estado);
+      txt.disabled = !editable || !puedeEnviar;
+      dlg.append(
+        h('header', { class: 'cmp-head' }, h('h2', {}, `Recibo · ${a.inquilino} · ${d.etiqueta}`), chip(est, tono)),
+        h('div', { class: 'alq-ficha-body alq-panel' },
+          porEmitir ? h('p', { class: 'small' }, h('strong', {}, d.estado === 'COBRADO_SIN_RECIBO' ? 'Cobro ya confirmado, sin recibo todavía. ' : 'Aún no se ha registrado nada. '), 'Revisa el recibo y el mensaje.') : d.recibo?.wa_motivo ? h('p', { class: 'small alq-aviso' }, d.recibo.wa_motivo) : null,
+          pasos,
+          h('div', { class: 'alq-doc-img' }, h('img', { src: (pv || d).imagen, alt: `Recibo de ${d.etiqueta}` })),
+          h('h3', { class: 'alq-sec' }, 'Adjuntos'),
+          h('ul', { class: 'alq-partes' }, d.adjuntos.map((x) => h('li', {}, `${x.tipo} · ${x.nombre} `,
+            LOCAL ? h('a', { class: 'link', href: x.recibo ? `/alquiler/recibo/${x.recibo}` : `/alquiler/borrador/${encodeURIComponent(a.id)}`, target: '_blank', rel: 'noopener' }, 'Abrir PDF') : null))),
+          h('h3', { class: 'alq-sec' }, puedeEnviar ? `Mensaje de WhatsApp para ${a.contacto || a.inquilino}` : 'Mensaje (este alquiler no recibe envíos: recibo en mano)'),
+          txt,
+          puedeEnviar && editable ? h('div', { class: 'alq-acciones' }, instr, ayuda, restaurar) : null,
+          h('div', { class: 'row alq-doc-btns' }, acciones)));
+      dlg.addEventListener('close', () => { dlg.remove(); resolve(false); });
+      document.body.append(dlg);
+      dlg.showModal();
+    });
   }
 
   // OJO «Ver documento»: emitido = el PDF guardado; pendiente = BORRADOR — NO EMITIDO. Nunca cobra ni envía.
   async function ver(a, recibo = null) {
+    if (recibo) { const x = a.historial.find((y) => y.recibo?.id === recibo); if (x) { await reciboDialogo(a, x.mes); return; } }
     if (LOCAL) { window.open(recibo ? `/alquiler/recibo/${recibo}` : `/alquiler/borrador/${encodeURIComponent(a.id)}`, '_blank', 'noopener'); return; }
     const v = await cmd('alquiler.ver', recibo ? { recibo } : { alquiler: a.id });
     if (!v?.ok) { toast(v?.error || 'No se pudo abrir el documento', 'bad'); return; }
@@ -329,16 +401,21 @@ export function alquileresUi({ run, ask, cmd, toast, LOCAL }) {
     // Suministros: TODAS las facturas (también lo que deben inquilinos anteriores, que no tienen ficha de alquiler).
     const fs = facturasDe(lst);
     const sum = fs.reduce((s, f) => s + (f.pendiente || 0), 0);
-    const cobRenta = lst.flatMap((a) => a.historial || []).filter((x) => x.recibo && (x.recibo.fecha_pago || '').startsWith(mes)).reduce((s, x) => s + x.recibo.importe_cent, 0);
+    const cobradas = lst.flatMap((a) => (a.historial || []).filter((x) => x.pago === 'PAGADO' && ((x.recibo && (x.recibo.fecha_pago || '').startsWith(mes))
+      || (x.sin_recibo && ((x.cobro_sin_recibo?.fecha_pago || '').startsWith(mes) || (!x.cobro_sin_recibo?.fecha_pago && x.mes === mes))))).map((x) => ({ a, x })));
+    const cobRenta = cobradas.reduce((s, { x }) => s + (x.recibo ? x.recibo.importe_cent : x.cobro_sin_recibo?.importe_cent || 0), 0);
+    const porConfirmar = cobradas.filter(({ x }) => !x.recibo && x.cobro_sin_recibo && x.cobro_sin_recibo.importe_cent == null).map(({ a }) => a.inquilino.split(' ')[0]);
+    const detalleRenta = cobradas.map(({ a, x }) => `${a.inquilino.split(' ')[0]} ${x.recibo ? eur(x.recibo.importe_cent) : x.cobro_sin_recibo?.importe_cent != null ? eur(x.cobro_sin_recibo.importe_cent) : 'importe por confirmar'}`).join(' · ');
     const cobSum = fs.flatMap((f) => f.partes.flatMap((x) => x.cobros)).filter((c) => c.estado === 'VALIDO' && (c.fecha_pago || '').startsWith(mes)).reduce((s, c) => s + c.importe_cent, 0);
-    const recibos = lst.reduce((s, a) => s + (a.recibos_sin_enviar || 0), 0);
+    const recibos = lst.reduce((s, a) => s + (a.recibos_sin_enviar || 0), 0), sinComunicar = lst.reduce((s, a) => s + (a.recibos_sin_comunicar || 0), 0);
     const kpi = (t, v, tone) => h('div', { class: `alq-kpi t-${tone}` }, h('small', {}, t), h('strong', {}, v));
     return h('div', { class: 'alq-resumen' },
       kpi('Alquileres activos', String(lst.length), 'idle'),
       kpi('Rentas pendientes', eur(renta), renta ? 'wait' : 'ok'),
       kpi('Suministros pendientes', eur(sum), sum ? 'wait' : 'ok'),
-      kpi('Cobrado este mes', `${eur(cobRenta)} renta · ${eur(cobSum)} suministros`, 'ok'),
-      kpi('Recibos sin enviar', String(recibos), recibos ? 'bad' : 'ok'));
+      h('div', { class: 'alq-kpi t-ok' }, h('small', {}, 'Cobrado este mes'), h('strong', {}, `${eur(cobRenta)} renta${porConfirmar.length ? ' + importe por confirmar' : ''} · ${eur(cobSum)} suministros`),
+        detalleRenta ? h('small', { class: 'muted' }, detalleRenta) : null),
+      kpi('Recibos sin enviar', `${recibos}${sinComunicar ? ` · ${sinComunicar} confirmados sin comunicar` : ''}`, recibos ? 'bad' : 'ok'));
   };
   const tarjetaAlquiler = (a) => {
     const pend = a.pendientes;
@@ -359,18 +436,28 @@ export function alquileresUi({ run, ask, cmd, toast, LOCAL }) {
     return h('div', { class: 'alq-scroll' }, h('table', { class: 'alq-tabla alq-panel-tabla' },
       h('thead', {}, h('tr', {}, ['Alquiler', 'Mes', 'Renta', 'Estado', 'Recibo'].map((t) => h('th', {}, t)))),
       h('tbody', {}, filas.map(({ a, x }) => {
-        const tr = h('tr', {}, h('td', {}, a.inquilino), h('td', {}, x.etiqueta), h('td', { class: 'num' }, eur(x.importe)),
+        const tr = h('tr', {}, h('td', {}, a.inquilino), h('td', {}, x.etiqueta), h('td', { class: 'num' }, eur(x.importe), x.importe_por_confirmar ? h('small', { class: 'muted' }, ' (importe por confirmar)') : null),
           h('td', {}, x.pago === 'PAGADO' ? chip(x.sin_recibo ? 'Cobrada · sin recibo' : 'Cobrada', 'ok') : chip('Pendiente', 'wait')),
-          h('td', {}, x.recibo ? [ojo(a, x.recibo.id, `Ver recibo ${x.recibo.numero}`), ` ${x.recibo.numero}`]
-            : x.sin_recibo ? h('button', { class: 'link', type: 'button', onclick: (e) => previaYConfirmar(a, { mes: x.mes }, e.currentTarget) }, 'Emitir recibo') : '—'));
+          h('td', {}, x.recibo ? h('button', { class: 'link', type: 'button', onclick: (e) => reciboDialogo(a, x.mes, {}, e.currentTarget) }, `${x.recibo.numero} · ${x.recibo.envio === 'NO_ENVIAR' && x.recibo.wa_estado !== 'ENVIADO' ? 'no comunicado' : (WA[x.recibo.wa_estado] || [x.recibo.wa_estado])[0].toLowerCase()}`)
+            : x.sin_recibo ? h('button', { class: 'link', type: 'button', onclick: (e) => reciboDialogo(a, x.mes, {}, e.currentTarget) }, 'Emitir recibo')
+              : h('button', { class: 'link', type: 'button', onclick: (e) => reciboDialogo(a, x.mes, {}, e.currentTarget) }, 'Me ha pagado')));
         [...tr.children].forEach((td, i) => { td.dataset.l = ['Alquiler', 'Mes', 'Renta', 'Estado', 'Recibo'][i]; });
         return tr;
       }))));
   }
-  const FILTROS = [['PENDIENTES', 'Pendientes'], ['PARCIAL', 'Parcialmente pagados'], ['PAGADA', 'Pagados'], ['TODOS', 'Todos']];
+  const FILTROS = [['PENDIENTES', 'Pendientes de cobro'], ['REPARTIR', 'Por repartir'], ['PARCIAL', 'Parcialmente pagados'], ['PAGADA', 'Pagados'], ['TODOS', 'Todos']];
+  const enFiltro = (k, f) => (k === 'TODOS' ? true : k === 'PENDIENTES' ? ['PENDIENTE', 'PARCIAL'].includes(f.estado) : k === 'REPARTIR' ? f.estado === 'SIN_REPARTIR' : f.estado === k);
+  // Confirmar la propuesta TAL CUAL (con su criterio) desde la lista; para cambiar responsables, «Revisar» en el detalle.
+  async function confirmarPropuesta(f) {
+    const pr = f.propuesta;
+    const r = await ask({ title: `Confirmar reparto · ${f.importe_txt}`, ok: 'Confirmar reparto',
+      help: `${pr.criterio}.${pr.probable ? ' Incluye datos probables: confírmalo sólo si es correcto.' : ''} A partes iguales. Después cada parte se marca como cobrada cuando te paguen.`, fields: [] });
+    if (!r) return;
+    await run('suministro.repartir', { factura: f.id, criterio: `Propuesta confirmada por Antonio: ${pr.criterio}`, partes: pr.partes.map((x) => ({ obligado: x.obligado, ...(x.alquiler ? { alquiler: x.alquiler } : {}) })) }, 'Reparto confirmado');
+  }
   function tabSuministros(lst, repintar) {
     const fs = facturasDe(lst);
-    const pasa = (f) => (vista.filtro === 'TODOS' ? true : vista.filtro === 'PENDIENTES' ? ['PENDIENTE', 'PARCIAL', 'SIN_REPARTIR'].includes(f.estado) : f.estado === vista.filtro);
+    const pasa = (f) => enFiltro(vista.filtro, f);
     const vis = fs.filter(pasa);
     const fila = (f) => h('button', { class: 'alq-fact-fila', type: 'button', onclick: () => abrirFactura(f) },
       h('span', { class: 'alq-ff-a' }, h('strong', {}, `${f.tipo === 'AGUA' ? 'Agua' : f.tipo} ${f.periodo ? `${fecha(f.periodo.desde)} – ${fecha(f.periodo.hasta)}` : fecha(f.fecha)}`),
@@ -380,9 +467,11 @@ export function alquileresUi({ run, ask, cmd, toast, LOCAL }) {
       h('span', { class: 'alq-ff-c' }, estChip(f.estado), f.partes.length && f.pendiente ? h('small', {}, ` ${eur(f.pendiente)}`) : null));
     return h('div', { class: 'alq-panel' },
       h('div', { class: 'alq-filtros', role: 'tablist' }, FILTROS.map(([k, t]) => h('button', { class: `btn small ${vista.filtro === k ? 'primary' : 'ghost'}`, type: 'button', role: 'tab', 'aria-selected': String(vista.filtro === k),
-        onclick: () => { vista.filtro = k; repintar(); } }, `${t} (${fs.filter((f) => (k === 'TODOS' ? true : k === 'PENDIENTES' ? ['PENDIENTE', 'PARCIAL', 'SIN_REPARTIR'].includes(f.estado) : f.estado === k)).length})`)),
+        onclick: () => { vista.filtro = k; repintar(); } }, `${t} (${fs.filter((f) => enFiltro(k, f)).length})`)),
       h('button', { class: 'btn small', type: 'button', onclick: () => registrarFactura() }, 'Registrar factura')),
-      vis.length ? h('div', { class: 'alq-fact-lista' }, vis.map(fila)) : h('p', { class: 'muted' }, vista.filtro === 'PENDIENTES' ? 'Nada pendiente de cobrar en suministros.' : 'Ninguna factura en este filtro.'));
+      vis.length ? h('div', { class: 'alq-fact-lista' }, vis.map((f) => h('div', { class: 'alq-fact-item' }, fila(f),
+        f.sin_repartir && f.propuesta?.ok ? h('button', { class: 'btn small', type: 'button', onclick: () => confirmarPropuesta(f) }, 'Confirmar reparto') : null)))
+        : h('p', { class: 'muted' }, vista.filtro === 'PENDIENTES' ? 'Nada pendiente de cobrar en suministros.' : 'Ninguna factura en este filtro.'));
   }
   function tabRecibos(lst) {
     const recibos = lst.flatMap((a) => a.historial.filter((x) => x.recibo).map((x) => ({ a, x })));

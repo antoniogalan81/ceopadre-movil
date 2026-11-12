@@ -88,6 +88,13 @@ body {
   display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
 .ln b { font-size: 10.5px; letter-spacing: .1em; color: var(--ink-3); }
 .ln.goal { font-weight: 650; -webkit-line-clamp: 1; }
+/* Orden de Antonio que aún no ha llegado al ejecutor: se ve (con su porqué), no se esconde. */
+.ln.warn { color: var(--warn); }
+.ln.warn b { color: var(--warn); }
+/* «Enviar instrucción ahora»: a quién llega y su estado, a todo lo ancho (en el móvil no empuja el cuadro de texto). */
+.cmp-para { font-size: 12.5px; line-height: 1.35; color: var(--ink-2); border-left: 3px solid var(--line, #ccc); padding-left: 8px; margin: 2px 0 6px; }
+.cmp-para span { display: block; overflow-wrap: anywhere; }
+.cmp-para b { color: var(--ink); }
 .ln.next { -webkit-line-clamp: 1; color: var(--ink-2); }
 .ln.muted { color: var(--ink-2); }
 .card.full { padding: 14px 16px 12px; gap: 6px; }
@@ -1386,7 +1393,10 @@ dialog.alq-zoom img { width: 100%; height: auto; display: block; margin-bottom: 
 .alq-recibo .alq-acciones input { flex: 1 1 220px; min-height: 40px; padding: 0 8px; border: 1px solid var(--line); border-radius: var(--radius); }
 .alq-pasos { margin: 0; padding-left: 18px; } .alq-recibo .alq-doc-img img { max-height: 420px; object-fit: contain; width: 100%; }
 .alq-fact-item { display: grid; gap: 4px; } .alq-fact-item > .btn { justify-self: end; }
-@media (max-width: 699px) { .alq-fact-fila { grid-template-columns: minmax(0, 1fr) auto; } .alq-ff-b { grid-column: 1 / -1; grid-row: 2; } }
+/* Acciones de cada factura en la propia lista (sin abrir tres ventanas); se reparten en varias líneas en el móvil. */
+.alq-fact-acc { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; align-items: center; }
+.alq-ff-c { white-space: normal; max-width: 15rem; } .alq-prov.t-warn { color: var(--warn); font-weight: 600; }
+@media (max-width: 699px) { .alq-fact-fila { grid-template-columns: minmax(0, 1fr); } .alq-ff-c { max-width: none; } .alq-fact-acc { justify-content: flex-start; } }
 @media (max-width: 699px) {
   .alq-panel-tabla thead { display: none; }
   .alq-panel-tabla, .alq-panel-tabla tbody, .alq-panel-tabla tr, .alq-panel-tabla td { display: block; }

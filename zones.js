@@ -250,7 +250,7 @@ export function direccion(cards, now = Date.now()) {
   const necesita = by('necesita'), problemas = by('problema'), trabajando = by('trabajando');
   // Esperando algo externo: el objetivo que enseña la tarjeta y los OTROS objetivos del proyecto que esperan (sin repetir tarjeta).
   const esperando = [...by('esperando').map((c) => ({ c, trabajo: c.trabajo, objetivo: c.objetivo, esperas: c.esperas_info || [], condicion: c.condicion })),
-    ...cards.flatMap((c) => (c.esperando || []).filter((x) => !x.te_necesita).map((x) => ({ c, trabajo: x.trabajo, objetivo: x.objetivo, esperas: [], condicion: x.condicion, otro: true })))];
+    ...cards.flatMap((c) => (c.esperando || []).filter((x) => !x.te_necesita).map((x) => ({ c, trabajo: x.trabajo, objetivo: x.objetivo, esperas: x.esperas || [], condicion: x.condicion, otro: true })))];
   // Otro objetivo del proyecto que espera algo que SÓLO puede hacer Antonio: le necesita (no es «externo»).
   const tuyas = cards.flatMap((c) => (c.esperando || []).filter((x) => x.te_necesita).map((x) => ({ c, trabajo: x.trabajo, objetivo: x.objetivo, condicion: x.condicion })));
   const terminados = cards.filter((c) => c.estado === 'TERMINADO').sort((a, b) => tms(b) - tms(a));

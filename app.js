@@ -352,12 +352,12 @@ const HELP = {
   INSTRUCCION: { AUTO: 'Codex decide el mejor prompt para Claude.', MANUAL: 'CEO en MANUAL: tu instrucción va tal cual a Claude.' },
   DIRECTO: 'Claude recibe exactamente este texto. Codex no lo lee.',
   CONTINUAR: 'Claude mantiene el contexto de esta conversación.', NUEVA: 'Inicia una conversación limpia con Claude.',
-  ANADIR: 'Entra en el objetivo en curso: Claude lo recibe en su sesión ahora (o al empezar su próxima ronda) y lo incorpora sin empezar de cero. No se cerrará sin incorporarlo.',
+  ANADIR: 'Si el ejecutor está trabajando le llega al momento; si no, se guarda y se entrega sola en el primer punto seguro (nunca corta una compilación ni una publicación).',
 };
 let draft = ''; // lo último escrito y cancelado sin querer (sólo en memoria de esta pestaña)
 // `pendientes`: los que esperan a salir; cada uno se edita desde aquí (se cierra SIN enviar y se abre su editor).
 // `anadir`: AÑADIR AL OBJETIVO (sin TIPO/SESIÓN/CEO: va al mismo objetivo y a la sesión que ya trabaja).
-function compose({ title, text = '', tipo = 'INSTRUCCION', sesion = 'CONTINUAR', modo = null, ok = 'Enviar', sesiones = true, trabajo = null, pendientes = [], anadir = false }) {
+function compose({ title, text = '', tipo = 'INSTRUCCION', sesion = 'CONTINUAR', modo = null, ok = 'Enviar', sesiones = true, trabajo = null, pendientes = [], anadir = false, para = '' }) {
   const dlg = $('#composer'), ta = $('#cmp-text'), okBtn = $('#cmp-ok');
   const v = { tipo, sesion, modo };
   $('#cmp-title').textContent = title;
@@ -377,6 +377,10 @@ function compose({ title, text = '', tipo = 'INSTRUCCION', sesion = 'CONTINUAR',
     sesiones ? seg('cmp-sesion', 'SESIÓN', [['CONTINUAR', 'CONTINUAR', HELP.CONTINUAR], ['NUEVA', 'NUEVA', HELP.NUEVA]], v.sesion, (x) => { v.sesion = x; paint(); }) : null,
     modo ? seg('cmp-modo', 'CEO', [['AUTO', 'AUTO', MODO_HELP.AUTO], ['MANUAL', 'MANUAL', MODO_HELP.MANUAL]], v.modo, (x) => { v.modo = x; paint(); }) : null,
   ]).filter(Boolean));
+  // A quién llega y en qué estado está (sólo «Enviar instrucción ahora»): dos líneas, a todo lo ancho.
+  const pb = $('#cmp-para');
+  pb.hidden = !(anadir && para);
+  pb.replaceChildren(...(anadir && para ? [para].flat() : []));
   let editar = null;
   const box = $('#cmp-pend');
   box.hidden = !pendientes.length;
@@ -434,6 +438,9 @@ const ICONS = {
   copy: 'M9 9h11v11H9zM5 15H4V4h11v1',
   paste: 'M8 4h8v3H8zM6 5.5H5V21h14V5.5h-1M9 12h6M9 16h6',
   plus: 'M12 5v14M5 12h14',
+  send: 'M3 11l18-8-8 18-2-8zM11 13l10-10',
+  task: 'M9 6h11M9 12h11M9 18h11M4 6l1 1 2-2M4 12l1 1 2-2M4 18l1 1 2-2',
+  ask: 'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zM9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.6.3-1 .9-1 1.7v.5M12 17v.01',
 };
 function svg(name) {
   const NS = 'http://www.w3.org/2000/svg';
@@ -481,10 +488,33 @@ const actions = {
     if (ok) run('trabajo.cancelar', { trabajo, confirmar: true, detener_monitores: ok.detener === true }, 'Cancelado', b);
   },
   // AÑADIR AL OBJETIVO: al MISMO objetivo en curso (no es objetivo nuevo, ni instrucción para después, ni prompt directo).
+  // ENVIAR INSTRUCCIÓN AHORA: una orden para ESTE trabajo (no crea objetivo ni tarea). Se dice antes a quién llega y en qué
+  // estado está; después, lo que pasó de verdad (enviada al ejecutor / guardada con su motivo). Su estado sigue en la tarjeta.
   async add(c, b) {
-    const r = await compose({ title: `Añadir al objetivo · ${c.nombre}`, ok: 'Añadir', anadir: true, trabajo: c.trabajo });
-    if (r && !(await run('objetivo.anadir', { trabajo: c.trabajo, texto: r.texto }, 'Añadido', b))) draft = r.texto;
+    const info = await api.cmd('trabajo.instrucciones', { trabajo: c.trabajo });
+    const d = info?.ok ? info.data : null;
+    const dest = d?.destinatario;
+    const corto = (x, n) => (x.length > n ? `${x.slice(0, n - 1)}…` : x);
+    const para = dest ? [h('span', {}, h('b', {}, 'Para: '), `${dest.proyecto} · ${corto(dest.objetivo, 80)}`),
+      h('span', {}, h('b', {}, 'Ahora: '), corto(`${d.motivo} (lo atiende ${dest.ejecutor})`, 170))] : '';
+    const r = await compose({ title: `Enviar instrucción ahora · ${c.nombre}`, ok: 'Enviar ahora', anadir: true, trabajo: c.trabajo, para });
+    if (r && !(await run('objetivo.anadir', { trabajo: c.trabajo, texto: r.texto }, 'Instrucción guardada', b))) draft = r.texto;
   },
+  // AÑADIR TAREA AL OBJETIVO: amplía la hoja de ruta del objetivo de negocio (no se ejecuta en ese instante).
+  async tarea(c, b) {
+    if (!c.meta_id) { toast('Este trabajo no pertenece a un objetivo con hoja de ruta: usa «Enviar instrucción ahora»', 'bad'); return; }
+    const v = await api.cmd('negocio.ver', { id: c.meta_id });
+    if (!v?.ok) { toast(v?.error || 'No se pudo leer el objetivo', 'bad'); return; }
+    const fases = v.data.hoja?.fases || [];
+    const r = await ask({ title: `Añadir tarea al objetivo · ${cleanGoal(v.data.titulo || '')}`.slice(0, 120), ok: 'Añadir tarea',
+      help: 'Amplía el trabajo pendiente del objetivo: queda en su hoja de ruta, con tu autoría, y el director la planifica. No se ejecuta en este instante (para eso, «Enviar instrucción ahora»).',
+      fields: [{ name: 'texto', label: 'Qué hay que hacer', type: 'textarea' },
+        ...(fases.length ? [{ name: 'fase', label: 'Fase', type: 'choice', value: fases.at(-1).id, options: fases.map((f) => ({ value: f.id, label: `${f.id} · ${f.nombre}`.slice(0, 90) })) }] : []),
+        { name: 'primera', type: 'checkbox', label: 'Que sea la siguiente tarea (prioritaria)' }] });
+    if (!r) return;
+    await run('negocio.hoja', { id: c.meta_id, op: 'añadir', texto: r.texto, fase: r.fase || undefined, primera: r.primera === true }, 'Tarea añadida', b);
+  },
+  ceo: (c) => openCeo(`trabajo:${c.trabajo}`, ['ERROR', 'BLOQUEADO'].includes(c.estado) ? { pregunta: '¿Qué ha fallado y qué recomiendas?' } : { pregunta: '¿Qué está haciendo ahora, por qué y qué falta para terminar?' }),
   // Escribir (instrucción o prompt directo) sobre el objetivo actual. Con algo en marcha queda como pendiente.
   async instruct(c, b) {
     const pendientes = c.pendientes ? (await api.details(c.id))?.pendientes || [] : [];
@@ -505,6 +535,10 @@ const actions = {
   consult: (c, ref) => openCeo(`decision:${c.id}:${ref}`, { pregunta: '¿Qué recomiendas y por qué?' }),
   // Objetivo nuevo = sesión de Claude nueva y CEO AUTO por defecto.
   async goal(c, b) {
+    // Un objetivo nuevo es para un encargo INDEPENDIENTE: si ya hay uno vivo en el proyecto, se avisa (no se impide).
+    const vivo = c.trabajo && !['LIBRE', 'TERMINADO', 'CANCELADO'].includes(c.estado);
+    if (vivo && !(await ask({ title: `${c.nombre} ya tiene un objetivo en marcha`, ok: 'Sí, es un encargo independiente',
+      help: `Ahora: «${cleanGoal(c.objetivo || '').slice(0, 160)}». Si lo que quieres es corregir, priorizar o ampliar ese trabajo, cierra esto y usa «Enviar instrucción ahora» o «Añadir tarea al objetivo»: un objetivo nuevo empieza otra conversación y va a la cola.`, fields: [] }))) return;
     const r = await compose({ title: `Nuevo objetivo · ${c.nombre}`, modo: 'AUTO', sesiones: false, ok: 'Iniciar', trabajo: c.trabajo });
     if (r && !(await run('objetivo.iniciar', { proyecto: c.id, texto: r.texto, tipo: r.tipo, modo: r.modo }, 'Objetivo iniciado', b))) draft = r.texto;
   },
@@ -518,8 +552,9 @@ function buttonsFor(c) {
   const T = (label, act) => h('button', { class: 'btn primary small', type: 'button', onclick: (e) => actions[act](c, e.currentTarget) }, label);
   const e = c.estado;
   const info = I('info', `Detalles de ${c.nombre}`, 'details');
-  const instr = I('message', 'Escribir instrucción o prompt', 'instruct');
-  const add = I('plus', 'Añadir al objetivo en curso', 'add', 'accent');
+  const instr = I('message', 'Mensaje para la próxima ronda o prompt directo', 'instruct');
+  // Las cotidianas, visibles: enviar una orden ya, consultar al CEO y (si tiene hoja de ruta) añadir una tarea.
+  const add = [I('send', 'Enviar instrucción ahora', 'add', 'accent'), I('ask', 'Consultar al CEO', 'ceo'), c.meta_id ? I('task', 'Añadir tarea al objetivo', 'tarea') : null];
   const stop = I('stop', 'Cancelar objetivo', 'cancel', 'danger');
   // LISTO: Claude entregó y espera. CONTINUAR = primer pendiente o (AUTO) que el CEO retome; en MANUAL sin nada, escribir.
   if (e === 'LISTO') return [c.modo !== 'MANUAL' || c.pendientes || c.anadidos ? T(c.modo === 'MANUAL' ? 'ENVIAR SIGUIENTE' : 'CONTINUAR', 'resume') : null,
@@ -651,7 +686,7 @@ function desk(c) {
     running && c.siguiente ? line('DESPUÉS', c.siguiente, 'next') : null,
     c.detalle && ['BLOQUEADO', 'ERROR', 'SIN_ACTIVIDAD'].includes(c.estado) ? h('p', { class: 'note' }, c.detalle) : null,
     c.pendientes ? h('p', { class: 'ln muted' }, h('b', {}, 'PENDIENTES'), ` ${c.pendientes}`) : null,
-    c.anadidos ? h('p', { class: 'ln muted' }, h('b', {}, 'AÑADIDO'), ` ${c.anadidos} sin incorporar todavía`) : null,
+    c.anadidos ? ordenLinea(c) : null,
     decision || superadaBox(c),
     canonDecisionLine(c),
     h('div', { class: 'actions' }, buttonsFor(c))), () => actions.details(c), c.nombre);
@@ -672,23 +707,35 @@ function tuyaCard(x) {
     comunes({ copy: (b) => copiarConsulta(`trabajo:${x.trabajo}`, b), instruir: (b) => actions.instruct({ ...x.c, trabajo: x.trabajo }, b) }));
 }
 /** ESPERANDO ALGO EXTERNO: en lenguaje normal (qué falta, cuándo se miró, qué pasará). Lo técnico, en la ficha. */
+// Una espera con su motivo REAL (src/commands.js dependenciaDe): qué espera, de quién depende, qué hará después, cuándo se
+// comprobó y si te necesita. Si el motivo no se puede determinar, se dice («pendiente de diagnóstico»), no se inventa.
+const CLASE_ESPERA = { OTRO_TRABAJO: 'Esperando otro trabajo', PUBLICACION: 'Esperando una publicación', CONDICION: 'Esperando una condición técnica',
+  TU_RESPUESTA: 'Necesita tu respuesta', SIN_DIAGNOSTICO: 'Espera pendiente de diagnóstico' };
 function waitCard(x) {
   const c = x.c, e = x.esperas[0];
   const hum = esperaHumana(e?.descripcion || x.condicion || '');
-  const que = hum.que ? hum.que.charAt(0).toUpperCase() + hum.que.slice(1) : 'Algo que no depende del CEO.';
+  const clase = e?.clase || (x.condicion ? 'CONDICION' : 'SIN_DIAGNOSTICO');
+  const titulo = clase === 'CONDICION' && hum.titulo !== 'Esperando algo externo' ? hum.titulo : CLASE_ESPERA[clase];
+  const que = hum.que ? hum.que.charAt(0).toUpperCase() + hum.que.slice(1) : 'No consta: pendiente de diagnóstico.';
   const hasta = e?.hasta ? new Date(e.hasta).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' }) : '';
+  const tuya = clase === 'TU_RESPUESTA';
+  const cj = { ...c, trabajo: x.trabajo }; // las acciones van al trabajo que espera (puede no ser el que enseña la tarjeta)
+  const dep = e ? [e.depende, e.depende_estado ? ` · ahora ${(MOOD_LABEL[e.depende_estado] || e.depende_estado).toLowerCase()}${e.depende_actividad ? `: ${e.depende_actividad}` : ''}` : ''].join('') : 'No consta';
   return pulsable(h('article', { class: 'wait-card', 'data-id': `${c.id}:${x.trabajo}` },
-    h('header', { class: 'unit-head' }, logo(c), h('div', { class: 'title' }, h('h3', {}, `${c.nombre} — ${hum.titulo}`),
+    h('header', { class: 'unit-head' }, logo(c), h('div', { class: 'title' }, h('h3', {}, `${c.nombre} — ${titulo}`),
       h('small', { class: 'muted goal1', title: x.objetivo }, hum.asunto || cleanGoal(x.objetivo)))),
-    h('p', { class: 'wait-lead' }, 'Este trabajo sigue en cuanto ocurra. CEOPadre lo comprueba solo y continúa: no tienes que hacer nada.'),
     h('dl', { class: 'wait-dl' },
-      h('dt', {}, 'Qué falta'), h('dd', {}, que),
-      e ? [h('dt', {}, 'Última comprobación'), h('dd', {}, `${e.comprobada ? ago(e.comprobada) : 'aún no'}${e.error ? ' · no se pudo comprobar' : ' · todavía no ha llegado'} · se mira cada ${Math.round(e.cada_s / 60) || 1} min${hasta ? ` hasta el ${hasta}` : ''}`)] : null,
-      h('dt', {}, 'Cuando llegue'), h('dd', {}, hum.luego)),
+      h('dt', {}, 'Qué espera'), h('dd', {}, que),
+      h('dt', {}, 'De quién depende'), h('dd', {}, dep),
+      h('dt', {}, 'Qué hará después'), h('dd', {}, hum.luego),
+      e?.cada_s ? [h('dt', {}, 'Última comprobación'), h('dd', {}, `${e.comprobada ? ago(e.comprobada) : 'aún no'}${e.error ? ' · no se pudo comprobar' : ' · todavía no se cumple'} · se mira cada ${Math.round(e.cada_s / 60) || 1} min${hasta ? ` hasta el ${hasta}` : ''}`)] : null,
+      h('dt', {}, '¿Te necesita?'), h('dd', {}, tuya ? 'Sí: es algo que sólo puedes hacer tú.' : 'No: CEOPadre lo comprueba solo y continúa cuando se cumpla.')),
+    x.trabajo === c.trabajo && c.anadidos ? ordenLinea(c) : null,
     h('div', { class: 'row' },
-      h('button', { class: 'btn small', type: 'button', onclick: () => openCeo(e ? `espera:${e.id}` : `trabajo:${x.trabajo}`, { pregunta: '¿Qué falta exactamente, para qué sirve y dónde debo dejarlo?' }) }, 'Ver qué falta'),
-      h('button', { class: 'btn ghost small', type: 'button', onclick: () => openCeo(e ? `espera:${e.id}` : `trabajo:${x.trabajo}`) }, '💬 Consultar al CEO'),
-      e ? h('button', { class: 'btn ghost small', type: 'button', onclick: (ev) => run('espera.comprobar', { id: e.id }, 'Comprobado', ev.currentTarget) }, 'Comprobar ahora') : null,
+      h('button', { class: 'btn primary small', type: 'button', onclick: (ev) => actions.add(cj, ev.currentTarget) }, 'Enviar instrucción ahora'),
+      h('button', { class: 'btn ghost small', type: 'button', onclick: () => openCeo(e?.id ? `espera:${e.id}` : `trabajo:${x.trabajo}`, { pregunta: '¿Por qué está esperando exactamente, qué hará después y qué pasaría si lo reactivo?' }) }, 'Consultar al CEO'),
+      e?.id ? h('button', { class: 'btn ghost small', type: 'button', title: 'Repite ya su comprobación; si se cumple, el trabajo continúa solo', onclick: (ev) => run('espera.comprobar', { id: e.id }, 'Comprobado', ev.currentTarget) }, 'Comprobar ahora') : null,
+      c.meta_id && x.trabajo === c.trabajo ? h('button', { class: 'btn ghost small', type: 'button', onclick: (ev) => actions.tarea(c, ev.currentTarget) }, 'Añadir tarea') : null,
       h('button', { class: 'link', type: 'button', onclick: () => actions.details(c) }, 'Ver detalles'))), () => actions.details(c), c.nombre);
 }
 
@@ -796,7 +843,7 @@ function paintBrief(d, need, inboxN) {
     ['need', '¿Qué necesita de mí?', need ? `${need} ${need === 1 ? 'cosa' : 'cosas'}` : 'Nada ahora',
       need ? [first && `${first.nombre}: ${needsDecision(first) ? 'una respuesta' : (MOOD_LABEL[first.estado] || '').toLowerCase()}`, inboxN && `${inboxN} respuesta${inboxN === 1 ? '' : 's'} por aprobar`].filter(Boolean).join(' · ') : 'CEOPadre sigue solo y te avisará', () => scrollToId('z-need')],
     ['work', '¿Qué está haciendo?', k.trabajando ? `${k.trabajando} en marcha` : 'Nada en marcha',
-      [d.trabajando[0] && `${d.trabajando[0].nombre}: ${d.trabajando[0].actividad || 'trabajando'}`, k.esperando && `${k.esperando} esperando algo externo`, k.problemas && `${k.problemas} con problemas`].filter(Boolean).join(' · ') || 'Dale un objetivo a un proyecto', () => scrollToId(k.trabajando ? 'h-marcha' : k.esperando ? 'z-wait' : 'h-marcha')],
+      [d.trabajando[0] && `${d.trabajando[0].nombre}: ${d.trabajando[0].actividad || 'trabajando'}`, k.esperando && `${k.esperando} en espera`, k.problemas && `${k.problemas} con problemas`].filter(Boolean).join(' · ') || 'Dale un objetivo a un proyecto', () => scrollToId(k.trabajando ? 'h-marcha' : k.esperando ? 'z-wait' : 'h-marcha')],
     ['done', '¿Qué ha conseguido?', `${k.terminados7} ${k.terminados7 === 1 ? 'terminado' : 'terminados'}`,
       `esta semana, comprobados con evidencia${data.negocio?.abiertos ? ` · ${data.negocio.abiertos} objetivo${data.negocio.abiertos === 1 ? '' : 's'} de negocio en marcha` : ''}`, () => scrollToId('s-done')],
     // Lo que el DIRECTOR decidió hacer después (objetivos de negocio) manda sobre los horarios.
@@ -1097,7 +1144,7 @@ async function openInforme(horas = 24) {
     sec('done', 'Terminado y comprobado', x.terminados, (i) => [h('b', {}, i.proyecto), ` — ${i.objetivo}`, ...i.comprobado.map((c) => h('small', { class: 'ok' }, `✓ ${c}`)), ...i.sin_comprobar.map((c) => h('small', { class: 'warn' }, `Sin comprobar: ${c}`))]),
     sec('goal', 'Objetivos de negocio', x.negocio, (m) => [h('b', {}, cleanGoal(m.titulo)), ` — ${(MOOD_NEGOCIO[m.estado] || m.estado).toLowerCase()}`, ...m.kpis.map((k) => h('small', {}, kpi(k))), ...m.avances.slice(0, 2).map((e) => h('small', { class: 'muted' }, e.texto))]),
     sec('work', 'Trabajando ahora', x.trabajando, (i) => [h('b', {}, i.proyecto), ` — ${i.ahora || i.objetivo}`]),
-    sec('wait', 'Esperando algo externo', x.esperando, (i) => [h('b', {}, i.proyecto), ` — ${esperaHumana(i.que).titulo || i.que}`, i.comprobada_at ? h('small', { class: 'muted' }, `Última comprobación ${hhmm(i.comprobada_at)}`) : null]),
+    sec('wait', 'En espera', x.esperando, (i) => [h('b', {}, i.proyecto), ` — ${esperaHumana(i.que).titulo || i.que}`, i.comprobada_at ? h('small', { class: 'muted' }, `Última comprobación ${hhmm(i.comprobada_at)}`) : null]),
     sec('next', 'Después', x.despues, (i) => [h('b', {}, i.cuando ? hhmm(i.cuando) : 'En cola'), ` — ${i.que} · ${i.proyecto}`]),
     x.automatizaciones.length ? h('p', { class: 'muted' }, `Agentes ejecutados: ${x.automatizaciones.map((a) => `${a.n} ${a.estado.toLowerCase()}`).join(' · ')}`) : null,
     hechos.every((n) => !n) && !x.negocio.length && !x.esperando.length ? h('p', { class: 'muted' }, 'Sin actividad en este periodo.') : null,
@@ -1569,7 +1616,7 @@ function summaryPanel(c, d) {
   return h('section', { class: `panel sum m-${mood(c)}` },
     h('div', { class: 'sum-head' }, h('span', { class: `pill tone-${needsDecision(c) ? 'ask' : tone}` }, needsDecision(c) ? decisionLabel(c) : label),
       c.pendientes ? h('span', { class: 'chip' }, `Pendientes ${c.pendientes}`) : null,
-      c.anadidos ? h('span', { class: 'chip' }, `Añadidos sin incorporar ${c.anadidos}`) : null,
+      c.anadidos ? h('span', { class: 'chip' }, `Instrucciones sin incorporar ${c.anadidos}`) : null,
       hasJob && c.trabajo ? h('button', { class: 'btn ghost small', type: 'button', onclick: () => openCeo(`trabajo:${c.trabajo}`, ['ERROR', 'BLOQUEADO'].includes(c.estado) ? { pregunta: '¿Qué ha fallado y qué recomiendas?' } : {}) }, '💬 Consultar al CEO') : null),
     hasJob && c.estado !== 'CANCELADO' ? h('div', { class: 'sum-ceo' },
       seg(`modo-${c.trabajo}`, 'CEO', [['AUTO', 'AUTO', MODO_HELP.AUTO], ['MANUAL', 'MANUAL', MODO_HELP.MANUAL]], modo,
@@ -1711,8 +1758,17 @@ async function openGoal(c) {
 }
 
 /** Escribir + pendientes (orden de creación; sólo un extracto de cada uno). */
-const ADD_STATE = { PENDIENTE: 'Enviado · pendiente de incorporar', ENTREGADO: 'Entregado a Claude', RECIBIDO: 'Claude lo tiene · incorporándolo',
-  INCORPORADO: 'Incorporado' };
+// Estado REAL de una orden (src/commands.js vistaOrden): nunca «enviada» si sólo está guardada.
+const ADD_STATE = { PENDIENTE: 'Guardada · aún no ha llegado', ENTREGADO: 'Enviada al ejecutor · sin acuse todavía', RECIBIDO: 'Recibida · el ejecutor la está atendiendo',
+  INCORPORADO: 'Incorporada' };
+/** En la tarjeta: la orden más antigua sin incorporar, con su estado y, si aún no ha llegado, el porqué. */
+function ordenLinea(c) {
+  const o = c.orden;
+  if (!o) return h('p', { class: 'ln muted' }, h('b', {}, 'INSTRUCCIÓN'), ` ${c.anadidos} sin incorporar todavía`);
+  const est = { GUARDADA: 'guardada, aún no ha llegado', ENVIADA: 'enviada al ejecutor, sin acuse todavía', RECIBIDA: 'recibida: el ejecutor la está atendiendo' }[o.fase] || o.fase.toLowerCase();
+  return h('p', { class: `ln ${o.fase === 'GUARDADA' ? 'warn' : 'muted'}`, title: o.extracto },
+    h('b', {}, `INSTRUCCIÓN #${o.n}`), ` ${est} (${ago(o.recibido || o.creado)})${o.motivo ? ` · ${o.motivo}` : ''}${c.anadidos > 1 ? ` · ${c.anadidos - 1} más` : ''}`);
+}
 function writePanel(c, d) {
   const hasJob = !['LIBRE', 'CANCELADO'].includes(c.estado);
   const canAdd = hasJob && c.estado !== 'TERMINADO';
@@ -1721,13 +1777,16 @@ function writePanel(c, d) {
   const adds = d.anadidos || [];
   return h('section', { class: 'panel write' },
     canAdd ? h('button', { class: 'write-btn add', type: 'button', onclick: (e) => actions.add(c, e.currentTarget) },
-      h('b', {}, 'Añadir al objetivo…'), h('small', { class: 'muted' }, 'Algo que olvidaste: entra en el trabajo que ya está en marcha')) : null,
-    h('button', { class: 'write-btn', type: 'button', onclick: open }, hasJob ? 'Escribir instrucción o prompt…' : 'Escribir un objetivo nuevo…'),
-    adds.length ? [h('p', { class: 'lbl' }, `Añadidos al objetivo (${adds.length})`),
+      h('b', {}, 'Enviar instrucción ahora…'), h('small', { class: 'muted' }, 'Una orden para este trabajo: le llega al ejecutor en cuanto pueda atenderla, sin crear otro objetivo')) : null,
+    canAdd && c.meta_id ? h('button', { class: 'write-btn', type: 'button', onclick: (e) => actions.tarea(c, e.currentTarget) },
+      h('b', {}, 'Añadir tarea al objetivo…'), h('small', { class: 'muted' }, 'Amplía su hoja de ruta; se planifica, no se ejecuta en este instante')) : null,
+    h('button', { class: 'write-btn', type: 'button', onclick: open }, hasJob ? 'Mensaje para la próxima ronda o prompt directo…' : 'Escribir un objetivo nuevo…'),
+    adds.length ? [h('p', { class: 'lbl' }, `Instrucciones enviadas (${adds.length})`),
       h('ol', { class: 'pend' }, adds.map((a) => h('li', {},
         h('div', { class: 'pend-tags' }, h('span', { class: 'tag' }, `#${a.n}`),
           h('span', { class: `tag ${a.estado === 'INCORPORADO' ? 'done' : 'direct'}` }, `${ADD_STATE[a.estado] || a.estado}${a.estado === 'INCORPORADO' && a.ronda ? ` · ronda ${a.ronda}` : ''}`),
           h('small', { class: 'muted' }, ago(a.creado))),
+        a.motivo ? h('p', { class: 'ln warn' }, a.motivo) : null,
         h('p', { class: 'pend-text' }, a.extracto, a.chars > a.extracto.length ? '…' : ''))))] : null,
     pend.length ? [h('p', { class: 'lbl' }, `Instrucciones pendientes (${pend.length})`),
       pendList(pend, (p) => [iconBtn('edit', 'Editar pendiente', () => editPending(p)), iconBtn('trash', 'Eliminar pendiente', (e) => deletePending(p, e.currentTarget), 'danger')])]
@@ -1760,7 +1819,7 @@ function esperasPanel(c, d) {
   const list = (d.esperas || []).filter((x) => x.estado === 'ESPERANDO_CONDICION' || x.esperas.some((e) => e.estado === 'ACTIVA'));
   if (!list.length) return null;
   const B = (label, op, params, cls = '') => h('button', { class: `btn small ${cls}`, type: 'button', onclick: (e) => run(op, params, label, e.currentTarget) }, label);
-  return h('section', { class: 'panel waits m-wait' }, h('h4', {}, `Esperando algo externo (${list.length})`),
+  return h('section', { class: 'panel waits m-wait' }, h('h4', {}, `En espera (${list.length})`),
     list.map((x) => h('div', { class: 'wait-item' },
       h('p', { class: 'ln goal', title: x.objetivo }, x.objetivo),
       x.esperas.filter((e) => e.estado === 'ACTIVA').map((e) => h('div', { class: 'wait-cond' },

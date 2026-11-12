@@ -331,13 +331,15 @@ export function alquileresUi({ run, ask, cmd, toast, LOCAL }) {
     REINTENTO: 'Reintento de envío', FICHA: 'Ficha modificada', CONFIGURADO: 'Alta del alquiler', RECONFIGURADO: 'Ficha reconfigurada',
     SUMINISTRO_COBRADO: 'Suministro cobrado', SUMINISTRO_COBRO_ANULADO: 'Cobro de suministro anulado', COBRADO_SIN_RECIBO: 'Renta cobrada (recibo pendiente)' };
   const PAGO_PROV = { DESCONOCIDO: 'sin confirmar', PENDIENTE: 'pendiente', PAGADA: 'pagada', DOMICILIADA: 'domiciliada' };
-  const EST = { PENDIENTE: ['Pendiente', 'wait'], PARCIAL: ['Pagada en parte', 'ask'], PAGADA: ['Pagada', 'ok'], SIN_REPARTIR: ['Sin repartir', 'idle'], ANULADA: ['Anulada', 'idle'] };
+  const EST = { PENDIENTE: ['Pendiente', 'wait'], PARCIAL: ['Pagada en parte', 'ask'], PAGADA: ['Pagada', 'ok'], SIN_REPARTIR: ['Sin repartir', 'idle'], ANULADA: ['Anulada', 'idle'],
+    CERRADA: ['Cerrada', 'ok'] };
+  const CIERRE = { SIN_RECLAMAR: 'no se reclama', RESUELTA_FUERA: 'resuelta fuera de CEOPadre' };
   const estChip = (e) => chip(...(EST[e] || [e, 'idle']));
   const todos = (gestiones) => gestiones.flatMap((c) => (c.alquileres || []).map((a) => ({ ...a, gestion: c })));
   const facturasDe = (lista) => { const m = new Map(); for (const a of lista) for (const f of a.suministros || []) m.set(f.id, f); return [...m.values()].sort((x, y) => y.fecha.localeCompare(x.fecha)); };
   const firma = (gestiones) => JSON.stringify(gestiones.flatMap((c) => c.alquileres || []));
   const hoy = () => new Date().toISOString().slice(0, 10);
-  const vista = { tab: 'suministros', filtro: 'PENDIENTES' }; // sobrevive al repintado
+  const vista = { tab: 'suministros', filtro: 'GESTIONAR' }; // sobrevive al repintado
   let lista = []; // la última lista pintada (para los diálogos)
 
   // «Me ha pagado» de una parte de suministro: total o parcial, fecha, forma de pago y nota. La operación lleva un id: si se
@@ -526,8 +528,32 @@ export function alquileresUi({ run, ask, cmd, toast, LOCAL }) {
         return tr;
       }))));
   }
-  const FILTROS = [['PENDIENTES', 'Pendientes de cobro'], ['REPARTIR', 'Por repartir'], ['PARCIAL', 'Parcialmente pagados'], ['PAGADA', 'Pagados'], ['TODOS', 'Todos']];
-  const enFiltro = (k, f) => (k === 'TODOS' ? true : k === 'PENDIENTES' ? ['PENDIENTE', 'PARCIAL'].includes(f.estado) : k === 'REPARTIR' ? f.estado === 'SIN_REPARTIR' : f.estado === k);
+  // POR GESTIONAR (por defecto): sin resolver con los inquilinos (sin repartir, pendiente o parcial). Una propuesta de reparto
+  // sin confirmar se gestiona, pero NO es deuda (no suma «pendiente»). ACTIVAS: además, lo que aún debes pagar al proveedor.
+  const resuelta = (f) => ['PAGADA', 'CERRADA'].includes(f.estado);
+  const FILTROS = [['GESTIONAR', 'Por gestionar'], ['ACTIVAS', 'Todas las activas'], ['PARCIAL', 'Parcialmente cobradas'], ['RESUELTAS', 'Pagadas / cerradas'], ['TODOS', 'Historial completo']];
+  const enFiltro = (k, f) => (k === 'TODOS' ? true : k === 'GESTIONAR' ? !resuelta(f) : k === 'ACTIVAS' ? !resuelta(f) || f.pago_proveedor === 'PENDIENTE'
+    : k === 'PARCIAL' ? f.estado === 'PARCIAL' : resuelta(f));
+  // REGISTRAR SITUACIÓN de una factura (sobre todo antiguas): lo que pasó de verdad, sin recrear operaciones ficticias.
+  async function registrarSituacion(f) {
+    if (f.cierre) {
+      const r = await ask({ title: `Reabrir · ${f.proveedor} ${fecha(f.fecha)}`, ok: 'Reabrir', help: `Está cerrada (${CIERRE[f.cierre.tipo]}: ${f.cierre.motivo}). Reabrirla la devuelve a «por gestionar» con su historial.`, fields: [] });
+      if (r) await run('suministro.cerrar', { factura: f.id, reabrir: true }, 'Reabierta');
+      return;
+    }
+    const pend = f.partes.filter((x) => x.pendiente > 0);
+    const r = await ask({ title: `Registrar situación · ${f.proveedor} ${fecha(f.fecha)} · ${f.importe_txt}`, ok: 'Guardar',
+      help: 'Para dejar constancia de lo que ocurrió sin inventar cobros. Si te pagaron y sabes cuánto y cuándo, usa «Me ha pagado» (queda como dinero recibido). La documentación y el historial se conservan siempre.',
+      fields: [{ name: 'tipo', label: 'Qué pasó', type: 'choice', options: [
+        ...(pend.length === 1 ? [{ value: 'COBRO', label: `${pend[0].obligado.split(' ')[0]} me pagó (registrar el cobro)` }] : []),
+        { value: 'RESUELTA_FUERA', label: 'Ya está resuelta fuera de CEOPadre (no recuerdo importe ni fecha)' },
+        { value: 'SIN_RECLAMAR', label: 'No la voy a reclamar' }] },
+      { name: 'motivo', label: 'Motivo o nota (obligatorio salvo cobro)', type: 'text', required: false }] });
+    if (!r) return;
+    if (r.tipo === 'COBRO') { await cobrarParte(pend[0]); return; }
+    if (!String(r.motivo || '').trim()) { toast('Escribe el motivo: queda en el historial', 'bad'); return; }
+    await run('suministro.cerrar', { factura: f.id, tipo: r.tipo, motivo: r.motivo }, 'Situación registrada');
+  }
   // Confirmar la propuesta TAL CUAL (con su criterio) desde la lista; para cambiar responsables, «Revisar» en el detalle.
   async function confirmarPropuesta(f) {
     const pr = f.propuesta;
@@ -540,19 +566,32 @@ export function alquileresUi({ run, ask, cmd, toast, LOCAL }) {
     const fs = facturasDe(lst);
     const pasa = (f) => enFiltro(vista.filtro, f);
     const vis = fs.filter(pasa);
-    const fila = (f) => h('button', { class: 'alq-fact-fila', type: 'button', onclick: () => abrirFactura(f) },
-      h('span', { class: 'alq-ff-a' }, h('strong', {}, `${f.tipo === 'AGUA' ? 'Agua' : f.tipo} ${f.periodo ? `${fecha(f.periodo.desde)} – ${fecha(f.periodo.hasta)}` : fecha(f.fecha)}`),
-        h('small', { class: 'muted' }, ` ${f.inmueble} · ${f.importe_txt}`)),
-      h('span', { class: 'alq-ff-b small' }, f.partes.length ? f.partes.map((x) => `${x.obligado.split(' ')[0]} ${x.importe_txt}${x.estado === 'PAGADA' ? ' ✓' : x.estado === 'PARCIAL' ? ` (faltan ${eur(x.pendiente)})` : ''}`).join(' · ')
-        : (f.propuesta?.ok ? 'Propuesta pendiente de confirmar' : 'Sin propuesta: falta saber quién vivía')),
-      h('span', { class: 'alq-ff-c' }, estChip(f.estado), f.partes.length && f.pendiente ? h('small', {}, ` ${eur(f.pendiente)}`) : null));
+    // Cada factura con lo que hace falta para gestionarla SIN abrir más ventanas: fecha, periodo, inmueble, proveedor, importe,
+    // pago al proveedor y cobro a inquilinos POR SEPARADO, lo pendiente y sus acciones.
+    const fila = (f) => h('button', { class: 'alq-fact-fila', type: 'button', onclick: () => abrirFactura(f), 'aria-label': `Detalle de la factura ${f.proveedor} del ${fecha(f.fecha)}` },
+      h('span', { class: 'alq-ff-a' }, h('strong', {}, `${f.proveedor} · ${fecha(f.fecha)} · ${f.importe_txt}`),
+        h('small', { class: 'muted' }, ` ${f.tipo === 'AGUA' ? 'Agua' : f.tipo}${f.periodo ? ` ${fecha(f.periodo.desde)} – ${fecha(f.periodo.hasta)}` : ''} · ${f.inmueble}`)),
+      h('span', { class: 'alq-ff-b small' }, f.cierre ? `Cerrada: ${CIERRE[f.cierre.tipo]} · ${f.cierre.motivo}`
+        : f.partes.length ? f.partes.map((x) => `${x.obligado.split(' ')[0]} ${x.importe_txt}${x.estado === 'PAGADA' ? ' ✓' : x.estado === 'PARCIAL' ? ` (faltan ${eur(x.pendiente)})` : ''}`).join(' · ')
+          : (f.propuesta?.ok ? 'Reparto propuesto, sin confirmar (aún no es deuda)' : 'Sin propuesta: falta saber quién vivía')),
+      h('span', { class: 'alq-ff-c' }, h('small', { class: 'muted' }, 'Inquilinos: '), estChip(f.estado), f.partes.length && f.pendiente ? h('small', {}, ` faltan ${eur(f.pendiente)}`) : null,
+        h('small', { class: `muted alq-prov ${f.pago_proveedor === 'PENDIENTE' ? 't-warn' : ''}` }, ` · ${f.proveedor}: ${PAGO_PROV[f.pago_proveedor] || f.pago_proveedor}`)));
+    const acciones = (f) => {
+      const pend = f.partes.filter((x) => x.pendiente > 0);
+      const b = (t, fn, cls = 'ghost') => h('button', { class: `btn small ${cls}`, type: 'button', onclick: (e) => { e.stopPropagation(); fn(e.currentTarget); } }, t);
+      return h('div', { class: 'alq-fact-acc' },
+        f.documento ? b('Ver factura', () => verFacturaPdf(f)) : h('small', { class: 'muted', title: f.fuente }, 'Sin PDF guardado'),
+        f.sin_repartir && f.propuesta?.ok && !f.cierre ? b('Confirmar reparto', () => confirmarPropuesta(f), '') : null,
+        !f.cierre && pend.length === 1 ? b(`${pend[0].obligado.split(' ')[0]} me ha pagado`, (btn) => cobrarParte(pend[0], btn), '') : null,
+        b('Pago al proveedor', () => pagoProveedor(f)),
+        b(f.cierre ? 'Reabrir' : 'Registrar situación', () => registrarSituacion(f)));
+    };
     return h('div', { class: 'alq-panel' },
       h('div', { class: 'alq-filtros', role: 'tablist' }, FILTROS.map(([k, t]) => h('button', { class: `btn small ${vista.filtro === k ? 'primary' : 'ghost'}`, type: 'button', role: 'tab', 'aria-selected': String(vista.filtro === k),
         onclick: () => { vista.filtro = k; repintar(); } }, `${t} (${fs.filter((f) => enFiltro(k, f)).length})`)),
       h('button', { class: 'btn small', type: 'button', onclick: () => registrarFactura() }, 'Registrar factura')),
-      vis.length ? h('div', { class: 'alq-fact-lista' }, vis.map((f) => h('div', { class: 'alq-fact-item' }, fila(f),
-        f.sin_repartir && f.propuesta?.ok ? h('button', { class: 'btn small', type: 'button', onclick: () => confirmarPropuesta(f) }, 'Confirmar reparto') : null)))
-        : h('p', { class: 'muted' }, vista.filtro === 'PENDIENTES' ? 'Nada pendiente de cobrar en suministros.' : 'Ninguna factura en este filtro.'));
+      vis.length ? h('div', { class: 'alq-fact-lista' }, vis.map((f) => h('div', { class: 'alq-fact-item' }, fila(f), acciones(f))))
+        : h('p', { class: 'muted' }, vista.filtro === 'GESTIONAR' ? 'Nada por gestionar en suministros.' : 'Ninguna factura en este filtro.'));
   }
   function tabRecibos(lst) {
     const recibos = lst.flatMap((a) => a.historial.filter((x) => x.recibo).map((x) => ({ a, x })));

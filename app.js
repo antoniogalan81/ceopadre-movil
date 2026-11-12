@@ -2001,6 +2001,9 @@ function pwa() {
   navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then((reg) => {
     const offer = (w) => {
       if (!w || !navigator.serviceWorker.controller) return; // primera visita: no hay nada que «actualizar»
+      // 12-11: Antonio seguía viendo la versión anterior (el botón ACTUALIZAR pasaba desapercibido). Sin ventanas abiertas ni
+      // texto escrito, la versión nueva se aplica sola (al abrir o volver a la app); si hay algo abierto, queda el botón.
+      if (!document.querySelector('dialog[open]') && !typing()) { asked = true; w.postMessage('SKIP_WAITING'); return; }
       $('#update').hidden = false;
       $('#b-update').onclick = () => {
         if (typing()) { toast('Termina (o cierra) lo que estás escribiendo y vuelve a pulsar ACTUALIZAR', 'bad'); return; }
@@ -2098,4 +2101,19 @@ function ajustesUi() {
 }
 ajustesUi();
 pwa();
+// PC: si el servidor se reinicia con código nuevo, la página (abierta desde antes) se recarga sola cuando no hay nada abierto ni
+// escrito; así nunca se queda una interfaz vieja contra un servidor nuevo (12-11: el recibo nuevo «no aparecía»).
+if (LOCAL) {
+  let commit = null;
+  const mirar = async () => {
+    try {
+      const c = (await (await fetch('/api/health', { headers: { 'x-ceo': '1' }, cache: 'no-store' })).json())?.instancia?.commit;
+      if (!c) return;
+      if (commit && c !== commit && !document.querySelector('dialog[open]') && !typing()) location.reload();
+      else if (!commit || !document.querySelector('dialog[open]')) commit = commit || c;
+    } catch { /* servidor reiniciándose */ }
+  };
+  void mirar();
+  setInterval(mirar, 60_000);
+}
 start();

@@ -7,6 +7,7 @@ const eur = (c) => `${(c / 100).toLocaleString('es-ES', { minimumFractionDigits:
 const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
 const mesTitulo = (m) => { const s = `${MESES[Number(m.slice(5, 7)) - 1]} de ${m.slice(0, 4)}`; return s[0].toUpperCase() + s.slice(1); };
 const WA = { PENDIENTE: ['Pendiente', 'wait'], ENVIANDO: ['Enviando…', 'work'], ENVIADO: ['Enviado', 'ok'], ERROR: ['Error', 'bad'] };
+const fechaCorta = (f) => (f ? `${f.slice(8, 10)}/${f.slice(5, 7)}/${f.slice(0, 4)}` : '—');
 const chip = (txt, tone) => h('span', { class: `a-chip t-${tone}` }, txt);
 
 export function alquileresUi({ run, ask, cmd, toast, LOCAL }) {
@@ -55,8 +56,9 @@ export function alquileresUi({ run, ask, cmd, toast, LOCAL }) {
     CONFIRMADO_SIN_ENVIAR: ['Confirmado · no comunicado', 'ok'], ENVIANDO: ['Enviando…', 'work'], ENVIADO: ['Enviado', 'ok'], ENVIO_FALLIDO: ['Envío fallido', 'bad'] };
   async function previaYConfirmar(a, params, btn) { await reciboDialogo(a, params?.mes || a.pendientes[0] || a.actual, params || {}, btn); }
 
-  // DETALLE DEL RECIBO (PC y móvil). Nada se registra ni se envía hasta pulsar «Confirmar» (sólo registra y guarda el recibo)
-  // o «Confirmar y enviar» (además lo envía con ESTE mensaje). Con el recibo ya emitido: enviar después o anular el cobro.
+  // DETALLE DEL RECIBO (PC y móvil), en secciones: A datos del cobro · B el PDF (ampliar / descargar) · C el mensaje (editable)
+  // · D preguntar al CEO (propone; sólo se aplica si Antonio acepta) · E adjuntos · F acciones. Nada se registra ni se envía
+  // hasta pulsar «Confirmar» (registra y guarda el recibo, sin enviar) o «Confirmar y enviar». Ya cobrado: no se vuelve a cobrar.
   async function reciboDialogo(a, mes, params = {}, btn = null) {
     if (ocupado.has(a.id)) return;
     ocupado.add(a.id);
@@ -64,53 +66,102 @@ export function alquileresUi({ run, ask, cmd, toast, LOCAL }) {
     let det, prev;
     try {
       det = await cmd('alquiler.recibo_detalle', { alquiler: a.id, mes });
+      // Ya cobrado sin justificante: se usa la fecha que confirmó Antonio; si no la hay, se pide (nunca se inventa).
       if (det?.ok && det.data.estado === 'COBRADO_SIN_RECIBO' && !params.fecha_pago) {
-        const f = await ask({ title: `Justificante de ${det.data.etiqueta}`, ok: 'Seguir', help: 'El cobro ya está confirmado. Para el justificante hace falta la fecha REAL en que cobraste (no se inventa).',
-          fields: [{ name: 'fecha_pago', label: 'Fecha del cobro', type: 'date', max: new Date().toISOString().slice(0, 10) }] });
-        if (!f) return;
-        params = { ...params, fecha_pago: f.fecha_pago };
+        if (det.data.datos.fecha_pago) params = { ...params, fecha_pago: det.data.datos.fecha_pago, metodo: det.data.datos.metodo };
+        else {
+          const f = await ask({ title: `Justificante de ${det.data.etiqueta}`, ok: 'Seguir', help: 'El cobro ya está confirmado. Para el justificante hace falta la fecha REAL en que cobraste (no se inventa).',
+            fields: [{ name: 'fecha_pago', label: 'Fecha del cobro', type: 'date', max: new Date().toISOString().slice(0, 10) }] });
+          if (!f) return;
+          params = { ...params, fecha_pago: f.fecha_pago };
+        }
       }
       if (det?.ok && ['NO_EMITIDO', 'COBRADO_SIN_RECIBO'].includes(det.data.estado)) prev = await cmd('alquiler.vista_previa', { alquiler: a.id, ...params, mes });
     } finally { ocupado.delete(a.id); if (btn) btn.disabled = false; }
     if (!det?.ok) { toast(det?.error || 'No se pudo abrir el recibo', 'bad'); return; }
     if (prev && !prev.ok) { toast(prev.error || 'No se pudo preparar la vista previa', 'bad'); return; }
-    const d = det.data, pv = prev?.data;
+    const d = det.data, pv = prev?.data, dt = d.datos;
     const porEmitir = !!pv;
+    const yaCobrado = dt.confirmado;
     const puedeEnviar = d.entrega === 'WHATSAPP';
     const [est, tono] = ESTADO_RECIBO[d.estado] || [d.estado, 'idle'];
+    const imagenPdf = (pv || d).imagen;
     return new Promise((resolve) => {
       const dlg = h('dialog', { class: 'sheet alq-ficha alq-recibo', 'aria-label': `Recibo de ${d.etiqueta}` });
       const fin = (v) => { dlg.close(); resolve(v); };
-      const txt = h('textarea', { rows: 4, class: 'alq-msg', 'aria-label': 'Mensaje que se enviará' }); txt.value = d.mensaje;
-      const instr = h('input', { type: 'text', placeholder: 'Pide algo al CEO (opcional): «más formal», «recuérdale el agua»…', 'aria-label': 'Petición al CEO' });
       const botones = [];
       const ocupar = (on) => { for (const b of botones) b.disabled = on; };
-      const ayuda = h('button', { class: 'btn ghost small', type: 'button', onclick: async () => {
-        ocupar(true); ayuda.textContent = 'El CEO está redactando…';
-        const r = await cmd('alquiler.redactar', { alquiler: a.id, mes, mensaje: txt.value, instruccion: instr.value });
-        ocupar(false); ayuda.textContent = 'Pedir ayuda al CEO';
-        if (!r?.ok) { toast(r?.error || 'El CEO no ha podido proponer un texto', 'bad'); return; }
-        txt.value = r.data.propuesta; toast('Propuesta del CEO en el mensaje: revísala antes de confirmar');
-      } }, 'Pedir ayuda al CEO');
-      const restaurar = h('button', { class: 'link', type: 'button', onclick: () => { txt.value = d.mensaje_recomendado; } }, 'Restaurar el recomendado');
       // Si la orden falla, la ventana sigue abierta (con el mensaje escrito) para corregir y reintentar.
       const accion = async (op, p, okMsg) => { ocupar(true); try { if (await run(op, p, okMsg)) fin(true); } finally { ocupar(false); } };
-      const datosCobro = pv ? `${pv.importe_txt} · ${pv.metodo_txt}` : d.recibo ? `${eur(d.recibo.importe_cent)} · cobrado el ${d.recibo.fecha_pago}` : '';
-      const yaCobrado = d.estado === 'COBRADO_SIN_RECIBO';
-      const pasos = porEmitir
-        ? h('ul', { class: 'small alq-pasos' }, h('li', {}, yaCobrado ? `El cobro de ${d.etiqueta} ya está confirmado: el recibo saldrá con ${datosCobro} (corrígelo con «Modificar datos del cobro» si no es así)` : `Registrar el cobro de ${d.etiqueta}: ${datosCobro}`),
-          h('li', {}, 'Generar y guardar el recibo PDF'),
-          h('li', {}, puedeEnviar ? `Enviar por WhatsApp a ${d.destinatario} SÓLO con «Confirmar y enviar»` : 'Sin envío: este alquiler recibe el recibo en mano'))
-        : null;
+
+      // A · DATOS DEL COBRO
+      const importe = pv ? pv.importe_txt : `${eur(dt.importe_cent)}${dt.importe_por_confirmar ? ' (por confirmar)' : ''}`;
+      const datos = h('dl', { class: 'alq-dl' },
+        h('dt', {}, 'Inmueble'), h('dd', {}, `${dt.inmueble || '—'}${dt.unidad ? ` · ${dt.unidad}` : ''}`),
+        h('dt', {}, 'Inquilino'), h('dd', {}, dt.inquilino, dt.contacto ? h('small', { class: 'muted' }, ` · vía ${dt.contacto}`) : null),
+        h('dt', {}, 'Mensualidad'), h('dd', {}, dt.mensualidad),
+        h('dt', {}, 'Importe'), h('dd', {}, importe),
+        h('dt', {}, 'Fecha del cobro'), h('dd', {}, pv?.fecha_pago && !yaCobrado ? `${fechaCorta(pv.fecha_pago)} (si confirmas ahora)` : dt.fecha_pago ? fechaCorta(dt.fecha_pago) : 'sin fecha registrada'),
+        h('dt', {}, 'Forma de pago'), h('dd', {}, pv ? pv.metodo_txt : dt.metodo_txt),
+        h('dt', {}, 'Pago'), h('dd', {}, yaCobrado ? chip('Cobrado (confirmado por ti)', 'ok') : chip('Pendiente: aún no se ha registrado nada', 'wait')),
+        h('dt', {}, 'Recibo'), h('dd', {}, chip(est, tono), d.recibo ? ` ${d.recibo.numero}` : ''));
+
+      // B · EL PDF: ampliar y descargar
+      const verGrande = () => {
+        const v = h('dialog', { class: 'alq-zoom', 'aria-label': 'Recibo ampliado' }, h('img', { src: imagenPdf, alt: `Recibo de ${d.etiqueta}` }),
+          h('button', { class: 'btn primary', type: 'button', onclick: () => v.close() }, 'Cerrar'));
+        v.addEventListener('close', () => v.remove());
+        document.body.append(v); v.showModal();
+      };
+      const urlPdf = d.recibo ? `/alquiler/recibo/${d.recibo.id}` : d.estado === 'NO_EMITIDO' ? `/alquiler/borrador/${encodeURIComponent(a.id)}` : null;
+      const enPc = LOCAL && !!urlPdf;
+      const pdf = h('div', { class: 'alq-pdf' },
+        porEmitir ? h('p', { class: 'alq-borrador' }, d.recibo ? '' : 'BORRADOR — NO EMITIDO. No se ha registrado ni enviado nada.') : null,
+        h('button', { class: 'alq-doc-img', type: 'button', onclick: verGrande, 'aria-label': 'Ampliar el recibo' }, h('img', { src: imagenPdf, alt: `Recibo de ${d.etiqueta}` })),
+        h('div', { class: 'alq-acciones' }, h('button', { class: 'btn ghost small', type: 'button', onclick: verGrande }, 'Ampliar'),
+          enPc ? h('a', { class: 'btn ghost small', href: urlPdf, target: '_blank', rel: 'noopener' }, 'Abrir PDF') : null,
+          enPc ? h('a', { class: 'btn ghost small', href: urlPdf, download: `Recibo ${d.etiqueta}.pdf` }, 'Descargar PDF')
+            : h('a', { class: 'btn ghost small', href: imagenPdf, download: `Recibo ${d.etiqueta}.jpg` }, 'Descargar')));
+
+      // C · MENSAJE (siempre visible y editable; si este alquiler no recibe envíos, se dice)
+      const txt = h('textarea', { rows: 5, class: 'alq-msg', 'aria-label': 'Mensaje que se enviará al inquilino' }); txt.value = d.mensaje;
+      const restaurar = h('button', { class: 'btn ghost small', type: 'button', onclick: () => { txt.value = d.mensaje_recomendado; } }, 'Restaurar el recomendado');
+
+      // D · PREGUNTAR AL CEO: su propuesta se enseña aparte; el mensaje sólo cambia con «Aplicar propuesta».
+      const instr = h('input', { type: 'text', placeholder: '¿Qué quieres? «más cercano», «más formal», «recuérdale el agua»…', 'aria-label': 'Petición al CEO' });
+      const propuesta = h('div', { class: 'alq-prop', hidden: true });
+      const preguntar = h('button', { class: 'btn small', type: 'button', onclick: async () => {
+        ocupar(true); preguntar.textContent = 'El CEO está pensando…';
+        const r = await cmd('alquiler.redactar', { alquiler: a.id, mes, mensaje: txt.value, instruccion: instr.value });
+        ocupar(false); preguntar.textContent = 'Preguntar al CEO';
+        if (!r?.ok) { toast(r?.error || 'El CEO no ha podido responder', 'bad'); return; }
+        propuesta.hidden = false;
+        propuesta.replaceChildren(h('p', { class: 'small muted' }, 'Propuesta del CEO (no se ha cambiado nada):'), h('p', { class: 'alq-prop-txt' }, r.data.propuesta),
+          h('div', { class: 'alq-acciones' },
+            h('button', { class: 'btn primary small', type: 'button', onclick: () => { txt.value = r.data.propuesta; propuesta.hidden = true; toast('Propuesta aplicada al mensaje'); } }, 'Aplicar propuesta'),
+            h('button', { class: 'btn ghost small', type: 'button', onclick: () => { propuesta.hidden = true; } }, 'Descartar')));
+      } }, 'Preguntar al CEO');
+
+      // E · ADJUNTOS
+      const adjuntos = h('ul', { class: 'alq-partes' }, d.adjuntos.map((x) => h('li', {},
+        h('strong', {}, x.tipo), ` · ${x.nombre} `, x.se_adjunta ? chip('Se adjuntará al mensaje', 'ok') : chip('No se envía', 'idle'), ' ',
+        h('button', { class: 'link', type: 'button', onclick: verGrande }, 'Ver'),
+        enPc ? [' · ', h('a', { class: 'link', href: urlPdf, target: '_blank', rel: 'noopener' }, 'Abrir'), ' · ', h('a', { class: 'link', href: urlPdf, download: x.nombre }, 'Descargar')] : null)));
+
+      // F · ACCIONES
       const acciones = [];
+      const datosCobro = { alquiler: a.id, ...params, mes };
       if (porEmitir) {
-        acciones.push(h('button', { class: 'btn ghost', type: 'button', onclick: () => fin(false) }, 'Cancelar'));
-        acciones.push(h('button', { class: `btn ${puedeEnviar ? '' : 'primary'}`, type: 'button', onclick: () => accion('alquiler.cobrar', { alquiler: a.id, ...params, mes, enviar: false, mensaje: txt.value }, 'Cobro confirmado (sin enviar)') }, 'Confirmar'));
-        if (puedeEnviar) acciones.push(h('button', { class: 'btn primary', type: 'button', onclick: () => accion('alquiler.cobrar', { alquiler: a.id, ...params, mes, enviar: true, mensaje: txt.value }, 'Cobro confirmado y enviando') }, 'Confirmar y enviar'));
+        acciones.push(h('button', { class: 'btn ghost', type: 'button', onclick: () => fin(false) }, yaCobrado ? 'Cerrar' : 'Cancelar'));
+        acciones.push(h('button', { class: `btn ${puedeEnviar ? '' : 'primary'}`, type: 'button',
+          onclick: () => accion('alquiler.cobrar', { ...datosCobro, enviar: false, mensaje: txt.value }, yaCobrado ? 'Justificante interno guardado (sin enviar)' : 'Cobro confirmado (sin enviar)') },
+        yaCobrado ? 'Guardar justificante (sin enviar)' : 'Confirmar'));
+        if (puedeEnviar) acciones.push(h('button', { class: 'btn primary', type: 'button',
+          onclick: () => accion('alquiler.cobrar', { ...datosCobro, enviar: true, mensaje: txt.value }, 'Enviando por WhatsApp') }, yaCobrado ? 'Guardar y enviar' : 'Confirmar y enviar'));
       } else {
         acciones.push(h('button', { class: 'btn ghost', type: 'button', onclick: () => fin(false) }, 'Cerrar'));
         if (d.recibo && puedeEnviar && ['CONFIRMADO_SIN_ENVIAR', 'EMITIDO', 'ENVIO_FALLIDO'].includes(d.estado)) {
-          acciones.push(h('button', { class: 'btn primary', type: 'button', onclick: () => accion('alquiler.enviar_recibo', { recibo: d.recibo.id, mensaje: txt.value }, 'Enviando') }, 'Enviar ahora'));
+          acciones.push(h('button', { class: 'btn primary', type: 'button', onclick: () => accion('alquiler.enviar_recibo', { recibo: d.recibo.id, mensaje: txt.value }, 'Enviando') }, d.estado === 'ENVIO_FALLIDO' ? 'Reintentar el envío' : 'Enviar ahora'));
         }
         acciones.push(h('button', { class: 'btn ghost', type: 'button', onclick: async () => {
           const r = await ask({ title: `Anular el cobro de ${d.etiqueta}`, ok: 'Anular el cobro', danger: true,
@@ -119,21 +170,23 @@ export function alquileresUi({ run, ask, cmd, toast, LOCAL }) {
           if (r) await accion('alquiler.anular_cobro', { alquiler: a.id, mes, motivo: r.motivo }, 'Cobro anulado');
         } }, 'Anular cobro'));
       }
-      botones.push(...acciones, ayuda);
-      const editable = porEmitir || ['CONFIRMADO_SIN_ENVIAR', 'EMITIDO', 'ENVIO_FALLIDO'].includes(d.estado);
-      txt.disabled = !editable || !puedeEnviar;
+      botones.push(...acciones, preguntar);
+      const enviado = d.estado === 'ENVIADO' || d.estado === 'ENVIANDO';
+      txt.disabled = enviado;
+      const envioTxt = !puedeEnviar ? 'Este alquiler no recibe envíos (entrega en mano o sin WhatsApp confirmado): el mensaje se guarda pero no se manda.'
+        : enviado ? `Mensaje ${d.estado === 'ENVIADO' ? 'enviado' : 'enviándose'} a ${d.destinatario}.`
+          : `Se enviará a ${d.destinatario} SÓLO si pulsas «${porEmitir ? (yaCobrado ? 'Guardar y enviar' : 'Confirmar y enviar') : 'Enviar ahora'}».`;
+      const sec = (t, ...hijos) => h('section', { class: 'alq-sec-box' }, h('h3', { class: 'alq-sec' }, t), ...hijos);
       dlg.append(
-        h('header', { class: 'cmp-head' }, h('h2', {}, `Recibo · ${a.inquilino} · ${d.etiqueta}`), chip(est, tono)),
-        h('div', { class: 'alq-ficha-body alq-panel' },
-          porEmitir ? h('p', { class: 'small' }, h('strong', {}, d.estado === 'COBRADO_SIN_RECIBO' ? 'Cobro ya confirmado, sin recibo todavía. ' : 'Aún no se ha registrado nada. '), 'Revisa el recibo y el mensaje.') : d.recibo?.wa_motivo ? h('p', { class: 'small alq-aviso' }, d.recibo.wa_motivo) : null,
-          pasos,
-          h('div', { class: 'alq-doc-img' }, h('img', { src: (pv || d).imagen, alt: `Recibo de ${d.etiqueta}` })),
-          h('h3', { class: 'alq-sec' }, 'Adjuntos'),
-          h('ul', { class: 'alq-partes' }, d.adjuntos.map((x) => h('li', {}, `${x.tipo} · ${x.nombre} `,
-            LOCAL ? h('a', { class: 'link', href: x.recibo ? `/alquiler/recibo/${x.recibo}` : `/alquiler/borrador/${encodeURIComponent(a.id)}`, target: '_blank', rel: 'noopener' }, 'Abrir PDF') : null))),
-          h('h3', { class: 'alq-sec' }, puedeEnviar ? `Mensaje de WhatsApp para ${a.contacto || a.inquilino}` : 'Mensaje (este alquiler no recibe envíos: recibo en mano)'),
-          txt,
-          puedeEnviar && editable ? h('div', { class: 'alq-acciones' }, instr, ayuda, restaurar) : null,
+        h('header', { class: 'cmp-head' }, h('h2', {}, `Recibo · ${a.inquilino.split(' ')[0]} · ${d.etiqueta}`), chip(est, tono)),
+        h('div', { class: 'alq-ficha-body alq-panel alq-recibo-cuerpo' },
+          d.recibo?.wa_motivo ? h('p', { class: 'small alq-aviso' }, d.recibo.wa_motivo) : null,
+          sec('Datos del cobro', datos),
+          sec('Recibo PDF', pdf),
+          sec('Mensaje que se enviará al inquilino', h('p', { class: 'small muted' }, envioTxt), txt,
+            enviado ? null : h('div', { class: 'alq-acciones' }, restaurar)),
+          enviado ? null : sec('Preguntar al CEO', h('div', { class: 'alq-acciones' }, instr, preguntar), propuesta),
+          sec('Documentos adjuntos', adjuntos, h('p', { class: 'small muted' }, d.otros_documentos)),
           h('div', { class: 'row alq-doc-btns' }, acciones)));
       dlg.addEventListener('close', () => { dlg.remove(); resolve(false); });
       document.body.append(dlg);
@@ -354,6 +407,15 @@ export function alquileresUi({ run, ask, cmd, toast, LOCAL }) {
     if (r) await run('suministro.registrar', { proyecto: g.id, fuente: 'Registrada a mano por Antonio', ...Object.fromEntries(Object.entries(r).filter(([, v]) => v !== '')) }, 'Factura registrada');
   }
 
+  // La factura ORIGINAL (primera página) en grande, en el PC y en el móvil. Sólo se mira: no se adjunta a nada.
+  async function verFacturaPdf(f) {
+    const v = await cmd('suministro.ver_documento', { factura: f.id });
+    if (!v?.ok) { toast(v?.error || 'No se pudo abrir la factura', 'bad'); return; }
+    const z = h('dialog', { class: 'alq-zoom', 'aria-label': v.data.titulo }, h('p', { class: 'small' }, v.data.nombre), h('img', { src: v.data.imagen, alt: v.data.titulo }),
+      h('button', { class: 'btn primary', type: 'button', onclick: () => z.close() }, 'Cerrar'));
+    z.addEventListener('close', () => z.remove());
+    document.body.append(z); z.showModal();
+  }
   // Detalle de una factura (ventana): documento, propuesta o criterio, responsables, cobros (con anular) y acciones.
   let detFactura = null; // { id, dlg, cuerpo }
   function cuerpoFactura(f) {
@@ -373,7 +435,11 @@ export function alquileresUi({ run, ask, cmd, toast, LOCAL }) {
         h('dt', {}, 'Factura'), h('dd', {}, `${f.proveedor}${f.contrato ? ` · contrato ${f.contrato}` : ''} · ${fecha(f.fecha)} · ${f.importe_txt}`),
         h('dt', {}, 'Estado'), h('dd', {}, estChip(f.estado), f.partes.length ? ` cobrado ${eur(f.cobrado)} · pendiente ${eur(f.pendiente)}` : ''),
         h('dt', {}, 'Pago al proveedor'), h('dd', {}, PAGO_PROV[f.pago_proveedor] || f.pago_proveedor, ' · ', h('button', { class: 'link', type: 'button', onclick: () => pagoProveedor(f) }, 'Cambiar')),
-        h('dt', {}, 'Documento'), h('dd', { class: 'small' }, f.documento ? 'PDF guardado en GalanContable' : 'Sin PDF local', ` · fuente: ${f.fuente}`),
+        h('dt', {}, 'Documento'), h('dd', { class: 'small' }, f.documento ? [
+          h('button', { class: 'link', type: 'button', onclick: () => verFacturaPdf(f) }, 'Ver la factura original'),
+          LOCAL ? [' · ', h('a', { class: 'link', href: `/alquiler/factura/${f.id}`, target: '_blank', rel: 'noopener' }, 'Abrir PDF'), ' · ',
+            h('a', { class: 'link', href: `/alquiler/factura/${f.id}`, download: `Factura ${f.proveedor} ${f.fecha}.pdf` }, 'Descargar')] : null]
+          : `Sin PDF guardado (se buscó en GalanContable; fuente: ${f.fuente})`),
         f.nota ? [h('dt', {}, 'Nota'), h('dd', { class: 'small' }, f.nota)] : null),
       f.sin_repartir
         ? h('div', { class: 'alq-prop' }, h('p', {}, f.propuesta?.ok ? `Propuesta (pendiente de tu confirmación): ${f.propuesta.criterio}` : f.propuesta?.motivo || 'Sin propuesta.'),

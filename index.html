@@ -49,7 +49,7 @@
     <!-- Navegación principal. En el móvil la misma navegación va abajo (barra de pestañas). -->
     <nav class="tabs" aria-label="Secciones">
       <button class="tab on" type="button" aria-current="page" data-tab="home">Dirección</button>
-      <button class="tab" id="b-mama" type="button" title="Mama: tu asistente personal (conversación privada, cifrada en el PC)">Mama</button>
+      <button class="tab tab-mama" id="b-mama" type="button" title="Mama: tu asistente personal (conversación privada, cifrada en el PC)"><img class="mama-av-tab" src="mama-avatar-64.png" alt="" width="22" height="22">Mama</button>
       <button class="tab" id="b-negocio" type="button" title="Objetivos de negocio: resultado, plan, indicadores medidos y trabajos">Objetivos</button>
       <button class="tab" id="b-autos" type="button" title="Agentes y automatizaciones de todos los proyectos: qué hacen, cuándo trabajan, última ejecución">Agentes</button>
       <button class="tab need" id="b-inbox" type="button" hidden title="Respuestas preparadas que esperan tu aprobación"></button>
@@ -145,7 +145,7 @@
 <!-- Navegación principal: en el PC fija arriba en TODAS las pantallas; en el móvil, abajo (al alcance del pulgar). -->
 <nav class="tabbar" id="tabbar" aria-label="Secciones" hidden>
   <button type="button" data-go="home" class="on"><span aria-hidden="true">◎</span>Dirección</button>
-  <button type="button" data-go="mama"><span aria-hidden="true">♥</span>Mama</button>
+  <button type="button" data-go="mama"><img class="mama-av-tab" src="mama-avatar-64.png" alt="" width="24" height="24">Mama</button>
   <button type="button" data-go="negocio"><span aria-hidden="true">◆</span>Objetivos<i class="badge" hidden></i></button>
   <button type="button" data-go="autos"><span aria-hidden="true">⚙</span>Agentes</button>
   <button type="button" data-go="inbox"><span aria-hidden="true">✉</span>Respuestas<i class="badge" hidden></i></button>
@@ -187,7 +187,7 @@
 <section id="p-mama" class="screen" hidden>
   <header class="top">
     <button class="btn ghost" id="m-back" aria-label="Volver">‹ Volver</button>
-    <div class="r-title"><h1 class="detail-name" id="m-title">Mama</h1><p class="muted small" id="m-sub">Tu asistente personal · conversación privada, cifrada en este PC</p></div>
+    <div class="r-title mama-cab"><img class="mama-av-cab" src="mama-avatar-128.png" alt="" width="48" height="48"><h1 class="detail-name" id="m-title">Mama</h1><p class="muted small" id="m-sub">Tu asistente personal · conversación privada, cifrada en este PC</p></div>
   </header>
   <main id="m-body" class="detail"></main>
 </section>

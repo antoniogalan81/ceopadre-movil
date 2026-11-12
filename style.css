@@ -1372,6 +1372,15 @@ dialog.alq-panel-dlg { width: min(1180px, 100%); }
 .alq-parte p { margin: 0; } .alq-cobros { margin: 0; padding-left: 18px; font-size: 13px; }
 .alq-prop { border: 1px dashed var(--line); border-radius: var(--radius); padding: 8px 10px; display: grid; gap: 6px; } .alq-prop p { margin: 0; }
 dialog.alq-recibo { width: min(760px, 100%); }
+.alq-recibo-cuerpo { display: grid; gap: 12px; }
+.alq-sec-box { border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 12px; display: grid; gap: 8px; min-width: 0; }
+.alq-sec-box .alq-sec { margin: 0; }
+.alq-borrador { margin: 0; font-weight: 700; color: var(--ask); }
+.alq-recibo button.alq-doc-img { border: 0; padding: 0; background: none; cursor: zoom-in; width: 100%; }
+.alq-prop-txt { white-space: pre-wrap; margin: 0; }
+dialog.alq-zoom { width: min(980px, calc(100vw - 16px)); max-height: calc(var(--vvh, 100dvh) - 16px); overflow: auto; padding: 10px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--paper); }
+dialog.alq-zoom img { width: 100%; height: auto; display: block; margin-bottom: 8px; }
+.alq-recibo .alq-doc-btns { position: sticky; bottom: 0; background: var(--paper); padding-block: 8px; flex-wrap: wrap; }
 .alq-recibo .cmp-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
 .alq-msg { width: 100%; min-height: 96px; font: inherit; padding: 8px; border: 1px solid var(--line); border-radius: var(--radius); box-sizing: border-box; }
 .alq-recibo .alq-acciones input { flex: 1 1 220px; min-height: 40px; padding: 0 8px; border: 1px solid var(--line); border-radius: var(--radius); }
@@ -1462,3 +1471,12 @@ dialog.cp-dlg { width: min(860px, calc(100vw - 24px)); overflow: auto; }
 .cp-list { margin: 6px 0; padding-left: 18px; max-height: 40vh; overflow: auto; overflow-wrap: anywhere; }
 .cp-list li { margin: 3px 0; }
 @media (max-width: 560px) { .cp-row { grid-template-columns: 1fr; gap: 0; } }
+
+/* MAMA: su cara como identidad (12-11-2026) — respuestas, pestaña y cabecera. */
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+.msg.msg-mama { display: grid; grid-template-columns: 32px minmax(0, 1fr); gap: 8px; align-items: start; }
+.mama-av { width: 32px; height: 32px; border-radius: 50%; object-fit: cover; box-shadow: 0 0 0 1px var(--line); }
+.msg-mama-cuerpo { min-width: 0; } .msg-mama-cuerpo > p:first-child { margin-top: 0; }
+.mama-av-tab { width: 22px; height: 22px; border-radius: 50%; object-fit: cover; vertical-align: middle; margin-right: 6px; box-shadow: 0 0 0 1px rgba(255,255,255,.5); }
+.mama-cab { display: flex; align-items: center; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
+.mama-av-cab { width: 48px; height: 48px; border-radius: 50%; object-fit: cover; box-shadow: 0 0 0 2px var(--line); }

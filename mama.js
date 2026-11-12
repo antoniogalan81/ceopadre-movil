@@ -25,8 +25,10 @@ export function mamaUi({ api, toast, show, local }) {
   const burbuja = (m) => {
     if (m.rol === 'antonio') return h('div', { class: 'msg yo' }, h('p', {}, m.texto), h('p', { class: 'msg-who m-at' }, `${fecha(m.at)}${m.via === 'movil' ? ' · desde el móvil' : ''}`));
     if (m.rol === 'sistema') return h('div', { class: 'msg sis' }, h('p', {}, m.texto));
-    return h('div', { class: 'msg ceo' }, h('p', { class: 'msg-who' }, `MAMA · ${fecha(m.at)}`), h('p', { class: 'msg-r' }, m.texto),
-      m.inciertos?.length ? h('details', { class: 'msg-more' }, h('summary', {}, 'Lo que no sabe seguro'), h('ul', {}, m.inciertos.map((x) => h('li', {}, x)))) : null);
+    // Su cara identifica a MAMA (12-11): no se repite «MAMA» en cada respuesta; el nombre queda para los lectores de pantalla.
+    return h('div', { class: 'msg ceo msg-mama' }, h('img', { class: 'mama-av', src: 'mama-avatar-64.png', srcset: 'mama-avatar-64.png 1x, mama-avatar-128.png 2x', alt: '', width: 32, height: 32 }),
+      h('div', { class: 'msg-mama-cuerpo' }, h('p', { class: 'msg-who' }, h('span', { class: 'sr-only' }, 'MAMA · '), fecha(m.at)), h('p', { class: 'msg-r' }, m.texto),
+        m.inciertos?.length ? h('details', { class: 'msg-more' }, h('summary', {}, 'Lo que no sabe seguro'), h('ul', {}, m.inciertos.map((x) => h('li', {}, x)))) : null));
   };
 
   async function enviar(e) {

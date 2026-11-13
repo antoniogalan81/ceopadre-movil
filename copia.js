@@ -16,6 +16,47 @@ const ESTADO = {
   verificada: ['Verificada', 'ok'], verificacion_fallida: ['Verificación fallida', 'bad'],
 };
 const est = (s) => ESTADO[s] || [s, 'idle'];
+const hecha = (st) => st?.ultima_completada
+  || (() => { const r = st?.historial?.find((x) => x.tipo === 'copia' && x.estado === 'completada_con_incidencias'); return r ? { ts: r.fin, run: r.id } : null; })();
+
+// CIFRAS DEL CONJUNTO (st.avance, calculadas por el motor con el índice; persisten aunque se cierre todo). Nunca se
+// inventa un total ni un %: con estimación parcial el total es un mínimo («≥») y el % no se enseña.
+const durTxt = (s) => (s == null ? '—' : s >= 86400 ? `${Math.floor(s / 86400)} d ${Math.floor((s % 86400) / 3600)} h`
+  : s >= 3600 ? `${Math.floor(s / 3600)} h ${Math.round((s % 3600) / 60)} min` : s >= 60 ? `${Math.round(s / 60)} min` : `${Math.round(s)} s`);
+const vel = (bs) => (bs == null ? '—' : `${(bs / (1 << 20)).toLocaleString('es-ES', { maximumFractionDigits: 1 })} MB/s`);
+const cuando = (t) => (t ? new Date(t * 1000).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—');
+const mbs = (x) => (x != null ? `${x.toLocaleString('es-ES')} MB/s` : 'midiendo…');
+function cifras(st) {
+  const a = st?.avance;
+  if (!a) return null;
+  const tot = a.total;
+  const ge = tot?.minimo ? '≈ ' : '';
+  const hechos = a.hechos || a.confirmados;
+  const inc = a.incidencias || {};
+  const v = a.velocidad || {};
+  const corriendo = st.en_curso;
+  const vf = corriendo ? a.verificacion : null;
+  if (vf) {
+    return {
+      archivos: `${num(vf.archivos)} archivos verificados de ${num(vf.de_archivos)} copiados`,
+      bytes: `${bytes(vf.bytes)} verificados de ${bytes(vf.de_bytes)}`,
+      pct: vf.pct != null ? `${vf.pct.toLocaleString('es-ES')} % verificado` : '% —',
+      vel: `${mbs(v.actual_mb_s)} (media ${vel(v.media_sesion_b_s)})`,
+      eta: vf.eta_s ? `≈ ${durTxt(vf.eta_s)} restantes al ritmo medio` : 'tiempo restante: midiendo el ritmo',
+      errores: `${num(vf.mal)} archivos que no coinciden · ${num(inc.fallidos)} fallidos de la copia · ${num(inc.omitidos)} omitidos`,
+    };
+  }
+  return {
+    archivos: `${num(hechos.archivos)} archivos completados de ${tot ? ge + num(tot.archivos) : '? (recuento pendiente)'}`,
+    bytes: `${bytes(hechos.bytes)} respaldados de ${tot ? ge + bytes(tot.bytes) : '?'}`,
+    pct: a.pct != null ? `${a.pct.toLocaleString('es-ES')} %` : tot?.minimo ? '% sin total exacto' : '% pendiente de recuento',
+    vel: corriendo ? mbs(v.actual_mb_s) : a.copia?.media_b_s ? `media última copia ${vel(a.copia.media_b_s)}` : 'sin copia',
+    eta: corriendo ? (a.eta_s ? `≈ ${durTxt(a.eta_s)} restantes` : 'tiempo restante sin estimación fiable')
+      : a.pendientes?.exacto && !a.pendientes.archivos ? 'nada pendiente' : 'restante: se calcula al copiar',
+    errores: `${num(inc.fallidos)} fallidos · ${num(inc.omitidos)} omitidos · ${num(inc.reintento)} por reintentar`,
+  };
+}
+const lineaCifras = (c) => (c ? [c.archivos, c.bytes, c.pct, c.vel, c.eta, c.errores].join(' — ') : '');
 
 export function copiaUi({ cmd, toast, ask }) {
   let st = null;
@@ -74,17 +115,21 @@ export function copiaUi({ cmd, toast, ask }) {
     if (st.autorizada && !st.disco) return [['Esperando al disco', 'wait'], 'Conecta «Tocho Disco Duro»: la copia autorizada continuará sola'];
     if (st.pausada) return [['Pausada', 'idle'], 'Pulsa Continuar para seguir donde quedó'];
     if (last && ['interrumpida', 'error', 'detenida'].includes(last.estado)) return [est(last.estado), last.nota || ''];
-    if (!st.ultima_completada) return [['Sin primera copia', 'ask'], st.disco ? 'Disco conectado: lista para la primera copia' : 'Conecta el disco y pulsa «Hacer copia»'];
+    const uc = hecha(st);
+    if (!uc) return [['Sin primera copia', 'ask'], st.disco ? 'Disco conectado: lista para la primera copia' : 'Conecta el disco y pulsa «Hacer copia»'];
     const v = st.ultima_verificacion;
     // completada ≠ verificada: una verificación anterior a la última copia no cubre lo copiado después
-    const vieja = v && st.ultima_completada && new Date(v.ts) < new Date(st.ultima_completada.ts);
+    const vieja = v && new Date(v.ts) < new Date(uc.ts);
     const verif = !v ? ' · sin verificar' : v.mal ? ' · última verificación FALLIDA' : vieja ? ' · lo último aún sin verificar' : ` · verificada ${fecha(v.ts)}`;
     return [last?.estado === 'completada_con_incidencias' ? est(last.estado) : v?.mal ? ['Verificación fallida', 'bad'] : ['Al día', 'ok'],
-      `Última copia completada ${fecha(st.ultima_completada.ts)}${verif} · ${num(st.pendientes?.carpetas)} carpetas con cambios`];
+      `Última copia completada ${fecha(uc.ts)}${verif} · ${num(st.pendientes?.carpetas)} carpetas con cambios`];
   }
 
   function paintMini() {
-    const [estado, desc] = resumen();
+    const [estado, txt] = resumen();
+    const c = cifras(st);
+    const sinCopia = (st?.adicionales || []).filter((x) => x.error || x.ultima?.estado !== 'completada').map((x) => x.nombre);
+    const desc = (c ? `${txt} · ${lineaCifras(c)}` : txt) + (sinCopia.length ? ` · sin copia completa: ${sinCopia.join(', ')}` : '');
     const accion = st?.en_curso ? { txt: 'Ver progreso', on: abrir }
       : st?.borrado_pendiente ? { txt: 'Revisar', cls: 'primary', on: abrir }
       : st?.pausada ? { txt: 'Continuar', cls: 'primary', on: (b) => orden('copia.continuar', 'Continuando', b) }
@@ -193,13 +238,15 @@ export function copiaUi({ cmd, toast, ask }) {
         j.uso ? fila('Actividad medida', [`${j.uso.mb_dia} MB/día · el diario (${bytes(j.maximo)}) cubre ${j.uso.dias_de_margen ?? '—'} días`,
           j.uso.aviso ? chip('Diario pequeño para esta actividad', 'warn') : '']) : null,
         j.ultima_completa ? fila('Última revisión completa', `${fecha(j.ultima_completa.ts)} · ${j.ultima_completa.motivo}`) : null),
+      conjunto(),
+      adicionales(),
       rendimiento(corriendo),
       corriendo ? progreso() : null,
       h('section', { class: 'cp-box' }, h('h3', {}, 'Situación'),
-        fila('Última copia completada', st.ultima_completada ? fecha(st.ultima_completada.ts) : 'Ninguna todavía'),
+        fila('Última copia completada', hecha(st) ? `${fecha(hecha(st).ts)}${st.ultima_completada ? '' : ' (con incidencias)'}` : 'Ninguna todavía'),
         fila('Último resultado', last ? [chip(...est(last.estado)), ` ${last.nota || ''}`] : '—'),
         fila('Última verificación íntegra', st.ultima_verificacion ? [chip(st.ultima_verificacion.mal ? 'Verificación fallida' : 'Verificada', st.ultima_verificacion.mal ? 'bad' : 'ok'),
-          st.ultima_completada && new Date(st.ultima_verificacion.ts) < new Date(st.ultima_completada.ts) ? chip('anterior a la última copia', 'warn') : '',
+          hecha(st) && new Date(st.ultima_verificacion.ts) < new Date(hecha(st).ts) ? chip('anterior a la última copia', 'warn') : '',
           ` ${fecha(st.ultima_verificacion.ts)} · ${num(st.ultima_verificacion.ok)} bien, ${num(st.ultima_verificacion.mal)} mal${st.ultima_verificacion.nota ? ` · ${st.ultima_verificacion.nota}` : ''}`] : 'Nunca (completada ≠ verificada)'),
         fila('Pendiente', `${num(st.pendientes?.carpetas)} carpetas con cambios${e?.archivos && st.pendientes?.carpetas ? ` · ≈ ${num(e.archivos)} archivos, ${bytes(e.bytes)}${e.completo ? '' : ' (parcial)'}` : ''}`),
         fila('Versiones guardadas', `${num(st.versiones?.n)} · ${bytes(st.versiones?.bytes)}`),
@@ -222,6 +269,78 @@ export function copiaUi({ cmd, toast, ask }) {
         h('ul', { class: 'cp-list' }, (st.historial || []).map((r) => h('li', {}, chip(...est(r.estado)),
           ` #${r.id} ${r.tipo} · ${fecha(r.inicio)}${r.fin ? ` → ${fecha(r.fin)}` : ''} · ${r.modo || ''} · ${num(r.archivos)} archivos, ${bytes(r.bytes)}, ${num(r.movidos)} movidos, ${num(r.versiones)} versiones, ${num(r.adoptados)} ya presentes, ${num(r.listadas)} carpetas leídas${r.arranques > 1 ? ` · ${r.arranques} arranques` : ''}${r.tipo === 'verificacion' ? ` · ${num(r.verif_ok)} bien / ${num(r.verif_mal)} mal` : ''}${r.nota ? ` · ${r.nota}` : ''}`)))),
       cerrarBtn(), aviso].filter(Boolean)); // replaceChildren pinta «null» si se le pasa
+  }
+
+  // PROGRESO DEL CONJUNTO: siempre a la vista (también con la copia parada), con lo guardado por el motor.
+  function conjunto() {
+    const a = st.avance;
+    if (!a) return null;
+    const c = cifras(st);
+    const p = a.pendientes || {};
+    const inc = a.incidencias || {};
+    const u = a.ultimo || {};
+    const cp = a.copia;
+    const v = a.velocidad || {};
+    const ahora = Date.now() / 1000;
+    const ge = a.total?.minimo ? '≈ ' : '';
+    const parcial = p.exacto ? '' : ` (estimación parcial${p.evaluadas != null ? `: ${num(p.evaluadas)} de ${num(p.carpetas)} carpetas con cambios evaluadas` : ''}; el resto se cuenta al copiarlas)`;
+    const finRun = cp && st.historial?.find((r) => r.id === cp.id)?.fin;
+    const actividad = u.actividad_ts || u.fin_ts || (finRun ? new Date(finRun).getTime() / 1000 : null);
+    const proceso = st.en_curso
+      ? (u.senal_ts && ahora - u.senal_ts > 60 ? [chip('Sin señales', 'warn'), ` desde ${cuando(u.senal_ts)} · pid ${u.pid ?? '—'}`]
+        : [chip('Trabajando', 'work'), ` pid ${u.pid ?? '—'} · ${u.fase || ''}`])
+      : [chip('Parado', 'idle'), cp ? ` no hay proceso de copia · copia #${cp.id}: ${est(cp.estado)[0].toLowerCase()}${finRun ? ` el ${fecha(finRun)}` : ''}` : ' no hay proceso de copia'];
+    return h('section', { class: `cp-box t-${st.en_curso ? 'work' : a.pct === 100 ? 'ok' : 'idle'}` }, h('h3', {}, 'Progreso del conjunto'),
+      h('p', {}, h('strong', {}, lineaCifras(c))),
+      a.verificacion && st.en_curso ? h('progress', { max: 100, value: a.verificacion.pct || 0, 'aria-label': `Verificado ${a.verificacion.pct} %` })
+        : a.pct != null ? h('progress', { max: 100, value: a.pct, 'aria-label': `Progreso del conjunto ${a.pct} %` }) : null,
+      a.verificacion && st.en_curso ? fila('Verificación en curso', `#${a.verificacion.id}: ${num(a.verificacion.archivos)} de ${num(a.verificacion.de_archivos)} archivos · ${bytes(a.verificacion.bytes)} de ${bytes(a.verificacion.de_bytes)} · ${num(a.verificacion.mal)} no coinciden · recuento ${fecha(a.verificacion.recuento_ts)}`) : null,
+      a.carpetas_sesion && st.en_curso ? fila('Carpetas revisadas (esta sesión)', `${num(a.carpetas_sesion.hechas)} de ${num(a.carpetas_sesion.total)}`) : null,
+      fila('Total de archivos del origen', a.total ? `${ge}${num(a.total.archivos)}${a.total.minimo ? ' (aproximado: aún no se han evaluado todas las carpetas con cambios)' : ''}` : 'Recuento pendiente: se sabrá con la próxima estimación o al terminar la indexación'),
+      fila('Archivos copiados y confirmados', `${num(a.confirmados.archivos)} (temporal con fsync, huella BLAKE2b y publicación anotada) · recuento ${fecha(a.recuento_ts)}`),
+      fila('Verificados íntegramente', `${num(a.verificados.archivos)} · ${bytes(a.verificados.bytes)}${a.confirmados.archivos > a.verificados.archivos ? ` · ${num(a.confirmados.archivos - a.verificados.archivos)} pendientes de verificación («Verificar copia»)` : ''}`),
+      st.en_curso && u.escribiendo ? fila('Escribiéndose ahora (sin confirmar)', `${num(u.escribiendo)} archivo(s) en temporal`) : null,
+      fila('Archivos pendientes', `${p.exacto ? '' : '≥ '}${num(p.archivos)} en ${num(p.carpetas)} carpetas${parcial}`),
+      fila('Tamaño total a respaldar', a.total ? `${ge}${bytes(a.total.bytes)}` : 'Recuento pendiente'),
+      fila('Respaldado correctamente', bytes(a.confirmados.bytes)),
+      fila('Pendiente', `${p.exacto ? '' : '≥ '}${bytes(p.bytes)}`),
+      fila('Porcentaje real', a.pct != null ? `${a.pct.toLocaleString('es-ES')} %` : 'No se enseña sin un total exacto (no se inventa)'),
+      fila('Velocidad', st.en_curso ? `ahora ${mbs(v.actual_mb_s)} · media de esta sesión ${vel(v.media_sesion_b_s)}${cp?.media_b_s ? ` · media de la copia ${vel(cp.media_b_s)}` : ''}`
+        : cp?.media_b_s ? `media de la copia #${cp.id}: ${vel(cp.media_b_s)}${cp.media_incluye_cortes ? ' (incluye el tiempo entre cortes)' : ''}` : '—'),
+      fila('Tiempo transcurrido', cp ? `${durTxt(cp.transcurrido_s)}${cp.trabajando_s ? ` · trabajando ${durTxt(cp.trabajando_s)}` : ''}` : '—'),
+      fila('Tiempo restante', st.en_curso ? (a.eta_s ? `≈ ${durTxt(a.eta_s)}` : 'sin estimación fiable todavía (hace falta saber lo pendiente y 1 min de ritmo estable)') : c.eta),
+      fila('Errores', `${num(inc.fallidos)} fallidos · ${num(inc.omitidos)} omitidos (${num(inc.enlaces)} enlaces que no se siguen, ${num(inc.no_locales)} sólo en la nube) · ${num(inc.reintento)} pendientes de reintento (se reintentan solos en cada copia) · ${num(inc.avisos)} avisos`),
+      fold('leyenda', 'Qué significa cada cifra',
+        h('ul', { class: 'cp-list' },
+          h('li', {}, h('strong', {}, 'Copiado y confirmado: '), 'está en el disco USB, escrito con fsync, con su huella anotada y publicado con un renombrado atómico. Es la copia válida.'),
+          h('li', {}, h('strong', {}, 'Verificado: '), 'además se ha releído del USB y coincide con su huella (SQLite: quick_check; PGlite: restauración real). Sólo lo hace «Verificar copia».'),
+          h('li', {}, h('strong', {}, 'Omitido: '), 'no se copia a propósito: enlaces y uniones (no se siguen: su contenido se copia en su sitio real si está dentro del origen) y archivos sólo en la nube. Lo de fuera del origen va en «Datos fuera de E:\\ECOAPP».'),
+          h('li', {}, h('strong', {}, 'Fallido: '), 'se intentó y no se pudo (bloqueado, sin permiso, antivirus…). Su carpeta queda pendiente y se reintenta sola en cada copia; nunca se da por copiado.'),
+          h('li', {}, h('strong', {}, 'Pendiente: '), 'cambios en el origen aún no copiados (nuevos o modificados), sacados del diario de cambios de E:.'),
+          h('li', {}, h('strong', {}, 'Excluido: '), 'fuera de la copia por decisión documentada (config «excluir»); no cuenta como fallo.'))),
+      fila('Último archivo confirmado', u.archivo ? `${u.archivo} · ${cuando(u.archivo_ts)}` : 'No registrado (se guarda a partir de esta versión)'),
+      fila('Última actividad real', cuando(actividad)),
+      fila('Estado del proceso', proceso));
+  }
+
+  // ORÍGENES ADICIONALES: carpetas fuera de E:\ECOAPP que también se respaldan (p. ej. los datos de CEOPadre en el SSD).
+  function adicionales() {
+    const xs = st.adicionales || [];
+    if (!xs.length) return null;
+    return h('section', { class: 'cp-box' }, h('h3', {}, 'Datos fuera de E:\\ECOAPP'),
+      h('p', { class: 'muted' }, 'Se copian en su propia carpeta del mismo disco al empezar cada copia y se verifican con «Verificar copia».'),
+      ...xs.map((x) => {
+        const a = x.avance || {};
+        const u = x.ultima;
+        const v = x.ultima_verificacion;
+        const tono = x.error ? 'bad' : x.en_curso ? 'work' : !u ? 'ask' : u.estado === 'completada' ? 'ok' : 'warn';
+        return h('div', { class: 'cp-sub' },
+          fila(x.nombre, [chip(x.error ? 'Sin respuesta' : x.en_curso ? 'Copiando' : u ? est(u.estado)[0] : 'Aún sin copiar', tono), ` ${x.origen} → ${x.destino || '—'}`]),
+          x.error ? fila('Error', x.error) : null,
+          fila('Copiado y confirmado', a.confirmados ? `${num(a.confirmados.archivos)} archivos · ${bytes(a.confirmados.bytes)}${u?.fin ? ` · última copia ${fecha(u.fin)}` : ''}` : '—'),
+          fila('Verificado', v ? `${fecha(v.ts)} · ${num(v.ok)} bien, ${num(v.mal)} mal` : 'Nunca'),
+          (x.incidencias || []).length ? fila('Incidencias', x.incidencias.slice(0, 5).map((i) => `${i.tipo}: ${i.ruta}`).join(' · ')) : null);
+      }));
   }
 
   // RENDIMIENTO: el modo se elige aquí (también en plena copia); lo demás es lo que MIDE el regulador del motor.

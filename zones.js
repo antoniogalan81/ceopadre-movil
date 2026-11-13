@@ -198,6 +198,8 @@ export const HIGH_RISK = new Set(['objetivo.iniciar', 'objetivo.anadir', 'trabaj
   'ceo.aplicar',
   // V3.7: elegir la alternativa del CEO en una decisión (da trabajo nuevo a Claude). Aprobar/rechazar siguen como en la tarjeta.
   'decision.alternativa',
+  // 13-11: contestar una decisión con texto (por orden a su CEO) reactiva al trabajo que la esperaba.
+  'decision.contestar',
   // V3.10: unificar o cerrar lo pendiente de Antonio (cierra preguntas y entrega respuestas a trabajos).
   'negocio.conciliar',
   // V3.12: responder varias decisiones de una vez (cada una da trabajo al director como negocio.necesidad).

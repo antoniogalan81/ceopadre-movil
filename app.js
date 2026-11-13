@@ -547,7 +547,10 @@ const actions = {
 };
 
 // Acción principal con texto (sólo cuando hay que decidir algo); el resto, iconos.
-function buttonsFor(c) {
+// Lista PLANA siempre (13-11): `add` es un grupo y un array anidado tumbaba el detalle del proyecto (summaryPanel filtra con
+// getAttribute: TypeError → panel en blanco desde 873fe85). h() aplanaba en las tarjetas y por eso sólo fallaba el detalle.
+const buttonsFor = (c) => botones(c).flat();
+function botones(c) {
   const I = (icon, label, act, cls) => iconBtn(icon, label, (e) => actions[act](c, e.currentTarget), cls);
   const T = (label, act) => h('button', { class: 'btn primary small', type: 'button', onclick: (e) => actions[act](c, e.currentTarget) }, label);
   const e = c.estado;
@@ -995,8 +998,9 @@ function decisionHandlers(p) {
     copy: (ref, b) => copiarConsulta(`decision:${p.id}:${ref}`, b),
     async answer(d, b) {
       const r = await ask({ title: `Decidir · ${p.nombre}`, help: d.pregunta, ok: 'Guardar decisión',
-        fields: [{ name: 'respuesta', label: 'Tu decisión', type: 'textarea', value: d.consejo?.respuesta || '', placeholder: 'Escribe la respuesta tal como quieres que la sigan Codex y Claude' }] });
-      if (r?.respuesta) await run('decision.responder', { proyecto: p.id, id: d.id, respuesta: r.respuesta }, 'Decisión guardada', b);
+        // 13-11: se precarga la RESPUESTA OPERATIVA que el CEO preparó para quien espera, nunca su análisis para ti.
+        fields: [{ name: 'respuesta', label: 'Tu decisión', type: 'textarea', value: d.consejo?.responder?.texto || '', placeholder: 'Escribe la respuesta tal como quieres que la sigan Codex y Claude' }] });
+      if (r?.respuesta) await run('decision.responder', { proyecto: p.id, id: d.id, respuesta: r.respuesta }, 'Respuesta enviada', b);
     },
     postpone: (d, b) => run('decision.posponer', { proyecto: p.id, id: d.id, dias: 7 }, 'Pospuesta 7 días', b),
     consult: (ref, b) => actions.consult(p, ref, b),
@@ -1145,7 +1149,9 @@ async function openInforme(horas = 24) {
     sec('goal', 'Objetivos de negocio', x.negocio, (m) => [h('b', {}, cleanGoal(m.titulo)), ` — ${(MOOD_NEGOCIO[m.estado] || m.estado).toLowerCase()}`, ...m.kpis.map((k) => h('small', {}, kpi(k))), ...m.avances.slice(0, 2).map((e) => h('small', { class: 'muted' }, e.texto))]),
     sec('work', 'Trabajando ahora', x.trabajando, (i) => [h('b', {}, i.proyecto), ` — ${i.ahora || i.objetivo}`]),
     sec('wait', 'En espera', x.esperando, (i) => [h('b', {}, i.proyecto), ` — ${esperaHumana(i.que).titulo || i.que}`, i.comprobada_at ? h('small', { class: 'muted' }, `Última comprobación ${hhmm(i.comprobada_at)}`) : null]),
+    sec('bad', 'Dependencias internas paradas más de 6 h', x.rendimiento?.dependencias_paradas || [], (i) => [h('b', {}, i.proyecto), ` — ${i.que}`, h('small', { class: 'muted' }, `Espera #${i.espera} · ${i.horas} h`)]),
     sec('next', 'Después', x.despues, (i) => [h('b', {}, i.cuando ? hhmm(i.cuando) : 'En cola'), ` — ${i.que} · ${i.proyecto}`]),
+    x.rendimiento ? h('p', { class: 'muted' }, `Rendimiento: ${x.rendimiento.iniciados} iniciados · ${x.rendimiento.terminados} terminados · ${x.rendimiento.cancelados} cancelados${x.rendimiento.horas_hasta_terminar != null ? ` · ${x.rendimiento.horas_hasta_terminar} h de media hasta terminar` : ''} · ${x.rendimiento.abiertos} abiertos ahora`) : null,
     x.automatizaciones.length ? h('p', { class: 'muted' }, `Agentes ejecutados: ${x.automatizaciones.map((a) => `${a.n} ${a.estado.toLowerCase()}`).join(' · ')}`) : null,
     hechos.every((n) => !n) && !x.negocio.length && !x.esperando.length ? h('p', { class: 'muted' }, 'Sin actividad en este periodo.') : null,
     h('p', { class: 'muted small' }, `Del ${new Date(x.desde).toLocaleString('es-ES', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })} a ahora · datos de CEOPadre, sin estimaciones.`));
@@ -1888,7 +1894,7 @@ function lessonItem(l) {
 
 // ------------------------------------------------------------------ arranque
 
-$('#d-back').addEventListener('click', () => { openId = null; show('p-list'); });
+$('#d-back').addEventListener('click', () => { openId = null; navPush({}); show('p-list'); }); // 13-11: limpia ?proyecto= (recargar no lo reabre)
 $('#viewer-copy').prepend(svg('copy'));
 $('#viewer-copy').addEventListener('click', (e) => viewerSrc && copiarInformeCompleto(viewerSrc.trabajo, viewerSrc.ronda, e.currentTarget));
 $('#cmp-paste').prepend(svg('paste'));

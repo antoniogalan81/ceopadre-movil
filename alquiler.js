@@ -684,18 +684,141 @@ export function alquileresUi({ run, ask, cmd, toast, LOCAL }) {
     return movs.length ? h('ul', { class: 'alq-partes' }, movs.map((m) => h('li', {}, `${fecha(String(m.at).slice(0, 10))} · ${m.quien} · ${MOV[m.tipo] || m.tipo}${m.importe ? ` · ${eur(m.importe)}` : ''}${m.mes ? ` · ${mesTitulo(m.mes)}` : ''}${m.extra || ''}`)))
       : h('p', { class: 'muted small' }, 'Sin movimientos todavía.');
   }
-  const TABS = [['rentas', 'Rentas'], ['suministros', 'Suministros'], ['recibos', 'Recibos y mensajes'], ['historial', 'Historial']];
+  // ---------------------------------------------------------------- WHATSAPP / COMUNICACIONES (RI659)
+  // Mensajes por inquilino sobre la bandeja de CEOPadre (mensaje_propuesto; src/alquiler-mensajes.js). Aprobar el TEXTO no
+  // envía: el envío es otra confirmación y, sin la autorización específica de Antonio, el PC lo bloquea.
+  const WA_TONO = { PREPARADO: 'idle', PENDIENTE_APROBACION: 'ask', TEXTO_APROBADO: 'ok', ENVIANDO_WA: 'work', ENVIADO: 'ok', ENVIO_FALLIDO: 'bad', RECHAZADO: 'idle' };
+  const WA_EV = { PREPARADO: 'Preparado', EDITADA: 'Editado', EDITADA_CON_IA: 'Editado con el CEO', PENDIENTE_APROBACION: 'Pedida tu aprobación', TEXTO_APROBADO: 'Texto aprobado (sin enviar)',
+    APROBACION_ANULADA: 'Aprobación anulada (texto cambiado)', ENVIO_BLOQUEADO: 'Envío bloqueado: sin autorización', ENVIANDO: 'Envío confirmado por ti', REINTENTO: 'Reintento confirmado por ti',
+    ENVIADA: 'Enviado', ENVIO_FALLIDO: 'Envío fallido', DESCARTADO: 'Descartado',
+    PRUEBA_PROPIA: 'Copia de prueba a tu WhatsApp pedida por ti', PRUEBA_PROPIA_ENVIADA: 'Copia de prueba entregada en tu WhatsApp', PRUEBA_PROPIA_FALLIDA: 'Copia de prueba fallida' };
+  let editorIa = null; // «Pedir al CEO» = el editor con IA de la bandeja (web/redactor.js), con vista previa antes de aplicar
+  const wa = { datos: null, error: null, abierto: new Set() };
+  async function waCargar(pid, repintar) {
+    const r = await cmd('alquiler.msg.lista', { proyecto: pid });
+    wa.datos = r?.ok ? r.data : null; wa.error = r?.ok ? null : r?.error || 'No se pudo cargar';
+    repintar();
+  }
+  async function waOrden(op, params, okMsg, btn, pid, repintar) {
+    const ok = await run(op, params, okMsg, btn);
+    await waCargar(pid, repintar);
+    return ok;
+  }
+  function waMensaje(m, a, pid, repintar) {
+    const o = (op, params, okMsg) => (e) => waOrden(op, { id: m.id, ...params }, okMsg, e.currentTarget, pid, repintar);
+    const editar = async (btn) => {
+      const r = await ask({ title: `Mensaje para ${m.destinatario}`, ok: 'Guardar borrador', help: m.estado === 'TEXTO_APROBADO' || m.estado === 'ENVIO_FALLIDO' ? 'Cambiar el texto anula su aprobación.' : 'Se guarda como borrador: no se envía nada.',
+        fields: [{ name: 'texto', label: 'Texto completo', type: 'textarea', value: m.texto }] });
+      if (r) await waOrden('alquiler.msg.guardar', { id: m.id, texto: r.texto }, 'Guardado', btn, pid, repintar);
+    };
+    const ceo = () => {
+      if (!editorIa) { toast('El editor del CEO no está disponible', 'bad'); return; }
+      const dlg = document.getElementById('redactor');
+      dlg?.addEventListener('close', () => void waCargar(pid, repintar), { once: true });
+      editorIa.open({ tipo: 'alquiler', id: m.id });
+    };
+    const enviar = async (btn) => {
+      const r = await ask({ title: `${m.estado === 'ENVIO_FALLIDO' ? 'Reintentar' : 'Confirmar'} el envío a ${m.destinatario}`, ok: 'Confirmar envío', danger: true,
+        help: `ENVÍO REAL por WhatsApp a ${m.destinatario} (${m.telefono}).\n\n«${m.texto}»\n\n${wa.datos?.envio_real?.autorizado ? '' : `${wa.datos?.envio_real?.motivo}\n`}Aprobar el texto no lo envía: esto sí.`, fields: [] });
+      if (r) await waOrden('alquiler.msg.enviar', { id: m.id, huella_texto: m.huella_texto, confirmar_envio: true }, 'Enviando', btn, pid, repintar);
+    };
+    const prueba = async (btn) => {
+      const r = await ask({ title: 'Enviarme una copia de prueba', ok: 'Enviar a mi WhatsApp', danger: true,
+        help: `Se envía este texto SÓLO a tu propio WhatsApp para que veas cómo queda. ${m.destinatario} no recibe nada y el mensaje no queda aprobado ni enviado.
+
+«${m.texto}»`,
+        fields: [{ name: 'telefono', label: 'Tu número de WhatsApp', value: wa.datos?.wa_propio || '' }] });
+      if (r) await waOrden('alquiler.msg.prueba_propia', { id: m.id, telefono: r.telefono, huella_texto: m.huella_texto, confirmar_prueba: true }, 'Enviando la copia a tu WhatsApp', btn, pid, repintar);
+    };
+    const descartar = async (btn) => {
+      const r = await ask({ title: `Descartar el mensaje a ${m.destinatario}`, ok: 'Descartar', danger: true, help: 'Se conserva en el historial.', fields: [{ name: 'motivo', label: 'Motivo (opcional)', required: false }] });
+      if (r) await waOrden('alquiler.msg.descartar', { id: m.id, motivo: r.motivo }, 'Descartado', btn, pid, repintar);
+    };
+    const b = (t, fn, cls = 'ghost') => h('button', { class: `btn small ${cls}`, type: 'button', onclick: (e) => fn(e.currentTarget) }, t);
+    const editables = [b('Editar', editar), b('Pedir al CEO que redacte o mejore', ceo, 'accent'), b('Enviarme una copia de prueba', prueba)];
+    const acts = m.bloqueo ? [...editables, b('Descartar', descartar, 'ghost-danger')] : {
+      PREPARADO: [...editables, b('Pedir aprobación', (btn) => waOrden('alquiler.msg.solicitar', { id: m.id }, 'Pendiente de tu aprobación', btn, pid, repintar), ''), b('Descartar', descartar, 'ghost-danger')],
+      PENDIENTE_APROBACION: [...editables, h('button', { class: 'btn small primary', type: 'button', disabled: m.pendientes, title: m.pendientes ? 'Tiene datos [PENDIENTE…]' : '',
+        onclick: o('alquiler.msg.aprobar', { huella_texto: m.huella_texto }, 'Texto aprobado (no enviado)') }, 'Aprobar texto (no envía)'), b('Descartar', descartar, 'ghost-danger')],
+      TEXTO_APROBADO: [b('Confirmar envío…', enviar, 'primary'), b('Enviarme una copia de prueba', prueba), b('Editar (anula la aprobación)', editar), b('Descartar', descartar, 'ghost-danger')],
+      ENVIO_FALLIDO: [b('Reintentar envío…', enviar, 'primary'), b('Editar (anula la aprobación)', editar), b('Descartar', descartar, 'ghost-danger')],
+    }[m.estado] || [];
+    const abierto = wa.abierto.has(m.id);
+    return h('article', { class: `a-msg t-${WA_TONO[m.estado] || 'idle'}`, 'data-id': `alqmsg-${m.id}` },
+      h('header', { class: 'alq-parte-top' }, h('strong', {}, `Para ${m.destinatario}`), ' ', chip(m.estado_txt, WA_TONO[m.estado] || 'idle'),
+        m.telefono ? h('small', { class: 'muted' }, ` · WhatsApp ${m.telefono}`) : h('small', { class: 't-warn' }, ' · sin teléfono confirmado')),
+      h('p', { class: 'small muted' }, [m.titulo, m.fuente ? `fuente: ${m.fuente}` : null, m.editado ? 'editado' : null].filter(Boolean).join(' · ')),
+      m.bloqueo ? h('p', { class: 'note' }, `Bloqueado: ${m.bloqueo}`) : null,
+      m.pendientes ? h('p', { class: 'note' }, 'Tiene datos [PENDIENTE…]: no se puede aprobar hasta completarlos con datos confirmados.') : null,
+      m.nota_fuente ? h('p', { class: 'small muted' }, `Nota del borrador: ${m.nota_fuente}`) : null,
+      h('p', { class: 'alq-wa-texto' }, m.texto),
+      m.facturas.length ? h('ul', { class: 'alq-partes small' }, m.facturas.map((f) => h('li', {}, `Factura vinculada: agua ${fecha(f.fecha)} · ${f.periodo ? `${fecha(f.periodo.desde)}–${fecha(f.periodo.hasta)} · ` : ''}${f.importe_txt} · inquilinos: `,
+        estChip(f.estado), ` · proveedor: ${PAGO_PROV[f.pago_proveedor] || f.pago_proveedor}`, f.partes.length ? ` · ${f.partes.map((x) => `${x.obligado} ${x.importe_txt}`).join(' · ')}` : f.propuesta ? ` · propuesta sin confirmar: ${f.propuesta}` : ''))) : null,
+      m.motivo ? h('p', { class: 'note' }, m.motivo) : null,
+      h('div', { class: 'alq-acciones' }, acts, h('button', { class: 'link', type: 'button', 'aria-expanded': String(abierto),
+        onclick: () => { if (abierto) wa.abierto.delete(m.id); else wa.abierto.add(m.id); repintar(); } }, `${abierto ? 'Ocultar' : 'Ver'} historial (${m.eventos.length})`)),
+      abierto ? h('ul', { class: 'alq-partes small' }, m.eventos.map((e) => h('li', {}, `${fecha(e.at.slice(0, 10))} ${e.at.slice(11, 16)} · ${WA_EV[e.tipo] || e.tipo} · ${e.origen || ''}`))) : null,
+      a ? h('button', { class: 'link small', type: 'button', onclick: () => abrirFicha(a) }, `Ficha de ${a.inquilino}`) : null);
+  }
+  function tabWhatsapp(lst, repintar) {
+    const pid = lst[0]?.gestion?.id;
+    if (!pid) return h('p', { class: 'muted' }, 'Sin alquileres.');
+    if (!wa.datos && !wa.error) { void waCargar(pid, repintar); return h('p', { class: 'muted' }, 'Cargando mensajes…'); }
+    if (wa.error) return h('div', { class: 'alq-panel' }, h('p', { class: 'note' }, wa.error), h('button', { class: 'btn small', type: 'button', onclick: () => waCargar(pid, repintar) }, 'Reintentar'));
+    const d = wa.datos;
+    const nuevo = async (btn) => {
+      const ok = d.destinatarios.filter((x) => x.identificado);
+      const r = await ask({ title: 'Nuevo mensaje de WhatsApp', ok: 'Guardar borrador', help: 'Sólo a destinatarios identificados en las fichas. Se guarda como borrador; luego puedes pedir al CEO que lo redacte o mejore.',
+        fields: [{ name: 'destinatario', label: 'Para', type: 'choice', value: ok.length === 1 ? ok[0].ref : '', options: ok.map((x) => ({ value: x.ref, label: `${x.nombre}${x.via ? ` (${x.via})` : ''} · ${x.telefono}` })) },
+          { name: 'texto', label: 'Texto (o qué quieres decir, para que el CEO lo redacte)', type: 'textarea' }] });
+      if (r) await waOrden('alquiler.msg.crear', { proyecto: pid, destinatario: r.destinatario, texto: r.texto }, 'Borrador guardado', btn, pid, repintar);
+    };
+    const recuperar = async (btn) => {
+      btn.disabled = true;
+      try {
+        const r = await cmd('alquiler.msg.recuperar', { proyecto: pid });
+        if (!r?.ok) { toast(r?.error || 'No se pudo', 'bad'); return; }
+        toast([r.data.mensaje, ...r.data.ausencias].join(' · '), r.data.ausencias.length ? 'bad' : 'ok');
+      } finally { btn.disabled = false; }
+      await waCargar(pid, repintar);
+    };
+    // Grupos por destinatario (historial por inquilino): primero las fichas, luego los antiguos inquilinos con borradores.
+    const refs = [...new Set([...d.destinatarios.map((x) => x.ref), ...d.mensajes.map((m) => m.ref)])];
+    const grupo = (ref) => {
+      const dest = d.destinatarios.find((x) => x.ref === ref);
+      const a = lst.find((x) => `alquiler:${x.id}` === ref);
+      const ms = d.mensajes.filter((m) => m.ref === ref);
+      // Antonio llama «Kelsy» a Adilson (misma persona, una sola ficha: la clave de la ficha es el nombre que usa él).
+      const llano = (x) => String(x || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/-/g, ' ');
+      const alias = a && !llano(dest?.inquilino).startsWith(llano(a.id)) ? ` («${a.id[0].toUpperCase()}${a.id.slice(1)}»)` : '';
+      const nombre = dest ? `${dest.inquilino}${alias}${dest.via ? ` → ${dest.nombre}` : ''}` : ms[0]?.destinatario || ref;
+      return h('section', { class: 'alq-panel alq-wa-grupo' },
+        h('h3', { class: 'alq-sec' }, nombre, h('small', { class: 'muted' }, ` · ${dest ? (dest.telefono ? `WhatsApp ${dest.telefono}` : dest.motivo) : 'antiguo inquilino (sin ficha)'}${a ? ` · ${a.inmueble || ''} ${a.unidad || ''}` : ''}`)),
+        a ? h('p', { class: 'small muted' }, `Renta: ${a.pendientes.length ? `pendiente ${a.pendientes.map(mesTitulo).join(', ')}` : 'al día'} · suministros pendientes ${eur(a.suministros_pendiente_cent || 0)} · recibos sin enviar ${a.recibos_sin_enviar || 0}`
+          + `${(a.historial || []).find((x) => x.pago === 'PAGADO') ? ` · último cobro confirmado: ${(a.historial || []).find((x) => x.pago === 'PAGADO').etiqueta}` : ''}`) : null,
+        ms.length ? ms.map((m) => waMensaje(m, a, pid, repintar)) : h('p', { class: 'small muted' }, 'Sin mensajes.'));
+    };
+    return h('div', { class: 'alq-panel' },
+      h('p', { class: `note${d.envio_real.autorizado ? '' : ' t-warn'}` }, d.envio_real.autorizado ? `Envío real autorizado: ${d.envio_real.texto}` : d.envio_real.motivo),
+      d.ausencias?.length ? h('ul', { class: 'alq-partes small' }, d.ausencias.map((x) => h('li', {}, x))) : null,
+      h('div', { class: 'alq-acciones' }, h('button', { class: 'btn small primary', type: 'button', onclick: (e) => nuevo(e.currentTarget) }, 'Nuevo mensaje'),
+        h('button', { class: 'btn small', type: 'button', onclick: (e) => recuperar(e.currentTarget) }, 'Recuperar borradores del reparto de agua'),
+        h('button', { class: 'btn small ghost', type: 'button', onclick: () => waCargar(pid, repintar) }, 'Actualizar')),
+      h('p', { class: 'small muted' }, `Estados: ${Object.values(d.estados).join(' → ')}. Aprobar el texto no lo envía; el envío es otra confirmación. Nada registra cobros.`),
+      refs.map(grupo));
+  }
+  const TABS = [['rentas', 'Rentas'], ['suministros', 'Suministros'], ['recibos', 'Recibos y mensajes'], ['whatsapp', 'WhatsApp / Comunicaciones'], ['historial', 'Historial']];
   function cuerpoPanel(gestiones, repintar) {
     lista = todos(gestiones);
     const proximas = lista.filter((a) => a.pendiente_cent || a.recibos_sin_enviar).map((a) => `${a.inquilino.split(' ')[0]}: ${a.proxima}`);
-    const tab = { rentas: () => tabRentas(lista), suministros: () => tabSuministros(lista, repintar), recibos: () => tabRecibos(lista), historial: () => tabHistorial(lista) }[vista.tab];
+    const tab = { rentas: () => tabRentas(lista), suministros: () => tabSuministros(lista, repintar), recibos: () => tabRecibos(lista), whatsapp: () => tabWhatsapp(lista, repintar), historial: () => tabHistorial(lista) }[vista.tab];
     return h('div', { class: 'alq-panel' },
       resumen(lista),
       proximas.length ? h('p', { class: 'small' }, h('strong', {}, 'Próximas acciones: '), proximas.join(' · ')) : null,
       h('h3', { class: 'alq-sec' }, 'Alquileres'),
       h('div', { class: 'alq-list' }, lista.map(tarjetaAlquiler)),
       h('div', { class: 'alq-tabs', role: 'tablist' }, TABS.map(([k, t]) => h('button', { class: `alq-tab${vista.tab === k ? ' on' : ''}`, type: 'button', role: 'tab', 'aria-selected': String(vista.tab === k),
-        onclick: () => { vista.tab = k; repintar(); } }, t))),
+        onclick: () => { vista.tab = k; if (k === 'whatsapp') { wa.datos = null; wa.error = null; } repintar(); } }, t))),
       tab());
   }
   let panel = null; // { dlg, cuerpo, sig, gestiones }
@@ -724,7 +847,7 @@ export function alquileresUi({ run, ask, cmd, toast, LOCAL }) {
     const estado = renta || sum ? [`Por cobrar ${eur(renta + sum)}`, 'wait'] : ['Todo cobrado', 'ok'];
     const abrir = () => abrirPanel(gestiones);
     const el = miniTarjeta({ id: 'alq:panel', titulo: 'Alquileres', sub: `Agente · ${lst.length} ${lst.length === 1 ? 'alquiler' : 'alquileres'}`, clase: 'alq-mini',
-      desc: `Rentas ${eur(renta)} · suministros ${eur(sum)} pendientes. Fichas, recibos, agua e historial.`, estado, accion: { txt: 'Abrir', on: abrir, cls: 'primary' }, abrir });
+      desc: `Rentas ${eur(renta)} · suministros ${eur(sum)} pendientes. Fichas, recibos, agua, WhatsApp / Comunicaciones e historial.`, estado, accion: { txt: 'Abrir', on: abrir, cls: 'primary' }, abrir });
     return { tono: estado[1] === 'wait' ? 'ask' : estado[1], texto: `alquileres alquiler agua suministros inquilinos recibos ${lst.map((a) => a.inquilino).join(' ')}`, el };
   }
 
@@ -732,6 +855,6 @@ export function alquileresUi({ run, ask, cmd, toast, LOCAL }) {
   return {
     minis: (gestiones) => (todos(gestiones).length ? [miniPanel(gestiones)] : []),
     sync: (gestiones) => { sync(gestiones); syncPanel(gestiones); }, abrirFicha, abrirPanel,
-    suministrosFicha,
+    suministrosFicha, usarEditor: (ai) => { editorIa = ai; },
   };
 }

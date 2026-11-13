@@ -349,6 +349,11 @@
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
 <!-- Aviso de versión nueva (PWA): nunca recarga sola; lo decide Antonio. -->
+<div class="update ui-aviso" id="aviso-ui" role="status" hidden>
+  <span id="aviso-ui-txt"></span>
+  <button class="btn accent small" id="b-aviso-ui" type="button" hidden>RECARGAR</button>
+  <button class="btn small" id="b-aviso-ui-x" type="button" aria-label="Ocultar aviso">✕</button>
+</div>
 <div class="update" id="update" role="status" hidden>
   <span>Nueva versión disponible</span>
   <button class="btn accent small" id="b-update" type="button">ACTUALIZAR</button>

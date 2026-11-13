@@ -39,7 +39,7 @@ function localApi() {
       // MANDO REMOTO: el mismo panel que en el móvil; la foto sólo se relee cuando cambia su huella.
       const sig = JSON.stringify(Object.entries(r.data.remotos || {}).map(([id, b]) => [id, b.hash, b.at, b.error]));
       if (sig !== remSig) { const x = await call('/api/remoto'); if (x.ok) { remotos = x.data; remSig = sig; } }
-      return { proyectos: r.data.proyectos, pc: { online: true }, remoto: r.data.remoto, cuenta: r.data.remoto?.cuenta || '', cuotas: r.data.cuotas, remotos, negocio: r.data.negocio };
+      return { proyectos: r.data.proyectos, pc: { online: true }, remoto: r.data.remoto, cuenta: r.data.remoto?.cuenta || '', cuotas: r.data.cuotas, remotos, negocio: r.data.negocio, ui: r.data.ui };
     },
     async details(id) { return (await call(`/api/details?proyecto=${encodeURIComponent(id)}`)).data; },
     cmd: (op, params) => call('/api/cmd', { method: 'POST', body: JSON.stringify({ op, params }) }),
@@ -92,7 +92,7 @@ async function remoteApi() {
       }
       for (const x of proyectos) x._logo = x.logo && logos.get(x.id)?.hash === x.logo ? logos.get(x.id).data : null;
       cuenta ??= (await sb.auth.getUser()).data.user?.email || '';
-      return { proyectos, pc: { online: online(), visto: pc?.visto_en }, cuenta, cuotas: pc?.datos?.cuotas, remotos, negocio: pc?.datos?.negocio };
+      return { proyectos, pc: { online: online(), visto: pc?.visto_en }, cuenta, cuotas: pc?.datos?.cuotas, remotos, negocio: pc?.datos?.negocio, ui: pc?.datos?.ui };
     },
     async details(id) { const r = await sb.from('ceo_card').select('detalle').eq('id', id).maybeSingle(); return r.data?.detalle; },
     async cmd(op, params) {
@@ -272,6 +272,30 @@ async function refresh() {
   aui?.paint();
   nui?.paint();
   ALQ.sync(data.proyectos); // ficha de alquiler abierta: al día con los datos reales
+  avisoVersion(data.ui);
+}
+
+// VERSIÓN DE LA INTERFAZ (13-11: «WhatsApp / Comunicaciones» existía en el PC y Antonio no lo veía: el móvil tenía la copia
+// publicada antes y nada lo decía). En el PC: si web/ cambió desde que se abrió la página, se ofrece recargar; si la copia
+// del móvil es anterior, se dice que falta publicarla. En el móvil: se dice que esta app aún no tiene lo último del PC.
+let uiCargada = null, uiCerrado = '';
+function avisoVersion(ui) {
+  const bar = $('#aviso-ui');
+  if (!bar || !ui?.web) return;
+  uiCargada ??= ui.web;
+  let txt = '', recargar = false;
+  if (LOCAL && ui.web !== uiCargada) { txt = 'La interfaz de CEOPadre ha cambiado desde que abriste esta página'; recargar = true; }
+  else if (ui.movil && ui.movil !== ui.web) {
+    txt = LOCAL ? 'El móvil tiene una versión anterior de CEOPadre: falta publicarla (necesita tu autorización «Publicar la interfaz móvil»)'
+      : 'Esta app del móvil aún no tiene los últimos cambios del PC: falta publicarlos';
+  }
+  const clave = `${txt}|${ui.web}`;
+  bar.hidden = !txt || uiCerrado === clave;
+  if (bar.hidden) return;
+  $('#aviso-ui-txt').textContent = txt;
+  $('#b-aviso-ui').hidden = !recargar;
+  $('#b-aviso-ui').onclick = () => { if (typing()) { toast('Termina (o cierra) lo que estás escribiendo y vuelve a pulsar', 'bad'); return; } location.reload(); };
+  $('#b-aviso-ui-x').onclick = () => { uiCerrado = clave; bar.hidden = true; };
 }
 
 async function run(op, params, okMsg, btn) {
@@ -2002,6 +2026,7 @@ async function start() {
     }
   }
   const ai = aiEditor({ api, toast, onApplied: () => void refresh() }); // EDITAR CON IA (uno solo para todas las bandejas)
+  ALQ.usarEditor(ai); // «Pedir al CEO» en WhatsApp / Comunicaciones de Alquileres
   rui ??= remoteUi({ api, ask, toast, show, data: () => data, ago, local: LOCAL, ai });
   aui ??= autoUi({ api, ask, toast, show, data: () => data, run, viewText: (t, x) => view(t, x), ai, alquileres: () => [...copiaMinis(), ...ALQ.minis(data.proyectos)] });
   nui ??= negocioUi({ api, ask, toast, show, data: () => data, run, viewText: (t, x) => view(t, x) });

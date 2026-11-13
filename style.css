@@ -361,6 +361,8 @@ dialog.sheet { max-height: calc(var(--vvh, 100dvh) - 8px); overflow: auto; overs
 .drawer > .unit-head { flex-wrap: wrap; }
 @media (max-width: 620px) { .drawer > .unit-head .btn { order: 3; flex: 1 1 100%; min-height: 44px; margin: 4px 0 0; } }
 .update span { white-space: nowrap; }
+.update.ui-aviso { bottom: calc(66px + env(safe-area-inset-bottom)); font-size: 13px; }
+.update.ui-aviso span { white-space: normal; }
 
 /* ---- V1.3: cuota plegada, DETALLES esquemático, editor y pendientes ---- */
 .bar-status { display: flex; align-items: center; gap: 8px; justify-content: flex-end; }
@@ -1496,3 +1498,5 @@ dialog.cp-dlg { width: min(860px, calc(100vw - 24px)); overflow: auto; }
 .mama-av-tab { width: 22px; height: 22px; border-radius: 50%; object-fit: cover; vertical-align: middle; margin-right: 6px; box-shadow: 0 0 0 1px rgba(255,255,255,.5); }
 .mama-cab { display: flex; align-items: center; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
 .mama-av-cab { width: 48px; height: 48px; border-radius: 50%; object-fit: cover; box-shadow: 0 0 0 2px var(--line); }
+.alq-wa-texto { white-space: pre-wrap; overflow-wrap: anywhere; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; margin: 0; }
+.alq-wa-grupo { border-top: 1px solid var(--line); padding-top: 8px; }

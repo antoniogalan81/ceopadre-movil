@@ -4,11 +4,22 @@
 // el canal cifrado de T10 (src/mama-canal.js), que se empareja AQUÍ con un código de un solo uso (tarjeta «Móvil»).
 import { h } from './dom.js';
 
+// Enlace directo a la conversación en FocoGravital (app.json: scheme ingravitalapp, paquete com.agalansevilla.Ingravitalapp).
+export const INTENT_MAMA = 'intent://mama#Intent;scheme=ingravitalapp;package=com.agalansevilla.Ingravitalapp;end';
 const fecha = (iso) => (iso ? new Date(iso).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '');
-const ESTADO = { HECHA: ['Hecha', 'ok'], DENEGADA: ['Denegada', 'bad'], TOPE: ['Tope diario', 'ask'], ERROR: ['Falló', 'bad'] };
+const ESTADO = { HECHA: ['Hecha', 'ok'], DENEGADA: ['Denegada', 'bad'], TOPE: ['Tope diario', 'ask'], ERROR: ['Falló', 'bad'], PROPUESTA: ['Propuesta', 'ask'] };
 // Fase REAL del encargo (src/mama.js faseOrden): «Hecha» ya no existe; «Terminado» sólo cuando el trabajo terminó.
-const FASE_TONO = { RESULTADO: 'ok', TERMINADO: 'ok', EN_MARCHA: 'work', ESPERANDO: 'wait', TE_NECESITA: 'ask', PAUSADO: 'idle', CANCELADO: 'idle', ENTREGADA: 'work', ENCARGADA: 'work', DENEGADA: 'bad', TOPE: 'ask', ERROR: 'bad' };
+const FASE_TONO = { RESULTADO: 'ok', TERMINADO: 'ok', EN_MARCHA: 'work', ESPERANDO: 'wait', TE_NECESITA: 'ask', PAUSADO: 'idle', CANCELADO: 'idle', ENTREGADA: 'work', ENCARGADA: 'work', DENEGADA: 'bad', TOPE: 'ask', ERROR: 'bad', PROPUESTA: 'ask' };
 const chip = (label, tone) => h('span', { class: `a-chip t-${tone}` }, label);
+// T20: qué hizo MAMA con el mensaje o la nota (src/mama.js salidasDe). «Sólo conversación» = no creó nada.
+const SALIDA = { MEMORIA: ['Memoria', 'ok'], FICHA: ['Ficha de proyecto', 'ok'], TAREA: ['Tarea propuesta', 'ask'], SEGUIMIENTO: ['Seguimiento', 'work'], DELEGAR: ['Delegación', 'work'], CONVERSACION: ['Sólo conversación', 'idle'], ERROR: ['No interpretada', 'bad'] };
+const interpretacion = (m) => {
+  const i = m.interpretacion;
+  if (!i?.salidas?.length) return null;
+  return h('div', { class: 'mama-interp', role: 'group', 'aria-label': 'Qué ha hecho Mama' },
+    h('p', { class: 'msg-who' }, ...i.salidas.map((s) => { const [t, tone] = SALIDA[s.tipo] || [s.tipo, 'idle']; return [chip(`${t}${s.n > 1 ? ` ×${s.n}` : ''}`, tone), ' ']; }).flat()),
+    i.fuente?.texto ? h('p', { class: 'muted small' }, `Fuente: ${i.fuente.tipo === 'nota' ? 'nota de tu tarea' : 'tu mensaje'} (${i.fuente.texto})`) : null);
+};
 
 export function mamaUi({ api, toast, show, local }) {
   let abierta = false, timer = null, sig = '', v = null, enviando = false, canal = null;
@@ -29,7 +40,7 @@ export function mamaUi({ api, toast, show, local }) {
     if (m.rol === 'sistema') return h('div', { class: 'msg sis' }, h('p', {}, m.texto));
     // Su cara identifica a MAMA (12-11): no se repite «MAMA» en cada respuesta; el nombre queda para los lectores de pantalla.
     return h('div', { class: 'msg ceo msg-mama' }, h('img', { class: 'mama-av', src: 'mama-avatar-64.png', srcset: 'mama-avatar-64.png 1x, mama-avatar-128.png 2x', alt: '', width: 32, height: 32 }),
-      h('div', { class: 'msg-mama-cuerpo' }, h('p', { class: 'msg-who' }, h('span', { class: 'sr-only' }, 'MAMA · '), fecha(m.at)), h('p', { class: 'msg-r' }, m.texto),
+      h('div', { class: 'msg-mama-cuerpo' }, h('p', { class: 'msg-who' }, h('span', { class: 'sr-only' }, 'MAMA · '), fecha(m.at)), h('p', { class: 'msg-r' }, m.texto), interpretacion(m),
         m.inciertos?.length ? h('details', { class: 'msg-more' }, h('summary', {}, 'Lo que no sabe seguro'), h('ul', {}, m.inciertos.map((x) => h('li', {}, x)))) : null));
   };
 
@@ -50,9 +61,12 @@ export function mamaUi({ api, toast, show, local }) {
     const b = body();
     if (!b) return;
     if (!local) {
-      b.replaceChildren(h('section', { class: 'side-card mama-aviso' }, h('h2', {}, 'Mama se abre en el PC'),
-        h('p', {}, 'La conversación con Mama es privada y está cifrada en tu PC. Desde el móvil llegará con su canal cifrado propio (en preparación): por el canal actual se vería en la nube.'),
-        h('p', { class: 'muted small' }, 'Abre CEOPadre en el PC para hablar con ella.')));
+      // T22: aquí aterriza el toque en un aviso de Mama (?v=mama). La conversación NO se lee por este canal (viajaría legible
+      // en la nube): se abre en FocoGravital, que la tiene cifrada (ingravitalapp://mama, vía intent de Android).
+      b.replaceChildren(h('section', { class: 'side-card mama-aviso' }, h('h2', {}, 'Mama'),
+        h('p', {}, 'Tu conversación con Mama es privada y cifrada: en el móvil se abre en FocoGravital.'),
+        h('a', { class: 'btn primary', href: INTENT_MAMA, id: 'm-abrir-foco' }, 'Abrir la conversación en FocoGravital'),
+        h('p', { class: 'muted small' }, 'En el PC, en la sección Mama de CEOPadre.')));
       return;
     }
     const s = JSON.stringify([v?.mensajes?.length, v?.mensajes?.at(-1)?.id, v?.pensando, v?.ordenes?.map((o) => [o.id, o.trabajo_estado]), v?.uso, v?.panel, canal]);
@@ -122,7 +136,10 @@ export function mamaUi({ api, toast, show, local }) {
     const act = card('m-act', 'Actividades y compromisos',
       h('p', { class: 'small' }, `Hoy: ${a.mensajes_hoy ?? 0} mensaje${a.mensajes_hoy === 1 ? '' : 's'} tuyo${a.mensajes_hoy === 1 ? '' : 's'} · ${a.respuestas_hoy ?? 0} respuesta${a.respuestas_hoy === 1 ? '' : 's'} de Mama · ${nOrd} ${nOrd === 1 ? "orden" : "órdenes"}${nOrd ? ` (${Object.entries(oh).map(([e, n]) => `${n} ${(ESTADO[e]?.[0] || e).toLowerCase()}`).join(', ')})` : ''} · ${a.encargos_abiertos ?? 0} encargo${a.encargos_abiertos === 1 ? '' : 's'} en curso`),
       a.compromisos?.length ? h('ul', { class: 'side-list mama-comp' }, a.compromisos.map((c) => h('li', {}, h('strong', {}, c.texto), c.cuando ? h('span', { class: 'muted small' }, ` · ${c.cuando}`) : null)))
-        : vacio('Sin compromisos anotados. Mama sólo apunta los que tú le dices.'));
+        : vacio('Sin compromisos anotados. Mama sólo apunta los que tú le dices.'),
+      a.tareas_propuestas?.length ? h('details', { class: 'mama-prop', open: true }, h('summary', {}, `Tareas propuestas (${a.tareas_propuestas.length}) · no creadas en FocoGravital`),
+        h('ul', { class: 'side-list' }, a.tareas_propuestas.map((t) => h('li', {}, h('strong', {}, t.titulo), t.cuando ? h('span', { class: 'muted small' }, ` · ${t.cuando}`) : null,
+          h('p', { class: 'muted small' }, [t.motivo, t.fuente].filter(Boolean).join(' · ')))))) : null);
     const dec = card('m-dec', `Decisiones pendientes (${pn.decisiones?.length || 0})`,
       pn.decisiones?.length ? h('ul', { class: 'side-list' }, pn.decisiones.map((d) => h('li', {}, h('strong', {}, `${d.proyecto}: ${d.que}`), d.detalle ? h('p', { class: 'muted small' }, d.detalle) : null)))
         : vacio('Nada espera tu decisión.'),

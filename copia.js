@@ -14,6 +14,7 @@ const ESTADO = {
   pausada: ['Pausada', 'idle'], cancelada: ['Cancelada', 'idle'], interrumpida: ['Interrumpida', 'warn'],
   esperando_disco: ['Esperando al disco', 'wait'], detenida: ['Detenida', 'bad'], error: ['Error', 'bad'],
   verificada: ['Verificada', 'ok'], verificacion_fallida: ['Verificación fallida', 'bad'],
+  verificada_con_excepciones: ['Verificada (con excepciones del origen)', 'ok'],
 };
 const est = (s) => ESTADO[s] || [s, 'idle'];
 const hecha = (st) => st?.ultima_completada
@@ -129,7 +130,11 @@ export function copiaUi({ cmd, toast, ask }) {
     const [estado, txt] = resumen();
     const c = cifras(st);
     const sinCopia = (st?.adicionales || []).filter((x) => x.error || x.ultima?.estado !== 'completada').map((x) => x.nombre);
-    const desc = (c ? `${txt} · ${lineaCifras(c)}` : txt) + (sinCopia.length ? ` · sin copia completa: ${sinCopia.join(', ')}` : '');
+    const ver = st?.veredicto;
+    const exc = ver?.excepciones?.length ? ` · ${ver.excepciones.length} excepción(es) del origen` : '';
+    const veredictoTxt = !ver || st.en_curso ? '' : ver.completa ? ` · COPIA COMPLETA Y VERIFICADA (punto de restauración ${fecha(ver.punto)})${exc}`
+      : ` · NO completa: falta ${ver.faltas.map((f) => f.que).join(', ')}${exc}`;
+    const desc = (c ? `${txt} · ${lineaCifras(c)}` : txt) + (sinCopia.length ? ` · sin copia completa: ${sinCopia.join(', ')}` : '') + veredictoTxt;
     const accion = st?.en_curso ? { txt: 'Ver progreso', on: abrir }
       : st?.borrado_pendiente ? { txt: 'Revisar', cls: 'primary', on: abrir }
       : st?.pausada ? { txt: 'Continuar', cls: 'primary', on: (b) => orden('copia.continuar', 'Continuando', b) }
@@ -207,6 +212,7 @@ export function copiaUi({ cmd, toast, ask }) {
     const e = st.pendientes?.estimacion;
     const last = st.historial?.[0];
     const corriendo = st.en_curso;
+    const vCortada = !corriendo && last?.tipo === 'verificacion' && ['interrumpida', 'en_curso'].includes(last.estado) ? last : null;
     const aviso = dlg.querySelector('#toast'); // el aviso de CEOPadre vive dentro del diálogo abierto: se conserva
     dlg.replaceChildren(...[
       h('h2', {}, 'Copia de seguridad ECOAPP'),
@@ -238,6 +244,7 @@ export function copiaUi({ cmd, toast, ask }) {
         j.uso ? fila('Actividad medida', [`${j.uso.mb_dia} MB/día · el diario (${bytes(j.maximo)}) cubre ${j.uso.dias_de_margen ?? '—'} días`,
           j.uso.aviso ? chip('Diario pequeño para esta actividad', 'warn') : '']) : null,
         j.ultima_completa ? fila('Última revisión completa', `${fecha(j.ultima_completa.ts)} · ${j.ultima_completa.motivo}`) : null),
+      veredicto(),
       conjunto(),
       adicionales(),
       rendimiento(corriendo),
@@ -260,7 +267,7 @@ export function copiaUi({ cmd, toast, ask }) {
           if (await ask({ title: 'Cancelar la copia', ok: 'Cancelar la copia', help: 'Se detiene en un punto seguro. Lo ya copiado sigue siendo válido y la próxima copia continúa desde ahí.' }))
             await orden('copia.cancelar', 'Cancelando en un punto seguro…', ev.currentTarget);
         } }, 'Cancelar de forma segura'),
-        h('button', { class: 'btn', type: 'button', disabled: corriendo || !d?.vinculado || busy, onclick: (ev) => orden('copia.verificar', 'Verificación íntegra en marcha', ev.currentTarget) }, 'Verificar copia')),
+        h('button', { class: 'btn', type: 'button', disabled: corriendo || !d?.vinculado || busy, onclick: (ev) => orden('copia.verificar', 'Verificación íntegra en marcha', ev.currentTarget) }, vCortada ? `Continuar verificación #${vCortada.id}` : 'Verificar copia')),
       bases(),
       recuperar(d),
       st.incidencias?.length ? fold('incidencias', `Errores e incidencias abiertas · ${st.incidencias.length}`,
@@ -269,6 +276,29 @@ export function copiaUi({ cmd, toast, ask }) {
         h('ul', { class: 'cp-list' }, (st.historial || []).map((r) => h('li', {}, chip(...est(r.estado)),
           ` #${r.id} ${r.tipo} · ${fecha(r.inicio)}${r.fin ? ` → ${fecha(r.fin)}` : ''} · ${r.modo || ''} · ${num(r.archivos)} archivos, ${bytes(r.bytes)}, ${num(r.movidos)} movidos, ${num(r.versiones)} versiones, ${num(r.adoptados)} ya presentes, ${num(r.listadas)} carpetas leídas${r.arranques > 1 ? ` · ${r.arranques} arranques` : ''}${r.tipo === 'verificacion' ? ` · ${num(r.verif_ok)} bien / ${num(r.verif_mal)} mal` : ''}${r.nota ? ` · ${r.nota}` : ''}`)))),
       cerrarBtn(), aviso].filter(Boolean)); // replaceChildren pinta «null» si se le pasa
+  }
+
+  // VEREDICTO: una sola respuesta inequívoca, calculada por el motor con hechos guardados (nunca con suposiciones).
+  function veredicto() {
+    const v = st.veredicto;
+    if (!v) return null;
+    const i = v.integridad || {};
+    const r = v.restaurable || {};
+    const exc = v.excepciones || [];
+    const titulo = v.completa ? (exc.length ? `Copia completa y verificada · ${exc.length} excepción(es) del origen` : 'Copia completa y verificada')
+      : `La copia NO está completa y verificada · falta${v.faltas.length > 1 ? 'n' : ''} ${v.faltas.length}`;
+    return h('section', { class: `cp-box t-${v.completa ? 'ok' : 'warn'}`, 'aria-live': 'polite' }, h('h3', {}, titulo),
+      v.completa ? h('p', {}, h('strong', {}, `Punto de restauración: ${fecha(v.punto)} · verificada ${fecha(v.verificada_ts)}`)) : null,
+      // integridad (los bytes del USB) y restaurabilidad (las bases se abren) son preguntas distintas: se contestan por separado
+      fila('Integridad de lo respaldado', [chip(i.ok ? 'Íntegro' : 'Sin confirmar', i.ok ? 'ok' : 'warn'),
+        ` ${num(i.verificados)} de ${num(i.confirmados)} archivos releídos del USB y coinciden (${bytes(i.bytes_verificados)} de ${bytes(i.bytes)})${i.problemas_abiertos ? ` · ${num(i.problemas_abiertos)} problema(s) de la copia abiertos` : ''}`]),
+      fila('Restaurabilidad funcional', [chip(r.ok ? 'Probada' : r.pglite_ok + r.excepciones === r.pglite && r.criticas_ok === r.criticas ? 'Probada salvo excepciones' : 'Sin confirmar', r.ok ? 'ok' : 'warn'),
+        ` PGlite ${num(r.pglite_ok)} de ${num(r.pglite)} restauradas · bases críticas ${num(r.criticas_ok)} de ${num(r.criticas)} restauradas aparte y abiertas${exc.length ? ` · ${exc.length} excepción(es)` : ''}`]),
+      v.faltas.length ? h('div', {}, h('h4', {}, 'Qué falta'),
+        h('ul', { class: 'cp-list' }, v.faltas.map((f) => h('li', {}, h('strong', {}, `${f.que}: `), f.por_que, ' ', h('em', {}, f.accion))))) : null,
+      exc.length ? h('div', {}, h('h4', {}, 'Excepciones (no son fallos de la copia; no desaparecen hasta que se resuelvan en el origen)'),
+        h('ul', { class: 'cp-list' }, exc.map((x) => h('li', {}, chip(x.tipo, 'warn'), ' ', h('strong', {}, `${x.que}: `), x.por_que, ' ', h('em', {}, x.accion))))) : null,
+      v.info.length ? h('ul', { class: 'cp-list' }, v.info.map((x) => h('li', { class: 'muted' }, x))) : null);
   }
 
   // PROGRESO DEL CONJUNTO: siempre a la vista (también con la copia parada), con lo guardado por el motor.
@@ -317,7 +347,8 @@ export function copiaUi({ cmd, toast, ask }) {
           h('li', {}, h('strong', {}, 'Omitido: '), 'no se copia a propósito: enlaces y uniones (no se siguen: su contenido se copia en su sitio real si está dentro del origen) y archivos sólo en la nube. Lo de fuera del origen va en «Datos fuera de E:\\ECOAPP».'),
           h('li', {}, h('strong', {}, 'Fallido: '), 'se intentó y no se pudo (bloqueado, sin permiso, antivirus…). Su carpeta queda pendiente y se reintenta sola en cada copia; nunca se da por copiado.'),
           h('li', {}, h('strong', {}, 'Pendiente: '), 'cambios en el origen aún no copiados (nuevos o modificados), sacados del diario de cambios de E:.'),
-          h('li', {}, h('strong', {}, 'Excluido: '), 'fuera de la copia por decisión documentada (config «excluir»); no cuenta como fallo.'))),
+          h('li', {}, h('strong', {}, 'Excluido: '), 'fuera de la copia por decisión documentada (config «excluir»); no cuenta como fallo.'),
+          h('li', {}, h('strong', {}, 'Excepción del origen: '), 'algo copiado fielmente que ya estaba dañado en el proyecto (p. ej. una base que tampoco abre en el origen). No es un fallo de la copia, pero siempre se enseña.'))),
       fila('Último archivo confirmado', u.archivo ? `${u.archivo} · ${cuando(u.archivo_ts)}` : 'No registrado (se guarda a partir de esta versión)'),
       fila('Última actividad real', cuando(actividad)),
       fila('Estado del proceso', proceso));
@@ -400,7 +431,16 @@ export function copiaUi({ cmd, toast, ask }) {
         return h('li', {}, chip(r ? (r.ok ? 'Restauración probada' : 'Restauración FALLIDA') : 'Sin verificar', r ? (r.ok ? 'ok' : 'bad') : 'idle'), ` ${g}`,
           r?.ok ? ` · ${r.tablas} tablas, ${num(r.filas)} filas, volcado ${bytes(r.volcado_bytes)} (${fecha(r.ts)})` : r?.error ? ` · ${r.error}` : '',
           ok ? ` · copia coherente ${fecha(ok)}` : ' · aún sin copia coherente');
-      })));
+      })),
+      h('h4', {}, 'Bases críticas: restauración aislada y apertura real en cada verificación'),
+      h('ul', { class: 'cp-list' }, [[null, b.criticas_config, b.criticas], ...(st.adicionales || []).map((x) => [x.nombre, x.criticas_config, x.criticas])]
+        .flatMap(([quien, rutas, res]) => (rutas || []).map((ruta) => {
+          const r = (res || {})[ruta];
+          const f = r?.funcional;
+          return h('li', {}, chip(r ? (r.ok ? 'Restaurada y abierta' : 'Restauración FALLIDA') : 'Sin probar', r ? (r.ok ? 'ok' : 'bad') : 'idle'), ` ${quien ? `${quien} › ` : ''}${ruta}`,
+            r?.ok ? ` · integrity_check ok · ${r.tablas} tablas, ${num(r.filas)} filas${f ? ` · CEOPadre la abre: ${num(f.proyectos)} proyectos, ${num(f.objetivos)} objetivos, ${num(f.rondas)} rondas` : ''} (${fecha(r.ts)})`
+              : r?.error ? ` · ${r.error}` : ' · se prueba en la próxima verificación');
+        }))));
   }
 
   // RECUPERAR: buscar por nombre en versiones (eliminados o sustituidos) y en la copia actual; se copia al Escritorio.

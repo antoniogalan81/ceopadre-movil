@@ -7,6 +7,9 @@ const eur = (c) => `${(c / 100).toLocaleString('es-ES', { minimumFractionDigits:
 const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
 const mesTitulo = (m) => { const s = `${MESES[Number(m.slice(5, 7)) - 1]} de ${m.slice(0, 4)}`; return s[0].toUpperCase() + s.slice(1); };
 const WA = { PENDIENTE: ['Pendiente', 'wait'], ENVIANDO: ['Enviando…', 'work'], ENVIADO: ['Enviado', 'ok'], ERROR: ['Error', 'bad'] };
+const centTxt = (c) => (c / 100).toFixed(2).replace('.', ',');
+/** «20,35» / «20.35» / «20» → 2035 céntimos; vacío o no válido → null. */
+const aCent = (v) => { const s = String(v ?? '').replace(/[\s€]/g, '').replace(/\.(?=\d{3}(\D|$))/g, '').replace(',', '.'); return /^\d+(\.\d{1,2})?$/.test(s) ? Math.round(Number(s) * 100) : null; };
 const fechaCorta = (f) => (f ? `${f.slice(8, 10)}/${f.slice(5, 7)}/${f.slice(0, 4)}` : '—');
 const chip = (txt, tone) => h('span', { class: `a-chip t-${tone}` }, txt);
 
@@ -372,18 +375,63 @@ export function alquileresUi({ run, ask, cmd, toast, LOCAL }) {
     try { await navigator.clipboard.writeText(r.texto); toast('Texto copiado: envíalo tú cuando quieras'); } catch { toast('No se pudo copiar: selecciónalo y cópialo', 'bad'); }
   }
   // Reparto: la propuesta (si la hay) llega marcada, nunca aplicada; Antonio elige responsables y escribe el criterio.
-  async function repartirFactura(f) {
+  const repartirFactura = (f) => editorReparto(f);
+  // EDITOR DE REPARTO: responsable · vivienda · importe · %; total asignado y diferencia en vivo. «Guardar propuesta» no crea
+  // deuda (suministro.proponer); «Confirmar reparto» sólo con la diferencia a 0 (suministro.repartir, sólo Antonio).
+  function editorReparto(f) {
     const cand = lista.filter((a) => !a.inmueble || a.inmueble === f.inmueble);
-    const prop = f.propuesta?.ok ? f.propuesta.partes : [];
-    const r = await ask({ title: `Repartir ${f.importe_txt} · ${f.proveedor} ${fecha(f.fecha)}`, ok: 'Guardar reparto',
-      help: `${f.propuesta?.ok ? `Propuesta (${f.propuesta.probable ? 'con datos probables: revísala' : 'con datos confirmados'}): ${f.propuesta.criterio}.` : `${f.periodo ? `Periodo ${fecha(f.periodo.desde)}–${fecha(f.periodo.hasta)}. ` : ''}${f.propuesta?.motivo || ''}`} A partes iguales entre los marcados (el céntimo impar va al primero).`,
-      fields: [...cand.map((a) => ({ name: `a:${a.id}`, label: a.inquilino, type: 'checkbox', value: prop.some((p) => p.alquiler === a.id) })),
-        { name: 'otro', label: 'Otro responsable (p. ej. un inquilino anterior)', value: prop.find((p) => !p.alquiler)?.obligado || '', required: false },
-        { name: 'criterio', label: 'Por qué se reparte así', type: 'textarea', value: f.propuesta?.ok ? f.propuesta.criterio : '' }] });
-    if (!r) return;
-    const partes = [...cand.filter((a) => r[`a:${a.id}`]).map((a) => ({ obligado: a.inquilino, alquiler: a.id })), ...(r.otro ? [{ obligado: r.otro }] : [])];
-    if (!partes.length) { toast('Marca al menos un responsable', 'bad'); return; }
-    await run('suministro.repartir', { factura: f.id, partes, criterio: r.criterio }, 'Reparto guardado');
+    const pr = f.propuesta?.ok ? f.propuesta : null;
+    const base = f.partes.length ? f.partes.map((x) => ({ obligado: x.obligado, alquiler: x.alquiler, cent: x.importe }))
+      : pr ? pr.partes.map((x) => ({ obligado: x.obligado, alquiler: x.alquiler || null, unidad: x.unidad, cent: x.importe_cent ?? null })) : [{ obligado: '', alquiler: null, cent: null }];
+    if (base.some((x) => x.cent == null)) base.forEach((x, i) => { x.cent = Math.floor(f.importe / base.length) + (i < f.importe % base.length ? 1 : 0); });
+    const filas = h('div', { class: 'alq-rep-filas' });
+    const resumen = h('p', { class: 'alq-rep-sum', 'aria-live': 'polite' });
+    const criterio = h('textarea', { rows: 3, placeholder: 'Por qué se reparte así (periodo, quién vivía…)' });
+    criterio.value = f.partes[0]?.criterio?.split(' · ')[0] || pr?.criterio || '';
+    const nombres = h('datalist', { id: `alq-rep-n-${f.id}` }, cand.map((a) => h('option', { value: a.inquilino })));
+    const leer = () => [...filas.children].map((el) => ({ obligado: el.querySelector('[name=o]').value.trim(), cent: aCent(el.querySelector('[name=i]').value), alquiler: el.dataset.alq || null }));
+    const btnConf = h('button', { class: 'btn primary', type: 'button' }, 'Confirmar reparto');
+    const pintar = () => {
+      const xs = leer(), asignado = xs.reduce((s, x) => s + (x.cent || 0), 0), dif = f.importe - asignado;
+      [...filas.children].forEach((el, i) => { el.querySelector('.alq-rep-pct').textContent = xs[i].cent != null && f.importe ? `${(xs[i].cent * 100 / f.importe).toLocaleString('es-ES', { maximumFractionDigits: 1 })} %` : '—'; });
+      resumen.className = `alq-rep-sum ${dif ? 't-warn' : 't-ok'}`;
+      resumen.textContent = `Factura ${f.importe_txt} · asignado ${eur(asignado)} · ${dif === 0 ? 'cuadra exacto' : dif > 0 ? `faltan ${eur(dif)} por asignar` : `sobran ${eur(-dif)}`}`;
+      btnConf.disabled = dif !== 0 || xs.some((x) => !x.obligado || x.cent == null);
+    };
+    const fila = (x) => {
+      const o = h('input', { name: 'o', value: x.obligado, list: nombres.id, 'aria-label': 'Responsable', placeholder: 'Responsable', autocomplete: 'off' });
+      const i = h('input', { name: 'i', value: x.cent == null ? '' : centTxt(x.cent), inputmode: 'decimal', 'aria-label': 'Importe en euros', class: 'alq-rep-imp' });
+      const el = h('div', { class: 'alq-rep-fila' }, o, h('small', { class: 'muted alq-rep-viv' }, x.unidad || cand.find((a) => a.id === x.alquiler)?.unidad || ''), i, h('span', { class: 'alq-rep-pct small' }),
+        h('button', { class: 'btn ghost small', type: 'button', 'aria-label': 'Quitar responsable', onclick: () => { el.remove(); pintar(); } }, '✕'));
+      if (x.alquiler) el.dataset.alq = x.alquiler;
+      o.addEventListener('input', () => { const a = cand.find((c) => c.inquilino === o.value.trim()); if (a) el.dataset.alq = a.id; else delete el.dataset.alq; pintar(); });
+      i.addEventListener('input', pintar);
+      return el;
+    };
+    base.forEach((x) => filas.append(fila(x)));
+    const partesOut = (xs) => xs.map((x) => ({ obligado: x.obligado, ...(x.alquiler ? { alquiler: x.alquiler } : {}), importe: centTxt(x.cent) }));
+    const dlg = h('dialog', { class: 'sheet alq-rep', 'aria-label': `Reparto de ${f.importe_txt}` },
+      h('header', { class: 'cmp-head' }, h('h2', {}, `Reparto · ${f.proveedor} ${fecha(f.fecha)} · ${f.importe_txt}`)),
+      h('p', { class: 'small muted' }, `${f.inmueble}${f.periodo ? ` · periodo ${fecha(f.periodo.desde)} – ${fecha(f.periodo.hasta)}` : ''}${pr && !pr.guardada ? ` · propuesta automática: ${pr.criterio}` : pr?.guardada ? ' · propuesta guardada (aún no es deuda)' : ''}`),
+      nombres, filas, resumen,
+      h('div', { class: 'alq-acciones' },
+        h('button', { class: 'btn ghost small', type: 'button', onclick: () => { filas.append(fila({ obligado: '', alquiler: null, cent: null })); pintar(); } }, 'Añadir responsable'),
+        h('button', { class: 'btn ghost small', type: 'button', onclick: () => { const els = [...filas.children]; els.forEach((el, k) => { el.querySelector('[name=i]').value = centTxt(Math.floor(f.importe / els.length) + (k < f.importe % els.length ? 1 : 0)); }); pintar(); } }, 'A partes iguales')),
+      h('label', { class: 'field' }, 'Criterio', criterio),
+      h('div', { class: 'alq-rep-acc' },
+        h('button', { class: 'btn ghost', type: 'button', onclick: () => dlg.close() }, 'Volver'),
+        f.partes.length ? null : h('button', { class: 'btn', type: 'button', onclick: async (e) => {
+          const xs = leer().filter((x) => x.obligado || x.cent);
+          if (!xs.length || xs.some((x) => !x.obligado || x.cent == null)) { toast('Cada fila necesita responsable e importe', 'bad'); return; }
+          if (await run('suministro.proponer', { factura: f.id, partes: partesOut(xs), criterio: criterio.value }, 'Propuesta guardada (no es deuda)', e.currentTarget)) dlg.close();
+        } }, 'Guardar propuesta'),
+        btnConf));
+    btnConf.addEventListener('click', async (e) => {
+      const xs = leer();
+      if (await run('suministro.repartir', { factura: f.id, partes: partesOut(xs), criterio: criterio.value }, 'Reparto confirmado', e.currentTarget)) dlg.close();
+    });
+    dlg.addEventListener('close', () => dlg.remove());
+    document.body.append(dlg); pintar(); dlg.showModal();
   }
   async function pagoProveedor(f) {
     const r = await ask({ title: `Pago a ${f.proveedor} · ${f.importe_txt}`, ok: 'Guardar', help: 'Lo que tú pagas al proveedor. No cambia lo que te deben los inquilinos.',
@@ -413,8 +461,28 @@ export function alquileresUi({ run, ask, cmd, toast, LOCAL }) {
   async function verFacturaPdf(f) {
     const v = await cmd('suministro.ver_documento', { factura: f.id });
     if (!v?.ok) { toast(v?.error || 'No se pudo abrir la factura', 'bad'); return; }
-    const z = h('dialog', { class: 'alq-zoom', 'aria-label': v.data.titulo }, h('p', { class: 'small' }, v.data.nombre), h('img', { src: v.data.imagen, alt: v.data.titulo }),
-      h('button', { class: 'btn primary', type: 'button', onclick: () => z.close() }, 'Cerrar'));
+    const pags = v.data.paginas?.length ? v.data.paginas : [v.data.imagen];
+    // Documento COMPLETO (todas las páginas) y el PDF original para guardarlo: en el PC por su enlace; en el móvil llega por
+    // el canal autenticado (se retira de Supabase a los 3 min) y se guarda con un Blob local, sin enlaces públicos.
+    const descargar = async (btn) => {
+      if (LOCAL) { const a = h('a', { href: `/alquiler/factura/${f.id}`, download: v.data.nombre }); document.body.append(a); a.click(); a.remove(); return; }
+      btn.disabled = true;
+      try {
+        const d = await cmd('suministro.ver_documento', { factura: f.id, pdf: true });
+        if (!d?.ok) { toast(d?.error || 'No se pudo descargar', 'bad'); return; }
+        const bin = Uint8Array.from(atob(d.data.pdf), (c) => c.charCodeAt(0));
+        const url = URL.createObjectURL(new Blob([bin], { type: 'application/pdf' }));
+        const a = h('a', { href: url, download: d.data.nombre }); document.body.append(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 60_000);
+        toast('PDF original descargado');
+      } finally { btn.disabled = false; }
+    };
+    const z = h('dialog', { class: 'alq-zoom', 'aria-label': v.data.titulo },
+      h('p', { class: 'small' }, `${v.data.nombre} · ${pags.length} ${pags.length === 1 ? 'página' : 'páginas'}`),
+      h('div', { class: 'alq-zoom-pags' }, pags.map((src, i) => h('img', { src, alt: `${v.data.titulo} · página ${i + 1} de ${pags.length}`, loading: i ? 'lazy' : 'eager' }))),
+      h('div', { class: 'alq-acciones' },
+        h('button', { class: 'btn', type: 'button', onclick: (e) => descargar(e.currentTarget) }, 'Descargar PDF'),
+        h('button', { class: 'btn primary', type: 'button', onclick: () => z.close() }, 'Cerrar')));
     z.addEventListener('close', () => z.remove());
     document.body.append(z); z.showModal();
   }
@@ -557,10 +625,12 @@ export function alquileresUi({ run, ask, cmd, toast, LOCAL }) {
   // Confirmar la propuesta TAL CUAL (con su criterio) desde la lista; para cambiar responsables, «Revisar» en el detalle.
   async function confirmarPropuesta(f) {
     const pr = f.propuesta;
+    if (pr.guardada && pr.diferencia_cent) { editorReparto(f); return; } // faltan céntimos por asignar: se corrige en el editor
     const r = await ask({ title: `Confirmar reparto · ${f.importe_txt}`, ok: 'Confirmar reparto',
-      help: `${pr.criterio}.${pr.probable ? ' Incluye datos probables: confírmalo sólo si es correcto.' : ''} A partes iguales. Después cada parte se marca como cobrada cuando te paguen.`, fields: [] });
+      help: `${pr.criterio}.${pr.probable ? ' Incluye datos probables: confírmalo sólo si es correcto.' : ''} ${pr.guardada ? pr.partes.map((x) => `${x.obligado} ${eur(x.importe_cent)}`).join(' · ') : 'A partes iguales'}. Después cada parte se marca como cobrada cuando te paguen.`, fields: [] });
     if (!r) return;
-    await run('suministro.repartir', { factura: f.id, criterio: `Propuesta confirmada por Antonio: ${pr.criterio}`, partes: pr.partes.map((x) => ({ obligado: x.obligado, ...(x.alquiler ? { alquiler: x.alquiler } : {}) })) }, 'Reparto confirmado');
+    await run('suministro.repartir', { factura: f.id, criterio: `Propuesta confirmada por Antonio: ${pr.criterio}`,
+      partes: pr.partes.map((x) => ({ obligado: x.obligado, ...(x.alquiler ? { alquiler: x.alquiler } : {}), ...(pr.guardada ? { importe: centTxt(x.importe_cent) } : {}) })) }, 'Reparto confirmado');
   }
   function tabSuministros(lst, repintar) {
     const fs = facturasDe(lst);

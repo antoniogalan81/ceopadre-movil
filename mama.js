@@ -6,6 +6,8 @@ import { h } from './dom.js';
 
 const fecha = (iso) => (iso ? new Date(iso).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '');
 const ESTADO = { HECHA: ['Hecha', 'ok'], DENEGADA: ['Denegada', 'bad'], TOPE: ['Tope diario', 'ask'], ERROR: ['Falló', 'bad'] };
+// Fase REAL del encargo (src/mama.js faseOrden): «Hecha» ya no existe; «Terminado» sólo cuando el trabajo terminó.
+const FASE_TONO = { RESULTADO: 'ok', TERMINADO: 'ok', EN_MARCHA: 'work', ESPERANDO: 'wait', TE_NECESITA: 'ask', PAUSADO: 'idle', CANCELADO: 'idle', ENTREGADA: 'work', ENCARGADA: 'work', DENEGADA: 'bad', TOPE: 'ask', ERROR: 'bad' };
 const chip = (label, tone) => h('span', { class: `a-chip t-${tone}` }, label);
 
 export function mamaUi({ api, toast, show, local }) {
@@ -69,7 +71,7 @@ export function mamaUi({ api, toast, show, local }) {
       h('h2', { id: 'm-h-enc' }, 'Encargos a CEOPadre'),
       h('p', { class: 'muted small' }, `Hoy: ${u.ordenes ?? 0}/${u.ordenes_max ?? '—'} órdenes · ${u.ia ?? 0}/${u.ia_max ?? '—'} respuestas. Mama sólo puede: ${(v?.lista_cerrada || []).map((t) => ({ ENCARGO: 'encargar un trabajo', INSTRUCCION: 'dar una instrucción a un trabajo abierto' }[t] || t)).join(' o ') || '—'}. Nunca aprueba, envía ni gasta.`),
       ords.length ? h('ul', { class: 'side-list' }, ords.map((o) => {
-        const [t, tone] = ESTADO[o.estado] || [o.estado, 'idle'];
+        const [t, tone] = o.fase ? [o.texto, FASE_TONO[o.fase] || 'idle'] : ESTADO[o.estado] || [o.estado, 'idle'];
         return h('li', { class: 'mama-orden' }, h('div', {}, chip(t, tone), ' ', h('strong', {}, `${o.tipo === 'ENCARGO' ? 'Encargo' : o.tipo === 'INSTRUCCION' ? 'Instrucción' : o.tipo}${o.proyecto ? ` · ${o.proyecto}` : ''}`)),
           h('p', { class: 'muted small' }, [fecha(o.at), o.trabajo_estado ? `trabajo: ${o.trabajo_estado}` : '', o.motivo || ''].filter(Boolean).join(' · ')));
       })) : h('p', { class: 'muted small' }, 'Todavía no ha encargado nada.'));

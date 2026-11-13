@@ -1387,6 +1387,7 @@ dialog.alq-recibo { width: min(760px, 100%); }
 .alq-prop-txt { white-space: pre-wrap; margin: 0; }
 dialog.alq-zoom { width: min(980px, calc(100vw - 16px)); max-height: calc(var(--vvh, 100dvh) - 16px); overflow: auto; padding: 10px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--paper); }
 dialog.alq-zoom img { width: 100%; height: auto; display: block; margin-bottom: 8px; }
+dialog.alq-zoom .alq-acciones { position: sticky; bottom: -10px; background: var(--paper); padding: 6px 0; justify-content: flex-end; }
 .alq-recibo .alq-doc-btns { position: sticky; bottom: 0; background: var(--paper); padding-block: 8px; flex-wrap: wrap; }
 .alq-recibo .cmp-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
 .alq-msg { width: 100%; min-height: 96px; font: inherit; padding: 8px; border: 1px solid var(--line); border-radius: var(--radius); box-sizing: border-box; }
@@ -1395,6 +1396,11 @@ dialog.alq-zoom img { width: 100%; height: auto; display: block; margin-bottom: 
 .alq-fact-item { display: grid; gap: 4px; } .alq-fact-item > .btn { justify-self: end; }
 /* Acciones de cada factura en la propia lista (sin abrir tres ventanas); se reparten en varias líneas en el móvil. */
 .alq-fact-acc { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; align-items: center; }
+.alq-rep { max-width: 640px; } .alq-rep-acc { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; margin-top: 8px; } .alq-rep-filas { display: grid; gap: 6px; margin: 8px 0; }
+.alq-rep-fila { display: grid; grid-template-columns: minmax(0, 1fr) auto 7.5em 4.5em auto; gap: 6px; align-items: center; }
+.alq-rep-imp { text-align: right; } .alq-rep-pct { text-align: right; color: var(--muted); }
+.alq-rep-sum { margin: 4px 0; font-weight: 600; } .alq-rep-sum.t-warn { color: var(--warn, #b45309); } .alq-rep-sum.t-ok { color: var(--ok, #15803d); }
+@media (max-width: 560px) { .alq-rep-fila { grid-template-columns: minmax(0, 1fr) 6.5em auto; } .alq-rep-viv, .alq-rep-pct { display: none; } }
 .alq-ff-c { white-space: normal; max-width: 15rem; } .alq-prov.t-warn { color: var(--warn); font-weight: 600; }
 @media (max-width: 699px) { .alq-fact-fila { grid-template-columns: minmax(0, 1fr); } .alq-ff-c { max-width: none; } .alq-fact-acc { justify-content: flex-start; } }
 @media (max-width: 699px) {

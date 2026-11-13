@@ -1396,7 +1396,7 @@ dialog.alq-zoom .alq-acciones { position: sticky; bottom: -10px; background: var
 .alq-fact-item { display: grid; gap: 4px; } .alq-fact-item > .btn { justify-self: end; }
 /* Acciones de cada factura en la propia lista (sin abrir tres ventanas); se reparten en varias líneas en el móvil. */
 .alq-fact-acc { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; align-items: center; }
-.alq-rep { max-width: 640px; } .alq-rep-acc { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; margin-top: 8px; } .alq-rep-filas { display: grid; gap: 6px; margin: 8px 0; }
+.sheet.alq-rep { max-width: 640px; padding: 16px 16px calc(16px + env(safe-area-inset-bottom)); } .alq-rep-acc { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; margin-top: 8px; } .alq-rep-filas { display: grid; gap: 6px; margin: 8px 0; }
 .alq-rep-fila { display: grid; grid-template-columns: minmax(0, 1fr) auto 7.5em 4.5em auto; gap: 6px; align-items: center; }
 .alq-rep-imp { text-align: right; } .alq-rep-pct { text-align: right; color: var(--muted); }
 .alq-rep-sum { margin: 4px 0; font-weight: 600; } .alq-rep-sum.t-warn { color: var(--warn, #b45309); } .alq-rep-sum.t-ok { color: var(--ok, #15803d); }

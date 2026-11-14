@@ -32,6 +32,7 @@ export function autoUi({ api, ask, toast, show, data, run, viewText, ai, alquile
   const all = () => projects().flatMap((p) => (p.automatizaciones || []).map((a) => ({ ...a, proyectoNombre: p.nombre })));
   const inbox = () => projects().flatMap((p) => (p.bandeja || []).map((m) => ({ ...m, proyectoNombre: p.nombre })));
   const pending = () => inbox().filter((m) => m.estado === 'PENDIENTE');
+  const aprobables = () => pending().filter((m) => m.enviable !== false); // los de sólo texto no se aprueban en bloque
   const online = () => data().pc?.online !== false;
   const cmd = async (op, params, okMsg, btn) => run(op, params, okMsg, btn);
 
@@ -479,13 +480,22 @@ export function autoUi({ api, ask, toast, show, data, run, viewText, ai, alquile
       fields: [{ name: 'motivo', label: 'Motivo (opcional)', type: 'textarea', required: false }] });
     if (r && await cmd('bandeja.rechazar', { ids: ms.map((m) => m.id), motivo: r.motivo }, 'Rechazada', btn)) for (const m of ms) selected.delete(m.id);
   }
+  async function copyText(m) {
+    let ok = false;
+    try { await navigator.clipboard.writeText(m.texto); ok = true; } catch { /* sin permiso de portapapeles */ }
+    toast(ok ? 'Texto copiado: envíalo tú cuando quieras' : 'No se pudo copiar: selecciónalo y cópialo', ok ? undefined : 'bad');
+  }
   function message(m) {
-    const [label, tone] = MSG[m.estado] || [m.estado, 'idle'];
-    const box = h('input', { type: 'checkbox', 'aria-label': `Seleccionar respuesta a ${m.contacto}`, disabled: m.estado !== 'PENDIENTE' });
+    // T19b: canal que el enviador del proyecto no maneja (gmail/whatsapp en Comunicaciones) → borrador de SÓLO TEXTO: se copia, no se aprueba.
+    const soloTexto = m.enviable === false;
+    const [label, tone] = soloTexto && m.estado === 'PENDIENTE' ? ['Borrador · sólo texto', 'ask'] : MSG[m.estado] || [m.estado, 'idle'];
+    const box = h('input', { type: 'checkbox', 'aria-label': `Seleccionar respuesta a ${m.contacto}`, disabled: m.estado !== 'PENDIENTE' || soloTexto });
     box.checked = selected.has(m.id);
     box.addEventListener('change', () => { if (box.checked) selected.add(m.id); else selected.delete(m.id); paintBar(); });
     const acts = {
-      PENDIENTE: [h('button', { class: 'btn primary small', type: 'button', onclick: (e) => approve([m], e.currentTarget) }, 'APROBAR Y ENVIAR'),
+      PENDIENTE: [soloTexto
+        ? h('button', { class: 'btn primary small', type: 'button', onclick: () => copyText(m) }, 'COPIAR TEXTO')
+        : h('button', { class: 'btn primary small', type: 'button', onclick: (e) => approve([m], e.currentTarget) }, 'APROBAR Y ENVIAR'),
         h('button', { class: 'btn ghost small', type: 'button', onclick: (e) => edit(m, e.currentTarget) }, 'EDITAR'),
         h('button', { class: 'btn accent small', type: 'button', onclick: () => ai?.open({ tipo: 'bandeja', id: m.id }) }, 'EDITAR CON IA'),
         h('button', { class: 'btn ghost-danger small', type: 'button', onclick: (e) => reject([m], e.currentTarget) }, 'RECHAZAR')],
@@ -504,14 +514,15 @@ export function autoUi({ api, ask, toast, show, data, run, viewText, ai, alquile
       h('p', { class: 'ln' }, h('b', {}, 'RECIBIDO'), ` ${m.recibido || '—'}`),
       h('div', { class: 'a-reply' }, h('b', {}, 'RESPUESTA PROPUESTA'), h('p', { class: 'r-text' }, m.texto)),
       m.motivo ? h('p', { class: 'note' }, m.motivo) : null,
+      soloTexto && m.estado === 'PENDIENTE' ? h('p', { class: 'note', 'data-solo-texto': '1' }, `Sólo texto: este agente no envía por ${m.canal}. Cópialo y envíalo tú; CEOPadre no lo enviará.`) : null,
       h('div', { class: 'a-acts' }, acts, h('button', { class: 'btn ghost small', type: 'button', onclick: (e) => original(m, e.currentTarget) }, 'Ver original e historial')));
   }
   let bar = null;
   function paintBar() {
     if (!bar) return;
-    const sel = pending().filter((m) => selected.has(m.id));
-    bar.replaceChildren(h('button', { class: 'btn ghost small', type: 'button', onclick: () => { const all2 = pending(); const on = all2.every((m) => selected.has(m.id)); for (const m of all2) if (on) selected.delete(m.id); else selected.add(m.id); paint(true); } },
-      pending().length && pending().every((m) => selected.has(m.id)) ? 'Quitar selección' : `Seleccionar todos los pendientes (${pending().length})`),
+    const sel = aprobables().filter((m) => selected.has(m.id));
+    bar.replaceChildren(h('button', { class: 'btn ghost small', type: 'button', onclick: () => { const all2 = aprobables(); const on = all2.every((m) => selected.has(m.id)); for (const m of all2) if (on) selected.delete(m.id); else selected.add(m.id); paint(true); } },
+      aprobables().length && aprobables().every((m) => selected.has(m.id)) ? 'Quitar selección' : `Seleccionar todos los pendientes (${aprobables().length})`),
     h('button', { class: 'btn primary small', type: 'button', disabled: !sel.length || !online(), onclick: (e) => approve(sel, e.currentTarget) }, `Revisar y enviar seleccionados (${sel.length})`),
     h('button', { class: 'btn ghost-danger small', type: 'button', disabled: !sel.length, onclick: (e) => reject(sel, e.currentTarget) }, 'Rechazar seleccionados'));
   }

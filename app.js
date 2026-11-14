@@ -286,15 +286,21 @@ function avisoVersion(ui) {
   let txt = '', recargar = false;
   if (LOCAL && ui.web !== uiCargada) { txt = 'La interfaz de CEOPadre ha cambiado desde que abriste esta página'; recargar = true; }
   else if (ui.movil && ui.movil !== ui.web) {
-    txt = LOCAL ? 'El móvil tiene una versión anterior de CEOPadre: falta publicarla (necesita tu autorización «Publicar la interfaz móvil»)'
+    txt = LOCAL ? 'El móvil tiene una versión anterior de CEOPadre: falta publicarla. Pulsa AUTORIZAR y aprueba «Publicar la interfaz móvil»'
       : 'Esta app del móvil aún no tiene los últimos cambios del PC: falta publicarlos';
   }
   const clave = `${txt}|${ui.web}`;
   bar.hidden = !txt || uiCerrado === clave;
   if (bar.hidden) return;
   $('#aviso-ui-txt').textContent = txt;
-  $('#b-aviso-ui').hidden = !recargar;
-  $('#b-aviso-ui').onclick = () => { if (typing()) { toast('Termina (o cierra) lo que estás escribiendo y vuelve a pulsar', 'bad'); return; } location.reload(); };
+  const autorizar = LOCAL && !recargar; // 14-11: el aviso lleva directamente a la solicitud preparada (un clic)
+  $('#b-aviso-ui').hidden = !recargar && !autorizar;
+  $('#b-aviso-ui').textContent = autorizar ? 'AUTORIZAR' : 'RECARGAR';
+  $('#b-aviso-ui').onclick = () => {
+    if (autorizar) { openConexiones('autorizaciones'); return; }
+    if (typing()) { toast('Termina (o cierra) lo que estás escribiendo y vuelve a pulsar', 'bad'); return; }
+    location.reload();
+  };
   $('#b-aviso-ui-x').onclick = () => { uiCerrado = clave; bar.hidden = true; };
 }
 
@@ -1468,12 +1474,45 @@ async function openConexiones(foco = null) {
     const v = await ask({ title: 'Nueva autorización para el CEO', ok: 'Autorizar',
       help: 'Lo que el CEO puede hacer SOLO, con límite y caducidad. Nunca gastos, banca ni permisos. Puedes revocarla cuando quieras.',
       fields: [{ name: 'accion', label: 'Qué puede hacer', type: 'choice', options: Object.entries(x.acciones).map(([value, label]) => ({ value, label })) },
-        { name: 'proyecto', label: 'Proyecto', type: 'choice', options: proys.map((p) => ({ value: p.id, label: p.nombre })) },
+        { name: 'proyecto', label: 'Proyecto', type: 'choice', options: [{ value: '*', label: 'Todos (sólo permisos generales)' }, ...proys.map((p) => ({ value: p.id, label: p.nombre }))] },
         { name: 'servicio', label: 'Servicio (si aplica)', type: 'choice', required: false, options: [{ value: '', label: '—' }, ...x.servicios.filter((sv) => sv.id !== 'demo').map((sv) => ({ value: sv.id, label: sv.nombre }))], value: '' },
-        { name: 'limite_semana', label: 'Máximo por semana', value: '3' }, { name: 'dias', label: 'Durante (días)', value: '30' }] });
-    if (v && await run('autorizacion.crear', { ...v, limite_semana: Number(v.limite_semana), dias: Number(v.dias) }, 'Autorizado', b)) reabrir();
+        { name: 'usos_total', label: 'Usos en total (vacío = sin tope)', required: false, value: '' },
+        { name: 'limite_semana', label: 'Máximo por semana', value: '3' }, { name: 'dias', label: 'Caduca en (días)', value: '30' }] });
+    if (v && await run('autorizacion.crear', { ...v, usos_total: v.usos_total === '' ? null : Number(v.usos_total), limite_semana: Number(v.limite_semana), dias: Number(v.dias) }, 'Autorizado', b)) reabrir();
   };
-  fill(box,
+  // 14-11: el botón estaba al final de un panel de ~2.700 px (en el móvil, 4 pantallas más abajo): ahora va arriba, con las
+  // solicitudes preparadas (un clic) y cada permiso con su nombre, proyecto, usos y fecha CON año.
+  const fecha = (iso) => (iso ? new Date(iso).toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric' }) : 'sin fecha');
+  const ESTADO_AUT = { ACTIVA: 'Vigente', SOLICITADA: 'Pendiente de tu aprobación', CADUCADA: 'Caducada', CONSUMIDA: 'Consumida', REVOCADA: 'Revocada', RECHAZADA: 'Rechazada', SUSTITUIDA: 'Sustituida' };
+  const usos = (a) => `${a.usos_total ? `${a.usos_hechos}/${a.usos_total} usos en total · ` : ''}${a.usos_semana}/${a.limite_semana} esta semana`;
+  const plazo = (a) => Math.max(1, Math.round((Date.parse(a.hasta) - Date.parse(a.created_at)) / 86_400_000));
+  const detalle = (a) => {
+    if (a.estado === 'SOLICITADA') return `${a.usos_total ? `${a.usos_total} uso${a.usos_total > 1 ? 's' : ''} en total · ` : ''}máx. ${a.limite_semana}/semana · caduca a los ${plazo(a)} días de aprobarla`;
+    if (a.estado === 'ACTIVA') return `${usos(a)} · vigente hasta el ${fecha(a.hasta)}`;
+    if (a.estado === 'CADUCADA') return `${usos(a)} · caducó el ${fecha(a.hasta)}`;
+    return `${usos(a)} · ${(ESTADO_AUT[a.estado] || a.estado).toLowerCase()} el ${fecha(a.revocada_at || a.created_at)}`;
+  };
+  const fichaAut = (a, acts) => h('li', {}, h('b', {}, a.accion_texto),
+    h('small', { class: a.estado === 'ACTIVA' ? 'ok' : a.estado === 'SOLICITADA' ? 'warn' : 'muted' }, `${ESTADO_AUT[a.estado] || a.estado} · ${a.proyecto_nombre || a.project_id}`),
+    a.texto && a.texto !== a.accion_texto ? h('small', { class: 'muted' }, a.texto) : null,
+    h('small', { class: 'muted' }, detalle(a)),
+    acts ? h('div', { class: 'a-acts' }, acts) : null);
+  const auts = x.autorizaciones;
+  const pend = auts.filter((a) => a.estado === 'SOLICITADA');
+  const act = auts.filter((a) => a.estado === 'ACTIVA');
+  const hist = auts.filter((a) => !['SOLICITADA', 'ACTIVA'].includes(a.estado));
+  const revocar = (a) => h('button', { class: 'btn ghost-danger small', type: 'button', onclick: (e) => run('autorizacion.revocar', { id: a.id }, a.estado === 'SOLICITADA' ? 'Rechazada' : 'Revocada', e.currentTarget).then(reabrir) }, a.estado === 'SOLICITADA' ? 'Rechazar' : 'Revocar');
+  const aprobar = (a) => h('button', { class: 'btn small', type: 'button', onclick: (e) => run('autorizacion.aprobar', { id: a.id }, 'Autorizado', e.currentTarget).then(reabrir) }, 'Aprobar');
+  const secAut = h('section', { class: `inf-sec${foco === 'autorizaciones' ? ' foco' : ''}`, id: 'conex-aut' },
+    h('h3', {}, 'Autorizaciones · lo que el CEO puede hacer solo'),
+    h('button', { class: 'btn small', type: 'button', id: 'b-nueva-aut', onclick: (e) => autorizar(e.currentTarget) }, '+ Nueva autorización'),
+    pend.length ? h('h4', {}, `Pendientes de tu aprobación (${pend.length})`) : null,
+    pend.length ? h('ul', {}, pend.map((a) => fichaAut(a, [aprobar(a), revocar(a)]))) : null,
+    h('h4', {}, `Vigentes (${act.length})`),
+    act.length ? h('ul', {}, act.map((a) => fichaAut(a, [revocar(a)])))
+      : h('p', { class: 'muted small' }, 'Nada: publicar, enviar o activar automatizaciones lo apruebas tú cada vez.'),
+    hist.length ? h('details', {}, h('summary', {}, `Historial: caducadas, consumidas, revocadas, rechazadas y sustituidas (${hist.length})`), h('ul', {}, hist.map((a) => fichaAut(a, null)))) : null);
+  fill(box, secAut,
     h('section', { class: 'inf-sec' }, h('h3', {}, 'Cuentas'), h('ul', {}, x.servicios.filter((sv) => sv.id !== 'demo' || x.conexiones.some((c) => c.servicio === 'demo')).map((sv) => {
       const cs = x.conexiones.filter((c) => c.servicio === sv.id && c.estado !== 'REVOCADA');
       return h('li', { class: foco === sv.id ? 'foco' : '' }, h('b', {}, sv.nombre),
@@ -1482,13 +1521,8 @@ async function openConexiones(foco = null) {
           LOCAL ? h('button', { class: 'btn small', type: 'button', onclick: (e) => conectar(sv, e.currentTarget) }, cs.some((c) => c.estado === 'CONECTADA') ? 'Volver a conectar' : 'Conectar')
             : h('button', { class: 'btn ghost small', type: 'button', onclick: () => view(`Conectar ${sv.nombre}`, `${sv.pasos.map((p, i) => `${i + 1}. ${p}`).join('\n')}\n\nEl último paso se hace en el PC: la clave nunca viaja por internet. En cuanto esté, el CEO lo comprueba y sigue solo.`) }, 'Ver pasos'),
           ...cs.filter((c) => c.estado === 'CONECTADA').map((c) => h('button', { class: 'btn ghost-danger small', type: 'button', onclick: (e) => run('conexion.revocar', { id: c.id }, 'Revocada', e.currentTarget).then(reabrir) }, 'Revocar'))));
-    }))),
-    h('section', { class: 'inf-sec' }, h('h3', {}, 'Lo que el CEO puede hacer solo'),
-      x.autorizaciones.filter((a) => a.estado === 'ACTIVA').length ? h('ul', {}, x.autorizaciones.filter((a) => a.estado === 'ACTIVA').map((a) => h('li', {}, a.texto,
-        h('small', { class: 'muted' }, `${a.usos_semana}/${a.limite_semana} esta semana · hasta ${a.hasta ? when(a.hasta) : 'sin fecha'}`),
-        h('div', { class: 'a-acts' }, h('button', { class: 'btn ghost-danger small', type: 'button', onclick: (e) => run('autorizacion.revocar', { id: a.id }, 'Revocada', e.currentTarget).then(reabrir) }, 'Revocar')))))
-        : h('p', { class: 'muted small' }, 'Nada: publicar, enviar o activar automatizaciones lo apruebas tú cada vez.'),
-      h('button', { class: 'btn small', type: 'button', onclick: (e) => autorizar(e.currentTarget) }, '+ Nueva autorización')));
+    }))));
+  box.scrollTop = 0;
 }
 window.addEventListener('ceo:conexiones', (e) => openConexiones(e.detail?.servicio || null));
 

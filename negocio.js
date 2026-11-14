@@ -157,7 +157,21 @@ export function negocioUi({ api, ask, toast, show, data, run, viewText }) {
     const externas = o.seleccion?.modo === 'EXTERNO' ? hj.tareas.filter((t) => t.estado === 'PENDIENTE' && /falta tu (autorizaci[oó]n|decisi[oó]n)/i.test(t.texto)).map((t) => t.texto) : [];
     const necesito = [...externas, ...(v.te_necesito || []).map((n) => n.que),...(o.pregunta && ['ESPERANDO_ANTONIO', 'BLOQUEADA'].includes(o.estado) ? [o.pregunta] : []),
       ...ahora.filter((t) => t.te_necesita).map((t) => `${t.proyecto}: un trabajo espera algo tuyo`)];
+    // 14-11 (GOAL 2.0): con criterios de aceptación propios (MAMA), primero QUÉ FUNCIONA y QUÉ FALTA, tal cual su matriz vigente.
+    const cr = o.criterios;
+    const ESTADO_CR = { ACEPTADO: '✓ aceptado', TECNICO_OK: 'técnico OK · falta tu prueba', PARCIAL: 'parcial', PENDIENTE: 'pendiente' };
+    const criterios = cr?.total ? [
+      linea('QUÉ FUNCIONA', cr.aceptados ? 'ok' : 'need', h('p', { class: 'small' }, `${cr.aceptados}/${cr.total} criterios aceptados con prueba real`,
+        cr.tecnico_ok ? ` · ${cr.tecnico_ok} funcionan técnicamente y sólo esperan tu prueba` : '', '.')),
+      linea('QUÉ FALTA', 'next', h('div', {},
+        cr.desbloquea.length ? h('p', { class: 'small' }, cr.desbloquea.slice(0, 3).map((d) => `${d.ref} desbloquea ${d.criterios.length} criterio${d.criterios.length === 1 ? '' : 's'}`).join(' · ')) : null,
+        h('details', { class: 'small' }, h('summary', {}, `Los ${cr.total} criterios, uno a uno`),
+          h('ol', { class: 'mlist' }, cr.filas.map((f) => h('li', { value: f.n }, h('b', {}, f.criterio), ` · ${ESTADO_CR[f.estado] || f.estado}`,
+            f.estado !== 'ACEPTADO' && f.bloqueo ? h('small', { class: 'muted' }, ` · ${corto(f.bloqueo, 160)}`) : null))),
+          h('p', { class: 'muted small' }, `Fuente: ${cr.fuente} (${corto(cr.titulo, 80)})`)))),
+    ] : [];
     return h('div', { class: 'q4-grid' },
+      ...criterios,
       linea('QUÉ HA HECHO', 'ok', lista(hechas.length ? [...hechas].reverse() : v.hecho, (t) => `${t.texto ? corto(t.texto) : `${t.proyecto}: ${corto(t.objetivo)}`} ✓`, 'Nada terminado todavía.')),
       linea('QUÉ ESTÁ HACIENDO', 'work', lista(ahora, (t) => `${t.proyecto}: ${t.pausado ? 'en pausa' : t.te_necesita ? 'esperando algo tuyo' : corto(t.ahora && t.ahora !== 'Aún no se ha hecho nada' ? t.ahora : t.objetivo)}${senal(t)}`,
         o.estado === 'PAUSADA' ? 'En pausa.' : o.estado === 'DEFINIENDO' ? 'Investigando y preparando la hoja de ruta.' : 'Nada en marcha ahora.')),

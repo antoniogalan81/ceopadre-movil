@@ -183,11 +183,31 @@ export function mamaUi({ api, toast, show, local }) {
     h('p', { class: 'muted small' }, 'Sólo con tus tareas, compromisos y decisiones reales; sin IA y sin tocar tus tareas.'));
     return n;
   }
+  // T22 r3: estado visible de la revisión automática y su pausa (persistente; efecto en la siguiente pasada, sin reinicio).
+  async function pausar(pausa) {
+    if (ocupado) return;
+    ocupado = 'mama.reglas.pausar'; sig = ''; paint();
+    const r = await api.cmd('mama.reglas.pausar', { pausa });
+    ocupado = ''; sig = '';
+    if (!r?.ok) toast(r?.error || 'No se pudo cambiar', 'bad');
+    else { v = { ...v, reglas: r.data }; toast(pausa ? 'Avisos automáticos en pausa' : 'Avisos automáticos reanudados', 'ok'); }
+    paint();
+  }
+  function interruptor(g) {
+    const u = g?.ultima;
+    const pasada = u ? ` · última pasada ${fecha(u.at)}${u.error ? ` (falló: ${u.error})` : `: ${u.avisos} aviso${u.avisos === 1 ? '' : 's'} nuevo${u.avisos === 1 ? '' : 's'}${u.silencio ? ', horario de silencio' : ''}`}` : '';
+    const texto = g?.recurrencia ? `Revisión automática ACTIVA cada ${g.cada_s} s${pasada}.`
+      : g?.pausada && g?.armada && g?.aprobada ? 'Revisión automática EN PAUSA (la pausaste tú).'
+        : 'Revisión automática apagada (pendiente de tu aprobación).';
+    const boton = g?.armada && g?.aprobada ? h('button', { class: 'btn', type: 'button', id: 'm-reglas-pausa', disabled: !!ocupado, 'aria-pressed': String(!!g.pausada),
+      onclick: () => pausar(!g.pausada) }, ocupado === 'mama.reglas.pausar' ? 'Cambiando…' : g.pausada ? 'Reanudar avisos automáticos' : 'Pausar avisos automáticos') : null;
+    return [h('p', { class: 'small', id: 'm-reglas-estado' }, texto), boton];
+  }
   function tarjetaReglas() {
     const s = simulacion;
     const PR = { urgente: 'bad', alta: 'ask', normal: 'idle' };
     return h('section', { class: 'side-card mama-reglas', id: 'm-reglas', 'aria-labelledby': 'm-reglas-h' }, h('h2', { id: 'm-reglas-h' }, 'Avisos de Mama'),
-      h('p', { class: 'small' }, v?.reglas?.recurrencia ? 'Revisión automática ACTIVA.' : 'Revisión automática apagada (pendiente de tu aprobación).'),
+      ...interruptor(v?.reglas),
       h('button', { class: 'btn', type: 'button', id: 'm-reglas-revisar', disabled: !!ocupado, onclick: () => bajoDemanda('mama.reglas.revisar', 'revisar los avisos') },
         ocupado === 'mama.reglas.revisar' ? 'Revisando…' : 'Revisar ahora (simulación)'),
       s ? h('div', { role: 'status', id: 'm-reglas-res' }, h('p', { class: 'small' }, `${fecha(s.at)} · ${s.pendientes} aviso${s.pendientes === 1 ? '' : 's'} saldría${s.pendientes === 1 ? '' : 'n'}${s.silencio ? ' (ahora es horario de silencio: esperarían a las 8:00)' : ''}. Simulación: no se ha enviado nada.`),

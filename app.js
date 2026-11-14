@@ -136,7 +136,9 @@ async function strongConfirm(sb, op, params) {
     : op === 'automatizacion.guardar' ? { title: 'Guardar procedimiento', text: `Guardas un procedimiento que Claude ejecutará en tu PC cada vez que pulses el botón («${where}»).` }
     : op === 'automatizacion.programar' ? { title: 'Confirmar horario', text: 'La automatización se ejecutará sola en tu PC a esa hora, igual que al pulsar ▶ EJECUTAR.' }
     : op === 'proyecto.revisar' ? { title: 'Confirmar revisión', text: `Claude revisará «${where}» en tu PC (sólo lectura: no cambia código ni datos).` }
-    : op.startsWith('negocio.') ? { title: 'Confirmar objetivo de negocio', text: 'El director de CEOPadre lanzará trabajos de Claude en tu PC para este objetivo (gasto 0 €, nada sale a terceros sin ti).' }
+    : op === 'autorizacion.aprobar' ? { title: 'Confirmar autorización', text: 'Concedes la autorización que acabas de elegir, con sus límites (usos, semana y caducidad). Si es «Publicar la interfaz móvil», tu PC la publica ahora y gasta su único uso.' }
+    : op === 'autorizacion.crear' ? { title: 'Confirmar autorización nueva', text: 'Concedes al CEO lo que acabas de rellenar, con esos límites. Puedes revocarla cuando quieras desde este mismo panel.' }
+    : op.startsWith('negocio.') ?{ title: 'Confirmar objetivo de negocio', text: 'El director de CEOPadre lanzará trabajos de Claude en tu PC para este objetivo (gasto 0 €, nada sale a terceros sin ti).' }
     : { title: 'Confirmar orden a Claude', text: `Vas a enviar texto libre a Claude en «${where}». Claude puede ejecutar código en tu PC.` };
   const r = await ask({ title: what.title, ok: 'Enviar al PC',
     help: `${what.text}${fresh ? '' : ' Por seguridad, escribe tu contraseña (como mucho una vez cada 30 min).'}`,
@@ -285,19 +287,33 @@ function avisoVersion(ui) {
   uiCargada ??= ui.web;
   let txt = '', recargar = false;
   if (LOCAL && ui.web !== uiCargada) { txt = 'La interfaz de CEOPadre ha cambiado desde que abriste esta página'; recargar = true; }
-  else if (ui.movil && ui.movil !== ui.web) {
-    txt = LOCAL ? 'El móvil tiene una versión anterior de CEOPadre: falta publicarla. Pulsa AUTORIZAR y aprueba «Publicar la interfaz móvil»'
-      : 'Esta app del móvil aún no tiene los últimos cambios del PC: falta publicarlos';
+  // 14-11 (GOAL 2.0): sólo con cambios REALES para el móvil, archivo a archivo contra lo publicado (src/ui-version.js); un cambio
+  // que en el móvil no se ejecuta (p. ej. mama.js) ya no lo dispara. Sin la lista (PC antiguo) se compara la huella como antes.
+  const cambios = Array.isArray(ui.relevantes) ? ui.relevantes : ui.movil && ui.movil !== ui.web ? ['interfaz'] : [];
+  if (!txt && cambios.length) {
+    const que = Array.isArray(ui.relevantes) ? ` (${cambios.slice(0, 4).join(', ')}${cambios.length > 4 ? '…' : ''})` : '';
+    txt = LOCAL ? `El móvil no tiene los últimos cambios de la interfaz${que}: falta publicarlos. Pulsa AUTORIZAR y luego «Aprobar y publicar ya»`
+      : `Esta app aún no tiene los últimos cambios del PC${que}. Pulsa AUTORIZAR y luego «Aprobar y publicar ya» (con tu contraseña)`;
   }
   const clave = `${txt}|${ui.web}`;
   bar.hidden = !txt || uiCerrado === clave;
   if (bar.hidden) return;
   $('#aviso-ui-txt').textContent = txt;
-  const autorizar = LOCAL && !recargar; // 14-11: el aviso lleva directamente a la solicitud preparada (un clic)
+  const autorizar = !recargar; // PC y móvil: el aviso nunca pide algo que no se pueda hacer desde aquí
   $('#b-aviso-ui').hidden = !recargar && !autorizar;
   $('#b-aviso-ui').textContent = autorizar ? 'AUTORIZAR' : 'RECARGAR';
-  $('#b-aviso-ui').onclick = () => {
-    if (autorizar) { openConexiones('autorizaciones'); return; }
+  $('#b-aviso-ui').onclick = async (e) => {
+    if (autorizar) {
+      // Prepara la solicitud (un uso, 2 días) o devuelve la que ya espera: nunca duplica ni concede nada; se aprueba en el panel.
+      const b = e.currentTarget;
+      b.disabled = true;
+      const r = await api.cmd('autorizacion.solicitar', { proyecto: 'CEOPadre', accion: 'PUBLICAR_MOVIL', usos_total: 1, limite_semana: 1, dias: 2,
+        motivo: `cambios de la interfaz sin publicar: ${cambios.join(', ')}`.slice(0, 190) });
+      b.disabled = false;
+      if (!r?.ok) { toast(r?.error || 'No se pudo preparar la solicitud', 'bad'); return; }
+      openConexiones('autorizaciones');
+      return;
+    }
     if (typing()) { toast('Termina (o cierra) lo que estás escribiendo y vuelve a pulsar', 'bad'); return; }
     location.reload();
   };

@@ -1502,7 +1502,7 @@ async function openConexiones(foco = null) {
   const act = auts.filter((a) => a.estado === 'ACTIVA');
   const hist = auts.filter((a) => !['SOLICITADA', 'ACTIVA'].includes(a.estado));
   const revocar = (a) => h('button', { class: 'btn ghost-danger small', type: 'button', onclick: (e) => run('autorizacion.revocar', { id: a.id }, a.estado === 'SOLICITADA' ? 'Rechazada' : 'Revocada', e.currentTarget).then(reabrir) }, a.estado === 'SOLICITADA' ? 'Rechazar' : 'Revocar');
-  const aprobar = (a) => h('button', { class: 'btn small', type: 'button', onclick: (e) => run('autorizacion.aprobar', { id: a.id }, 'Autorizado', e.currentTarget).then(reabrir) }, 'Aprobar');
+  const aprobar = (a) => h('button', { class: 'btn small', type: 'button', onclick: (e) => run('autorizacion.aprobar', { id: a.id }, 'Autorizado', e.currentTarget).then(reabrir) }, a.accion === 'PUBLICAR_MOVIL' ? 'Aprobar y publicar ya' : 'Aprobar');
   const secAut = h('section', { class: `inf-sec${foco === 'autorizaciones' ? ' foco' : ''}`, id: 'conex-aut' },
     h('h3', {}, 'Autorizaciones · lo que el CEO puede hacer solo'),
     h('button', { class: 'btn small', type: 'button', id: 'b-nueva-aut', onclick: (e) => autorizar(e.currentTarget) }, '+ Nueva autorización'),

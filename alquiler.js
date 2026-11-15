@@ -340,7 +340,8 @@ export function alquileresUi({ run, ask, cmd, toast, LOCAL }) {
   const estChip = (e) => chip(...(EST[e] || [e, 'idle']));
   const todos = (gestiones) => gestiones.flatMap((c) => (c.alquileres || []).map((a) => ({ ...a, gestion: c })));
   const facturasDe = (lista) => { const m = new Map(); for (const a of lista) for (const f of a.suministros || []) m.set(f.id, f); return [...m.values()].sort((x, y) => y.fecha.localeCompare(x.fecha)); };
-  const firma = (gestiones) => JSON.stringify(gestiones.flatMap((c) => c.alquileres || []));
+  // T35: también los WhatsApp por aprobar (Dirección los aprueba, edita o descarta): el panel abierto no se queda con el estado viejo.
+  const firma = (gestiones) => JSON.stringify([gestiones.flatMap((c) => c.alquileres || []), gestiones.flatMap((c) => (c.wa_pendientes || []).map((m) => [m.id, m.estado, m.huella_texto]))]);
   const hoy = () => new Date().toISOString().slice(0, 10);
   const vista = { tab: 'suministros', filtro: 'GESTIONAR' }; // sobrevive al repintado
   let lista = []; // la última lista pintada (para los diálogos)
@@ -709,7 +710,7 @@ export function alquileresUi({ run, ask, cmd, toast, LOCAL }) {
     const editar = async (btn) => {
       const r = await ask({ title: `Mensaje para ${m.destinatario}`, ok: 'Guardar borrador', help: m.estado === 'TEXTO_APROBADO' || m.estado === 'ENVIO_FALLIDO' ? 'Cambiar el texto anula su aprobación.' : 'Se guarda como borrador: no se envía nada.',
         fields: [{ name: 'texto', label: 'Texto completo', type: 'textarea', value: m.texto }] });
-      if (r) await waOrden('alquiler.msg.guardar', { id: m.id, texto: r.texto }, 'Guardado', btn, pid, repintar);
+      if (r) await waOrden('alquiler.msg.guardar', { id: m.id, texto: r.texto, base: m.huella_texto }, 'Guardado', btn, pid, repintar); // T35: no pisa un cambio hecho en Dirección u otro dispositivo
     };
     const ceo = () => {
       if (!editorIa) { toast('El editor del CEO no está disponible', 'bad'); return; }
@@ -839,6 +840,7 @@ export function alquileresUi({ run, ask, cmd, toast, LOCAL }) {
     if (detFactura) { const f = facturasDe(todos(gestiones)).find((x) => x.id === detFactura.id); const s = JSON.stringify(f || null); if (f && s !== detFactura.sig) { detFactura.sig = s; detFactura.cuerpo.replaceChildren(cuerpoFactura(f)); } }
     if (!panel || sig === panel.sig) return;
     panel.sig = sig; panel.gestiones = gestiones;
+    if (vista.tab === 'whatsapp') { wa.datos = null; wa.error = null; } // se recarga con alquiler.msg.lista
     panel.repintar();
   }
   function miniPanel(gestiones) {

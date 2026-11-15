@@ -1515,3 +1515,5 @@ dialog.cp-dlg { width: min(860px, calc(100vw - 24px)); overflow: auto; }
 .a-ctx { display: grid; gap: 4px; } .a-ctx > .ln, .a-ctx .need-ctx .ln { margin: 0; }
 .a-msg[aria-busy="true"] { opacity: .7; }
 @media (max-width: 560px) { .a-msg .a-acts .row .btn { min-height: 44px; } }
+/* Permisos por decidir (añadido #3 §8): en el móvil, botones de dedo (44 px) como las respuestas. */
+@media (max-width: 560px) { .aut-card .a-acts .btn { min-height: 44px; } }

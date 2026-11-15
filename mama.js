@@ -124,7 +124,8 @@ export function mamaUi({ api, toast, show, local }) {
       b.replaceChildren(h('section', { class: 'side-card mama-aviso' }, h('h2', {}, 'Mama'),
         h('p', {}, 'Tu conversación con Mama es privada y cifrada: en el móvil se abre en FocoGravital.'),
         h('a', { class: 'btn primary', href: INTENT_MAMA, id: 'm-abrir-foco' }, 'Abrir la conversación en FocoGravital'),
-        h('p', { class: 'muted small' }, 'En el PC, en la sección Mama de CEOPadre.')));
+        h('p', { class: 'muted small' }, 'En el PC, en la sección Mama de CEOPadre.'),
+        h('p', { class: 'muted small', id: 'm-copia-solo-pc' }, 'La copia de seguridad de la memoria y su frase de recuperación sólo se hacen en el PC (la frase no viaja por internet): en CEOPadre del PC, Más → «Copia de Mama (frase)».')));
       return;
     }
     const s = JSON.stringify([enviando, v?.mensajes?.length, v?.mensajes?.at(-1)?.id, v?.pensando, v?.ordenes?.map((o) => [o.id, o.trabajo_estado, o.estado_encargo]), v?.uso, v?.panel, canal, v?.plan, simulacion, ocupado, mem, [...memFichas]]);
@@ -316,5 +317,16 @@ export function mamaUi({ api, toast, show, local }) {
 
   document.getElementById('m-back')?.addEventListener('click', back);
   document.getElementById('b-mama')?.addEventListener('click', open);
+  // T38: acceso directo a «Memoria → Copia de seguridad» (sólo en el PC: la frase nunca viaja por el canal remoto).
+  async function abrirCopia() {
+    const mas = document.getElementById('more'); if (mas) mas.open = false;
+    abierta = true; sig = ''; show('p-mama');
+    await load(); programar();
+    const d = document.getElementById('m-mem-copia');
+    if (!d) { toast('La memoria de Mama no está disponible ahora', 'bad'); return; }
+    d.open = true; d.scrollIntoView({ block: 'center' }); document.getElementById('m-frase')?.focus();
+  }
+  const bc = document.getElementById('b-mama-copia');
+  if (bc) { bc.hidden = !local; bc.addEventListener('click', () => void abrirCopia()); }
   return { open, abierta: () => abierta };
 }

@@ -915,9 +915,15 @@ const sideHead = (id, title, n, link) => h('header', { class: 'side-head' }, h('
   link ? h('button', { class: 'link', type: 'button', onclick: link[1] }, link[0]) : null);
 
 // OBJETIVOS EMPRESARIALES: el resumen de la vista de Negocio (misma orden negocio.lista; cada 60 s como mucho).
-const goals = { at: 0, list: null, busy: false };
+const goals = { at: 0, list: null, busy: false, k: '' };
+// T37 · respondidas en las últimas 48 h: se ven con su estado real (en cola · recibida · ejecutada) sin abrir el objetivo.
+const RECIENTE_MS = 48 * 3600_000;
+const reciente = (n) => n.estado !== 'PENDIENTE' && n.por === 'antonio' && n.resuelta_at && Date.now() - Date.parse(n.resuelta_at) < RECIENTE_MS;
 function paintGoals() {
   const n = data.negocio?.abiertos || 0;
+  // Una necesidad nueva (o resuelta en otro dispositivo) cambia el latido: se relee ya, sin esperar al minuto.
+  const k = JSON.stringify(data.negocio || {});
+  if (k !== goals.k) { goals.k = k; goals.at = 0; }
   if (n && !goals.busy && Date.now() - goals.at > 60_000 && data.pc.online !== false) {
     goals.busy = true;
     void api.cmd('negocio.lista', {}).then((r) => { if (r?.ok) goals.list = r.data.objetivos; })
@@ -926,14 +932,17 @@ function paintGoals() {
   }
   const list = n ? (goals.list || []).filter((g) => !['ALCANZADA', 'CANCELADA', 'CERRADA', 'ACEPTADA'].includes(g.estado)) : [];
   const kpi = (g) => { const x = g.kpis.find((k) => k.disponible && k.valor != null); return x ? `${x.nombre}: ${x.valor}${x.unidad ? ` ${x.unidad}` : ''} de ${x.objetivo}` : g.kpis.length ? 'resultados aún sin medir' : 'sin indicadores aprobados'; };
-  const sig = JSON.stringify([n, list.map((g) => [g.id, g.estado, kpi(g), g.trabajos.terminados, g.trabajos.en_curso?.ahora])]);
+  const sig = JSON.stringify([n, data.pc.online, list.map((g) => [g.id, g.estado, g.pregunta, kpi(g), g.trabajos.terminados, g.trabajos.en_curso?.ahora,
+    (g.necesidades || []).map((x) => [x.id, x.estado, x.version, x.pospuesta, x.consejo?.estado, x.consejo?.veredicto, x.entrega?.estado])])]);
   const box = $('#s-goals');
   if (box.dataset.sig === sig) return;
   box.dataset.sig = sig;
-  // Los que te necesitan (plan por aprobar, pregunta, bloqueo) también van a «Necesita tu intervención».
-  fill($('#need-goals'), list.filter((g) => g.te_necesita).map((g) => h('div', { class: 'decision need-goal' },
-    h('p', { class: 'ln' }, h('b', {}, 'OBJETIVO DE NEGOCIO'), ` ${g.titulo} · ${g.estado_texto}${g.pregunta ? ` · ${g.pregunta}` : ''}`),
-    h('div', { class: 'row' }, h('button', { class: 'btn primary small', type: 'button', onclick: () => nui?.openOne(g.id) }, g.estado === 'ESPERANDO_APROBACION' ? 'Revisar el plan' : 'Abrir y responder')))));
+  // T37 P0 · INTERVENCIONES RESUELTAS DESDE DIRECCIÓN (antes «Abrir y responder» llevaba al objetivo a buscar la pregunta).
+  const ng = $('#need-goals');
+  const abiertos = new Set([...ng.querySelectorAll('details[open]')].map((x) => x.dataset.k));
+  fill(ng, list.filter((g) => g.te_necesita || (g.necesidades || []).some(reciente)).map(goalNeeds));
+  for (const x of ng.querySelectorAll('details')) if (abiertos.has(x.dataset.k)) x.open = true;
+  if (ng.childElementCount) $('#z-need').hidden = false;
   fill(box, sideHead('h-goals', 'Objetivos de negocio', n, ['Ver todos', () => nui?.open()]),
     n && !goals.list ? h('p', { class: 'muted small' }, 'Cargando…')
       : list.length ? h('ul', { class: 'side-list goals' }, list.map((g) => h('li', { class: `g-${g.te_necesita ? 'need' : 'ok'}` },
@@ -942,6 +951,42 @@ function paintGoals() {
           h('small', { class: 'muted' }, `Resultado: ${kpi(g)} · ${g.trabajos.terminados} trabajo${g.trabajos.terminados === 1 ? '' : 's'} hecho${g.trabajos.terminados === 1 ? '' : 's'}${g.trabajos.en_curso ? ` · ahora en ${g.trabajos.en_curso.proyecto}` : ''}`)))))
         : [h('p', { class: 'muted small' }, 'Escribe el resultado que quieres («Quiero conseguir clientes para GEST7 por redes sociales»): el CEO lo analiza, te pregunta lo necesario, lo organiza y trabaja solo.'),
           h('button', { class: 'btn primary', type: 'button', disabled: data.pc.online === false, onclick: (e) => nui?.crear(e.currentTarget) }, '+ Nuevo objetivo de negocio')]);
+}
+
+// Cada objetivo que te necesita: sus peticiones con la MISMA tarjeta, ref, versión y órdenes que dentro del objetivo (web/negocio.js
+// needCard, compacta) y lo que respondiste hace poco con su estado real. Sólo el PLAN por aprobar se abre aparte: es una
+// actuación protegida que se aprueba viendo el plan entero (con su versión). Lo que espera un TRABAJO va en su tarjeta, debajo.
+function goalNeeds(g) {
+  const pend = (g.vista?.te_necesito || []).filter((x) => !x.pospuesta);
+  const hechas = (g.necesidades || []).filter(reciente).slice(0, 3);
+  const pregunta = g.pregunta && ['ESPERANDO_ANTONIO', 'BLOQUEADA'].includes(g.estado);
+  const plan = g.estado === 'ESPERANDO_APROBACION';
+  const deTrabajo = g.te_necesita && !pend.length && !pregunta && !plan;
+  const off = data.pc.online === false;
+  return h('section', { class: 'decision need-goal', 'data-goal': g.id, 'aria-label': `Objetivo de negocio: ${g.titulo}` },
+    h('p', { class: 'ln' }, h('b', {}, 'OBJETIVO DE NEGOCIO'), ` ${g.titulo} · ${g.estado_texto}`),
+    plan ? h('div', { class: 'need-card compacta' }, h('p', { class: 'need-t' }, h('b', {}, 'Aprobar el plan'), ' — el CEO preparó la hoja de ruta de este objetivo y espera tu aprobación.'),
+      h('p', { class: 'need-nivel' }, 'Por qué: sin tu aprobación el objetivo no empieza. Se aprueba viendo el plan entero (actuación protegida).'),
+      h('div', { class: 'row' }, h('button', { class: 'btn primary small', type: 'button', onclick: () => nui?.openOne(g.id) }, 'Abrir el plan para aprobarlo'))) : null,
+    pregunta ? h('div', { class: 'need-card compacta', 'data-ref': `objetivo:${g.id}` }, h('p', { class: 'need-t' }, h('b', {}, 'Te pregunta el director'), ` — ${g.pregunta}`),
+      h('div', { class: 'row' },
+        h('button', { class: 'btn primary small', type: 'button', disabled: off, onclick: (e) => goalAnswer(g, e.currentTarget) }, 'Responder'),
+        g.categoria === 'CUOTA' || g.categoria === 'DIRECTOR' ? h('button', { class: 'btn ghost small', type: 'button', disabled: off, onclick: (e) => run('negocio.reanudar', { id: g.id }, 'Reanudado', e.currentTarget).then(() => { goals.at = 0; paintGoals(); }) }, 'Reanudar') : null)) : null,
+    nui ? pend.map((x) => nui.intervencion(g, x)) : null,
+    deTrabajo ? h('p', { class: 'muted small' }, 'Lo que espera de ti un trabajo de este objetivo está en su tarjeta, aquí debajo.') : null,
+    hechas.length ? h('details', { class: 'prop-more need-hechas', 'data-k': `hechas-${g.id}` }, h('summary', {}, `Respondidas hace poco (${hechas.length}) · estado real`),
+      h('ul', { class: 'mlist' }, hechas.map((x) => nui?.respondida(g, x)))) : null,
+    h('div', { class: 'row' }, h('button', { class: 'link', type: 'button', onclick: () => nui?.openOne(g.id) }, 'Ver el objetivo completo (opcional)')));
+}
+const goalBusy = new Set();
+async function goalAnswer(g, b) {
+  if (goalBusy.has(g.id)) return;
+  goalBusy.add(g.id);
+  try {
+    // ask() conserva lo escrito si el PC no confirma (sin red, error): al volver a pulsar «Responder» reaparece.
+    const r = await ask({ title: `Responder · ${g.titulo}`, help: g.pregunta, ok: 'Enviar', fields: [{ name: 'respuesta', label: 'Tu respuesta', type: 'textarea' }] });
+    if (r?.respuesta && await run('negocio.responder', { id: g.id, respuesta: r.respuesta }, 'Respuesta enviada', b)) { goals.at = 0; paintGoals(); }
+  } finally { goalBusy.delete(g.id); }
 }
 
 // PRÓXIMOS TRABAJOS: sólo lo programado (fecha, hora y para qué) o preparado para empezar. Las esperas tienen su sección.
@@ -2079,7 +2124,7 @@ async function start() {
   ALQ.usarEditor(ai); // «Pedir al CEO» en WhatsApp / Comunicaciones de Alquileres
   rui ??= remoteUi({ api, ask, toast, show, data: () => data, ago, local: LOCAL, ai });
   aui ??= autoUi({ api, ask, toast, show, data: () => data, run, viewText: (t, x) => view(t, x), ai, alquileres: () => [...copiaMinis(), ...ALQ.minis(data.proyectos)] });
-  nui ??= negocioUi({ api, ask, toast, show, data: () => data, run, viewText: (t, x) => view(t, x) });
+  nui ??= negocioUi({ api, ask, toast, show, data: () => data, run, viewText: (t, x) => view(t, x), onChange: () => { goals.at = 0; paintGoals(); } });
   mui ??= mamaUi({ api, toast, show, local: LOCAL });
   show('p-list');
   await refresh();

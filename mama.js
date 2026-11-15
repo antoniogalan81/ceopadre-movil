@@ -231,6 +231,20 @@ export function mamaUi({ api, toast, show, local }) {
     else toast(r.data.restaurada ? `Copia hecha y comprobada (restaurada con ${r.data.restaurada_con})` : 'La copia no superó la comprobación', r.data.restaurada ? 'ok' : 'bad');
     await cargarMemoria(); sig = ''; paint();
   }
+  // T38: comprobar la ÚLTIMA copia sólo con la frase (como en otro PC); queda anotada la fecha, nunca la frase.
+  async function comprobar() {
+    if (ocupado) return;
+    const a = document.getElementById('m-frase');
+    const frase = a?.value || '';
+    if (frase.length < 12) { toast('Escribe tu frase (12 caracteres o más) en «Frase»', 'bad'); return; }
+    ocupado = 'mama.memoria.comprobar'; sig = ''; paint();
+    const r = await api.cmd('mama.memoria.comprobar', { frase });
+    ocupado = '';
+    for (const id of ['m-frase', 'm-frase2']) { const el = document.getElementById(id); if (el) el.value = ''; }
+    if (a) a.value = '';
+    toast(r?.ok ? 'Copia comprobada: se recupera con tu frase' : r?.error || 'No se pudo comprobar', r?.ok ? 'ok' : 'bad');
+    await cargarMemoria(); sig = ''; paint();
+  }
   function tarjetaMemoria() {
     const card = (...hijos) => h('section', { class: 'side-card mama-memoria', id: 'm-mem', 'aria-labelledby': 'm-mem-h' }, h('h2', { id: 'm-mem-h' }, 'Memoria'), ...hijos);
     if (!mem) return card(h('p', { class: 'muted small' }, 'Cargando…'));
@@ -251,13 +265,15 @@ export function mamaUi({ api, toast, show, local }) {
         chip(e.ok ? 'Íntegra' : 'Revisar', e.ok ? 'ok' : 'bad'), ' ', chip(e.aces === 1 ? 'Sólo tu usuario' : `Acceso: ${e.aces} permisos`, e.aces === 1 ? 'ok' : 'bad')),
       fichas.length ? h('ul', { class: 'side-list', id: 'm-mem-fichas' }, fichas.map(ficha)) : h('p', { class: 'muted small' }, 'Vacía. Mama sólo anota lo que tú le cuentas y conviene recordar.'),
       h('details', { class: 'mama-copia', id: 'm-mem-copia' }, h('summary', {}, 'Copia de seguridad'),
-        h('p', { class: 'small', id: 'm-mem-ultima' }, c ? `Última: ${fecha(c.creada)} · ${c.con_frase ? 'con frase de recuperación' : 'sin frase (sólo se recupera en este usuario de este PC)'}` : 'Aún no hay copias.'),
+        h('p', { class: 'small', id: 'm-mem-ultima' }, c ? `Última: ${fecha(c.creada)} · ${c.con_frase ? `con frase de recuperación · ${c.comprobada ? `comprobada con tu frase el ${fecha(c.comprobada)}` : 'sin comprobar con tu frase'}` : 'sin frase (sólo se recupera en este usuario de este PC)'}` : 'Aún no hay copias.'),
+        e.ultima_con_frase && e.ultima_con_frase.copia !== c?.copia ? h('p', { class: 'small', id: 'm-mem-ultima-frase' }, `Última con frase: ${fecha(e.ultima_con_frase.creada)} · ${e.ultima_con_frase.comprobada ? `comprobada con tu frase el ${fecha(e.ultima_con_frase.comprobada)}` : 'sin comprobar con tu frase'}`) : null,
         h('p', { class: 'muted small' }, 'Frase de recuperación (12 caracteres o más): guárdala tú, fuera del PC. Mama no la guarda en ningún sitio; sin ella, la copia sólo se recupera aquí.'),
         h('label', { class: 'small', for: 'm-frase' }, 'Frase'), h('input', { type: 'password', id: 'm-frase', autocomplete: 'new-password', minlength: '12' }),
         h('label', { class: 'small', for: 'm-frase2' }, 'Repite la frase'), h('input', { type: 'password', id: 'm-frase2', autocomplete: 'new-password', minlength: '12' }),
         h('div', { class: 'mama-movil-bot' },
           h('button', { class: 'btn primary', type: 'button', id: 'm-copia-frase', disabled: !!ocupado, onclick: () => copia(true) }, ocupado === 'mama.memoria.copia' ? 'Copiando…' : 'Copia con frase'),
-          h('button', { class: 'btn', type: 'button', id: 'm-copia', disabled: !!ocupado, onclick: () => copia(false) }, 'Copia sin frase'))));
+          h('button', { class: 'btn', type: 'button', id: 'm-copia', disabled: !!ocupado, onclick: () => copia(false) }, 'Copia sin frase'),
+          e.ultima_con_frase ? h('button', { class: 'btn', type: 'button', id: 'm-comprobar', disabled: !!ocupado, title: 'Restaura de prueba la última copia CON FRASE sólo con tu frase (escríbela en «Frase»), sin la clave de este PC', onclick: () => void comprobar() }, ocupado === 'mama.memoria.comprobar' ? 'Comprobando…' : 'Comprobar con mi frase') : null)));
   }
 
   // T10: emparejar el móvil (código de un solo uso, 10 min) y revocarlo. El código sólo vive en la memoria del PC.

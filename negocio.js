@@ -47,7 +47,7 @@ const chip = (label, tone) => h('span', { class: `a-chip t-${tone}` }, label);
 // Resúmenes de la vista principal en lenguaje claro (web/dom.js claro: sin comandos, rutas ni hashes; nada inventado).
 const corto = (s, n = 140) => { const t = claro(String(s || '').split('\n')[0]); return t.length > n ? `${t.slice(0, n - 1)}…` : t; };
 
-export function negocioUi({ api, ask, toast, show, data, run, viewText }) {
+export function negocioUi({ api, ask, toast, show, data, run, viewText, onChange = () => {} }) {
   let mode = null, list = [], viewing = null, sig = '', timer = null;
   const projects = () => data().proyectos || [];
   const online = () => data().pc?.online !== false;
@@ -67,7 +67,21 @@ export function negocioUi({ api, ask, toast, show, data, run, viewText }) {
     window.dispatchEvent(new CustomEvent('ceo:nav', { detail: { objetivo: id } })); // enlace directo y botón Atrás
   }
   function back() { if (mode === 'one') { mode = 'list'; viewing = null; paint(true); return; } mode = null; clearInterval(timer); show('p-list'); }
-  const after = async (ok) => { if (ok) await load(); return ok; };
+  // onChange: Dirección también repinta sus intervenciones (T37: se resuelven allí sin abrir el objetivo).
+  const after = async (ok) => { if (ok) { onChange(); if (mode) await load(); } return ok; };
+  // T37 · UNA ORDEN POR DECISIÓN A LA VEZ: mientras una acción de esa tarjeta va al PC, sus demás botones quedan inactivos
+  // (doble clic, «Aprobar» y luego «Rechazar»). El PC además rechaza la segunda (la necesidad ya no está PENDIENTE).
+  const enVuelo = new Set();
+  const una = (ref, fn) => async (x) => {
+    const b = x?.currentTarget || x;
+    if (enVuelo.has(ref)) return;
+    enVuelo.add(ref);
+    const card = b?.closest?.('.need-card');
+    const bs = card ? [...card.querySelectorAll('button')].filter((y) => !y.disabled) : [];
+    for (const y of bs) y.disabled = true;
+    card?.setAttribute('aria-busy', 'true');
+    try { await fn(b); } finally { enVuelo.delete(ref); for (const y of bs) y.disabled = false; card?.removeAttribute('aria-busy'); }
+  };
   const B = (txt, on, cls = 'ghost', extra = {}) => h('button', { class: `btn ${cls} small`, type: 'button', onclick: (e) => on(e.currentTarget), ...extra }, txt);
 
   // ------------------------------------------------------------ crear / editar (una sola ventana sencilla)
@@ -217,31 +231,46 @@ export function negocioUi({ api, ask, toast, show, data, run, viewText }) {
     if (!items.length) { toast('No has marcado ninguna', 'bad'); return; }
     await after(cmd('negocio.lote', { items, global: r.global || '' }, 'Respuestas registradas', btn));
   }
-  function needCard(o, n) {
+  function needCard(o, n, compacto = false) {
     const c = n.consejo || null;
     const k = c ? { ...c, aprobar: n.abierta ? (EFECTOS_NEC[n.tipo] || {}).boton : c.acciones?.aprobar, rechazar: c.acciones?.rechazar, alternativa: c.acciones?.alternativa || null } : null;
     const ef = EFECTOS_NEC[n.tipo] || {};
     const ex = k && explica(k, 'necesidad');
+    // CONEXION = actuación PROTEGIDA: se abre explícitamente su panel (en el PC); nunca se marca hecha desde aquí sin comprobarla.
     const si = n.tipo === 'CONEXION' ? () => window.dispatchEvent(new CustomEvent('ceo:conexiones', { detail: { servicio: n.conexion } }))
       : n.abierta || n.tipo === 'ACCION' ? (b) => resolverNec(o, n, b)
         : (b) => after(cmd('negocio.necesidad', { id: n.id, respuesta: 'Aprobada' }, ef.boton || 'Aprobado', b));
-    return h('article', { class: 'need-card', 'data-ref': n.ref },
-      h('p', { class: 'need-t' }, h('b', {}, TIPO_NEC[n.tipo] || 'Necesito'), ` — ${n.que}`),
-      n.motivo_nivel ? h('p', { class: 'need-nivel' }, `Por qué te lo pregunto: ${n.motivo_nivel}${n.origen ? ` · lo pide: ${n.origen}` : ''}`) : null,
-      ex || h('dl', { class: 'wait-dl' },
+    const contexto = ex || h('dl', { class: 'wait-dl' },
         n.recomendacion ? [h('dt', {}, 'Recomiendo'), h('dd', {}, n.recomendacion)] : null,
         n.si_aceptas ? [h('dt', {}, 'Si aceptas'), h('dd', {}, n.si_aceptas)] : null,
         n.si_rechazas ? [h('dt', {}, 'Si rechazas'), h('dd', {}, n.si_rechazas)] : null,
         n.por_que ? [h('dt', {}, 'Por qué'), h('dd', {}, n.por_que)] : null,
         n.bloquea ? [h('dt', {}, 'Queda en espera'), h('dd', {}, n.bloquea)] : null,
         n.mientras ? [h('dt', {}, 'Mientras, sigo con'), h('dd', {}, n.mientras)] : null,
-        n.como ? [h('dt', {}, n.tipo === 'KPI' ? 'Comando' : 'Cómo'), h('dd', {}, n.tipo === 'KPI' ? h('code', {}, n.como) : n.como)] : null),
-      ex ? null : advice(k),
-      decideRow({ yes: (e) => si(e.currentTarget), yesLabel: n.tipo === 'CONEXION' ? `Conectar ${n.conexion || 'la cuenta'}` : n.abierta ? ef.boton : k?.aprobar || ef.boton || 'Aprobar',
-        no: (e) => descartarNec(o, n, e.currentTarget), noLabel: k?.rechazar || 'No lo voy a hacer',
-        alt: k?.alternativa ? (e) => after(cmd('decision.alternativa', { proyecto: n.proyecto, ref: `necesidad:${n.id}`, version: n.version }, 'Alternativa registrada', e.currentTarget)) : null,
+        n.como ? [h('dt', {}, n.tipo === 'KPI' ? 'Comando' : 'Cómo'), h('dd', {}, n.tipo === 'KPI' ? h('code', {}, n.como) : n.como)] : null);
+    // Compacta (Dirección): QUÉ se pide, POR QUÉ, QUÉ RECOMIENDA el CEO y las acciones a la vista; contexto, consecuencias y
+    // riesgos plegados en la misma tarjeta (sin salir de Dirección).
+    const porque = n.motivo_nivel || n.por_que;
+    const recom = k?.veredicto ? advice(k) : n.recomendacion ? h('p', { class: 'advice v-ans' }, h('b', {}, 'EL CEO RECOMIENDA'), ` · ${n.recomendacion}`) : null;
+    return h('article', { class: `need-card${compacto ? ' compacta' : ''}`, 'data-ref': n.ref },
+      h('p', { class: 'need-t' }, h('b', {}, TIPO_NEC[n.tipo] || 'Necesito'), ` — ${n.que}`),
+      compacto ? [
+        h('p', { class: 'need-nivel' }, porque ? `Por qué: ${corto(porque, 220)}` : 'Por qué: no consta (pulsa «Consultar al CEO»).', h('small', { class: 'muted' }, ` · objetivo «${corto(o.titulo, 60)}»${n.origen ? ` · lo pide: ${n.origen}` : ''}`)),
+        recom,
+        h('details', { class: 'prop-more need-ctx', 'data-k': `ctx-${n.ref}` }, h('summary', {}, 'Contexto, consecuencias y riesgos'), contexto, ex ? null : advice(k)),
+      ] : [n.motivo_nivel ? h('p', { class: 'need-nivel' }, `Por qué te lo pregunto: ${n.motivo_nivel}${n.origen ? ` · lo pide: ${n.origen}` : ''}`) : null, contexto, ex ? null : advice(k)],
+      decideRow({ yes: una(n.ref, (b) => si(b)), yesLabel: n.tipo === 'CONEXION' ? `Conectar ${n.conexion || 'la cuenta'}` : n.abierta ? ef.boton : k?.aprobar || ef.boton || 'Aprobar',
+        no: una(n.ref, (b) => descartarNec(o, n, b)), noLabel: k?.rechazar || 'No lo voy a hacer',
+        alt: k?.alternativa ? una(n.ref, (b) => after(cmd('decision.alternativa', { proyecto: n.proyecto, ref: `necesidad:${n.id}`, version: n.version }, 'Alternativa registrada', b))) : null,
         altLabel: k?.alternativa?.etiqueta, rec: k?.veredicto, ask: () => ceoAbrir(n.ref) }),
-      comunes({ copy: (b) => copiarRef(n.ref, b), detalles: () => detallesNec(o, n, k), instruir: n.abierta ? null : (b) => instruirNec(o, n, b), posponer: (b) => after(cmd('negocio.posponer', { id: n.id, dias: 7 }, 'Pospuesta 7 días', b)) }));
+      comunes({ copy: (b) => copiarRef(n.ref, b), detalles: () => detallesNec(o, n, k), instruir: n.abierta ? null : una(n.ref, (b) => instruirNec(o, n, b)), posponer: una(n.ref, (b) => after(cmd('negocio.posponer', { id: n.id, dias: 7 }, 'Pospuesta 7 días', b))) }));
+  }
+  // T37 · RESPONDIDA HACE POCO: qué contestaste y su estado REAL (en cola · recibida · ejecutada), sin abrir el objetivo.
+  const ENTREGA = { EN_COLA: ['En cola', 'wait'], RECIBIDA: ['Recibida', 'work'], EJECUTADA: ['Ejecutada', 'ok'] };
+  function respondida(o, n) {
+    const [t, tone] = ENTREGA[n.entrega?.estado] || ['Registrada', 'idle'];
+    return h('li', { class: 'need-done', 'data-ref': n.ref }, chip(t, tone), ' ', h('b', {}, corto(n.que, 90)),
+      h('small', { class: 'muted' }, ` → ${n.estado === 'DESCARTADA' ? 'rechazada' : corto(n.respuesta, 80)} · ${fecha(n.resuelta_at)} · ${n.entrega?.detalle || 'guardada'}`));
   }
   function detallesNec(o, n, k) {
     const ef = EFECTOS_NEC[n.tipo] || {};
@@ -534,5 +563,6 @@ Elige qué hacer:`,
   document.getElementById('n-back').addEventListener('click', back);
   document.getElementById('b-negocio')?.addEventListener('click', open);
   // Desde el centro de dirección: abrir uno concreto o crear uno nuevo sin pasar por la lista.
-  return { paint, open, openOne: (id) => { open(); void openOne(id); }, crear: (btn) => { open(); void crear(btn); } };
+  return { paint, open, openOne: (id) => { open(); void openOne(id); }, crear: (btn) => { open(); void crear(btn); },
+    intervencion: (o, n) => needCard(o, n, true), respondida };
 }

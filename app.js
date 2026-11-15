@@ -243,6 +243,19 @@ function aplicarRuta() {
   if (q.get('objetivo')) { nui?.openOne(q.get('objetivo')); return; }
   if (!q.get('ceo') || q.get('v')) goTab(q.get('v') || 'home', false);
 }
+/** T22 r9 · ACUSE DE APERTURA: sólo el toque de un aviso de Mama trae ?m=<id> (sw.js). ¿Estaba la app cerrada? Una ventana
+ *  que abre el aviso nace sin la marca de sesión; la pestaña que ya vivía la conserva al navegar (sw.js NO cambia: es
+ *  sensible y bloquearía el permiso reutilizable de publicar). Se dice al PC UNA vez (la URL se limpia: recargar no repite)
+ *  por la cola de órdenes normal; sin aviso en pantalla (no es una orden de Antonio). */
+function acusarAviso() {
+  let viva = false;
+  try { viva = sessionStorage.getItem('ceo-viva') === '1'; sessionStorage.setItem('ceo-viva', '1'); } catch { /* sin almacenamiento: «cerrada» */ }
+  const u = new URL(location.href), m = u.searchParams.get('m');
+  if (!m) return;
+  u.searchParams.delete('m');
+  history.replaceState(history.state, '', u.pathname + u.search + u.hash);
+  void api.cmd('mama.push.acuse', { id: m, app: viva ? 'abierta' : 'cerrada' }).catch(() => {});
+}
 window.addEventListener('popstate', aplicarRuta);
 window.addEventListener('ceo:nav', (e) => navPush(e.detail || {}));
 window.addEventListener('ceo:abrir', (e) => { if (e.detail?.ref) void openCeo(e.detail.ref, { pregunta: e.detail.pregunta || null }); });
@@ -2210,6 +2223,7 @@ async function start() {
   show('p-list');
   await refresh();
   $('#b-ceo').hidden = false;
+  acusarAviso();
   aplicarRuta(); // enlace directo (?v= · ?proyecto= · ?objetivo= · ?ceo=)
   api.watch(() => void refresh());
   $('#b-sync').onclick = () => void syncAll(true);

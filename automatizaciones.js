@@ -3,6 +3,7 @@
 import { h } from './dom.js';
 import { fraseAutomatizacion } from './zones.js';
 import { miniTarjeta } from './tarjeta.js';
+import { comunes, decideRow } from './map.js';
 
 // Estado de un botón: disponible · ejecutándose · esperando autorización · completada · parcial · error (y sus matices).
 const STATE = {
@@ -31,6 +32,8 @@ export function autoUi({ api, ask, toast, show, data, run, viewText, ai, alquile
   const projects = () => data().proyectos || [];
   const all = () => projects().flatMap((p) => (p.automatizaciones || []).map((a) => ({ ...a, proyectoNombre: p.nombre })));
   const inbox = () => projects().flatMap((p) => (p.bandeja || []).map((m) => ({ ...m, proyectoNombre: p.nombre })));
+  // T35: WhatsApp de Alquileres pendientes de TU aprobación (circuito propio alquiler.msg.*: aprobar el texto no envía).
+  const waInbox = () => projects().flatMap((p) => (p.wa_pendientes || []).map((m) => ({ ...m, proyecto: p.id, proyectoNombre: p.nombre })));
   const pending = () => inbox().filter((m) => m.estado === 'PENDIENTE');
   const aprobables = () => pending().filter((m) => m.enviable !== false); // los de sólo texto no se aprueban en bloque
   const online = () => data().pc?.online !== false;
@@ -38,19 +41,26 @@ export function autoUi({ api, ask, toast, show, data, run, viewText, ai, alquile
 
   // ------------------------------------------------------------ barra superior y avisos
   function paintTop() {
-    const n = inbox().filter((m) => ['PENDIENTE', 'BLOQUEADO', 'NO_CONFIRMADO', 'FALLIDO'].includes(m.estado)).length;
+    const n = inbox().filter((m) => ['PENDIENTE', 'BLOQUEADO', 'NO_CONFIRMADO', 'FALLIDO'].includes(m.estado)).length + waInbox().length;
     const b = document.getElementById('b-autos');
     const r = document.getElementById('b-inbox');
     if (b) b.hidden = false;
     if (r) { r.hidden = !n; r.textContent = `Respuestas · ${n}`; }
-    // En la lista de decisiones: las respuestas que esperan a Antonio, con lo que hay que hacer (no un «te necesita» genérico).
+    // T35 · DIRECCIÓN: cada respuesta que espera a Antonio con su contexto y sus acciones, la MISMA tarjeta que en Respuestas
+    // (mismas órdenes, mismo estado). No se repinta con una ventana abierta (se perdería lo que escribes) y los detalles
+    // desplegados siguen abiertos.
     const box = document.getElementById('inbox-line');
     if (box) {
-      const p = pending().length, other = n - p;
+      const vivos = [...inbox().filter((m) => ['PENDIENTE', 'BLOQUEADO', 'NO_CONFIRMADO', 'FALLIDO'].includes(m.estado)), ...waInbox()];
+      const s2 = JSON.stringify(vivos.map((m) => [m.id, m.estado, m.texto, m.motivo, m.contexto])) + online();
+      if (box.dataset.sig === s2 || document.querySelector('dialog[open]')) return;
+      box.dataset.sig = s2;
+      const abiertos = new Set([...box.querySelectorAll('details[open]')].map((x) => x.dataset.k));
       box.hidden = !n;
-      box.replaceChildren(...(n ? [h('p', { class: 'ln' }, h('b', {}, 'TU AUTORIZACIÓN'),
-        ` ${p ? `${p} respuesta${p === 1 ? '' : 's'} preparada${p === 1 ? '' : 's'} esperan que las revises y apruebes antes de enviarse` : ''}${p && other ? ' · ' : ''}${other ? `${other} envío${other === 1 ? '' : 's'} necesita${other === 1 ? '' : 'n'} que lo mires (bloqueado, sin confirmar o fallido)` : ''}`),
-      h('div', { class: 'row' }, h('button', { class: 'btn primary small', type: 'button', onclick: () => openInbox() }, 'REVISAR RESPUESTAS'))] : []));
+      box.replaceChildren(...(n ? [h('p', { class: 'ln' }, h('b', {}, 'RESPUESTAS A MENSAJES'), ` · ${n} esperan tu revisión. Nada sale sin tu aprobación.`),
+        ...vivos.map((m) => (m.destinatario ? waCard(m, true) : message(m, true))),
+        h('div', { class: 'row' }, h('button', { class: 'link', type: 'button', onclick: () => openInbox() }, 'Ver todas en Respuestas (opcional)'))] : []));
+      for (const x of box.querySelectorAll('details')) if (abiertos.has(x.dataset.k)) x.open = true;
     }
   }
 
@@ -445,8 +455,9 @@ export function autoUi({ api, ask, toast, show, data, run, viewText, ai, alquile
 
   // ------------------------------------------------------------ bandeja de aprobación
   async function edit(m, btn) {
-    const r = await ask({ title: `Editar respuesta a ${m.contacto}`, ok: 'Guardar', fields: [{ name: 'texto', label: 'Respuesta', type: 'textarea', value: m.texto }] });
-    if (r) await cmd('bandeja.editar', { id: m.id, texto: r.texto }, 'Editada', btn);
+    const r = await ask({ title: `Editar respuesta a ${m.contacto}`, ok: 'Guardar (no envía)', help: 'Guardar no envía nada: después tendrás que aprobar y confirmar el envío del texto nuevo.',
+      fields: [{ name: 'texto', label: 'Respuesta', type: 'textarea', value: m.texto }] });
+    if (r) await cmd('bandeja.editar', { id: m.id, texto: r.texto, base: m.huella_texto }, 'Guardada (sin enviar)', btn);
   }
   async function original(m, btn) {
     btn.disabled = true;
@@ -485,37 +496,105 @@ export function autoUi({ api, ask, toast, show, data, run, viewText, ai, alquile
     try { await navigator.clipboard.writeText(m.texto); ok = true; } catch { /* sin permiso de portapapeles */ }
     toast(ok ? 'Texto copiado: envíalo tú cuando quieras' : 'No se pudo copiar: selecciónalo y cópialo', ok ? undefined : 'bad');
   }
-  function message(m) {
+  // T35 · UNA ORDEN POR TARJETA A LA VEZ (como needCard): mientras va al PC, sus demás botones quedan inactivos.
+  const enVuelo = new Set();
+  const una = (ref, fn) => async (x) => {
+    const b = x?.currentTarget || x;
+    if (enVuelo.has(ref)) return;
+    enVuelo.add(ref);
+    const card = b?.closest?.('.a-msg');
+    const bs = card ? [...card.querySelectorAll('button')].filter((y) => !y.disabled) : [];
+    for (const y of bs) y.disabled = true;
+    card?.setAttribute('aria-busy', 'true');
+    try { await fn(b); } finally { enVuelo.delete(ref); for (const y of bs) y.disabled = false; card?.removeAttribute('aria-busy'); }
+  };
+  const REC = { ENVIAR: ['Enviar', 'yes', 'APROBAR'], MODIFICAR: ['Modificar antes de enviar', 'ans', null], ESPERAR: ['Esperar', 'wait', null], RECHAZAR: ['Rechazar', 'no', 'RECHAZAR'] };
+  const ctxLine = (k, v) => h('p', { class: 'ln' }, h('b', {}, k), ' ', v);
+  const noConsta = () => h('span', { class: 'muted' }, 'no consta');
+  /** QUIÉN · QUÉ PIDE · QUÉ BUSCAMOS · RECOMENDACIÓN a la vista; QUÉ HEMOS HABLADO plegado. Sólo datos reales: lo que falta se dice. */
+  function contextBlock(m, c, k) {
+    if (!c) return null;
+    const [rt, rk] = c.recomendacion ? REC[c.recomendacion.accion] || [c.recomendacion.accion, 'ans'] : [];
+    return h('div', { class: 'a-ctx' },
+      ctxLine('QUIÉN', [m.contacto || m.destinatario, c.empresa, c.proyecto || m.proyectoNombre].filter(Boolean).join(' · ')),
+      ctxLine('QUÉ PIDE AHORA', c.ultimo ? `«${c.ultimo}»` : m.destinatario ? 'No responde a un mensaje: es un aviso que envías tú.' : noConsta()),
+      ctxLine('QUÉ BUSCAMOS', c.objetivo || noConsta()),
+      c.recomendacion ? h('p', { class: `advice v-${rk}`, role: 'status' }, h('b', {}, c.recomendacion.origen === 'agente' ? 'EL CEO RECOMIENDA' : 'RECOMENDACIÓN (regla, sin IA)'), ` · ${rt}: ${c.recomendacion.motivo}`)
+        : h('p', { class: 'advice v-ans' }, h('b', {}, 'EL CEO RECOMIENDA'), ' · no consta: revisa que la respuesta contesta a lo que pide'),
+      h('details', { class: 'prop-more need-ctx', 'data-k': `hablado-${k}` }, h('summary', {}, 'Qué hemos hablado'),
+        ctxLine('ASUNTO', c.asunto || noConsta()), ctxLine('ANTECEDENTES', c.antecedentes || (c.historial?.length ? 'lo enviado antes a este contacto:' : noConsta())),
+        c.historial?.length ? h('ul', { class: 'mlist' }, c.historial.map((x) => h('li', {}, `${fecha(x.fecha)} · ${MSG[x.estado]?.[0] || x.estado}${x.recibido ? ` · recibido: «${x.recibido}»` : ''} · respuesta: «${x.respuesta}»`))) : null,
+        c.faltan?.length ? h('p', { class: 'note' }, `Falta contexto: ${c.faltan.join(', ')} (quien preparó la respuesta no lo indicó; no se inventa).`) : null));
+  }
+  function message(m, compacta = false) {
     // T19b: canal que el enviador del proyecto no maneja (gmail/whatsapp en Comunicaciones) → borrador de SÓLO TEXTO: se copia, no se aprueba.
     const soloTexto = m.enviable === false;
     const [label, tone] = soloTexto && m.estado === 'PENDIENTE' ? ['Borrador · sólo texto', 'ask'] : MSG[m.estado] || [m.estado, 'idle'];
-    const box = h('input', { type: 'checkbox', 'aria-label': `Seleccionar respuesta a ${m.contacto}`, disabled: m.estado !== 'PENDIENTE' || soloTexto });
-    box.checked = selected.has(m.id);
-    box.addEventListener('change', () => { if (box.checked) selected.add(m.id); else selected.delete(m.id); paintBar(); });
+    const ref = `msg-${m.id}`;
+    const box = compacta ? null : h('input', { type: 'checkbox', 'aria-label': `Seleccionar respuesta a ${m.contacto}`, disabled: m.estado !== 'PENDIENTE' || soloTexto });
+    if (box) {
+      box.checked = selected.has(m.id);
+      box.addEventListener('change', () => { if (box.checked) selected.add(m.id); else selected.delete(m.id); paintBar(); });
+    }
+    const off = !online();
+    const rec = REC[m.contexto?.recomendacion?.accion]?.[2] || null;
+    const mejorar = () => ai?.open({ tipo: 'bandeja', id: m.id });
+    const B = (txt, fn, cls = 'ghost') => h('button', { class: `btn ${cls} small`, type: 'button', onclick: una(ref, fn) }, txt);
     const acts = {
-      PENDIENTE: [soloTexto
-        ? h('button', { class: 'btn primary small', type: 'button', onclick: () => copyText(m) }, 'COPIAR TEXTO')
-        : h('button', { class: 'btn primary small', type: 'button', onclick: (e) => approve([m], e.currentTarget) }, 'APROBAR Y ENVIAR'),
-        h('button', { class: 'btn ghost small', type: 'button', onclick: (e) => edit(m, e.currentTarget) }, 'EDITAR'),
-        h('button', { class: 'btn accent small', type: 'button', onclick: () => ai?.open({ tipo: 'bandeja', id: m.id }) }, 'EDITAR CON IA'),
-        h('button', { class: 'btn ghost-danger small', type: 'button', onclick: (e) => reject([m], e.currentTarget) }, 'RECHAZAR')],
-      BLOQUEADO: [h('button', { class: 'btn primary small', type: 'button', onclick: (e) => cmd('bandeja.revisar', { id: m.id }, 'Vuelve a revisión', e.currentTarget) }, 'Revisar de nuevo'),
-        h('button', { class: 'btn ghost-danger small', type: 'button', onclick: (e) => reject([m], e.currentTarget) }, 'Rechazar')],
-      FALLIDO: [h('button', { class: 'btn primary small', type: 'button', onclick: (e) => cmd('bandeja.reintentar', { id: m.id }, 'En cola', e.currentTarget) }, 'Reintentar envío'),
-        h('button', { class: 'btn ghost-danger small', type: 'button', onclick: (e) => reject([m], e.currentTarget) }, 'Rechazar')],
-      NO_CONFIRMADO: [h('button', { class: 'btn ghost small', type: 'button', onclick: (e) => cmd('bandeja.resolver', { id: m.id, enviado: true }, 'Marcada como enviada', e.currentTarget) }, 'Sí salió'),
-        h('button', { class: 'btn ghost small', type: 'button', onclick: (e) => cmd('bandeja.resolver', { id: m.id, enviado: false }, 'Vuelve a la bandeja', e.currentTarget) }, 'No salió')],
+      PENDIENTE: [decideRow({ yes: off ? null : una(ref, (b) => (soloTexto ? copyText(m) : approve([m], b))), yesLabel: soloTexto ? 'Copiar el texto (lo envías tú)' : 'Aprobar y enviar',
+        no: una(ref, (b) => reject([m], b)), noLabel: 'Rechazar', ask: mejorar, rec }),
+      h('div', { class: 'row' }, B('✎ Editar', (b) => edit(m, b)), h('button', { class: 'btn accent small', type: 'button', onclick: mejorar }, 'Pedir al CEO que la mejore'))],
+      BLOQUEADO: [B('Revisar de nuevo', (b) => cmd('bandeja.revisar', { id: m.id }, 'Vuelve a revisión', b), 'primary'), B('Rechazar', (b) => reject([m], b), 'ghost-danger')],
+      FALLIDO: [B('Reintentar envío', (b) => cmd('bandeja.reintentar', { id: m.id }, 'En cola', b), 'primary'), B('Rechazar', (b) => reject([m], b), 'ghost-danger')],
+      NO_CONFIRMADO: [B('Sí salió', (b) => cmd('bandeja.resolver', { id: m.id, enviado: true }, 'Marcada como enviada', b)),
+        B('No salió', (b) => cmd('bandeja.resolver', { id: m.id, enviado: false }, 'Vuelve a la bandeja', b))],
       // Aprobada pero aún en cola: editarla (a mano o con IA) anula esa aprobación y vuelve a pedirla.
-      APROBADO: [h('button', { class: 'btn accent small', type: 'button', onclick: () => ai?.open({ tipo: 'bandeja', id: m.id }) }, 'EDITAR CON IA')],
+      APROBADO: [h('button', { class: 'btn accent small', type: 'button', onclick: mejorar }, 'Pedir al CEO que la mejore')],
     }[m.estado] || [];
-    return h('article', { class: `a-msg t-${tone}`, 'data-id': `msg-${m.id}` },
-      h('header', {}, h('label', { class: 'a-sel' }, box, h('b', {}, m.contacto)), chip(label, tone)),
+    return h('article', { class: `a-msg t-${tone}${compacta ? ' compacta' : ''}`, 'data-id': ref },
+      h('header', {}, box ? h('label', { class: 'a-sel' }, box, h('b', {}, m.contacto)) : h('b', {}, m.contacto), chip(label, tone)),
       h('p', { class: 'a-meta muted' }, [m.proyectoNombre, m.canal, fecha(m.creado), m.editada ? 'editada por ti' : 'propuesta por la IA'].filter(Boolean).join(' · ')),
-      h('p', { class: 'ln' }, h('b', {}, 'RECIBIDO'), ` ${m.recibido || '—'}`),
+      contextBlock(m, m.contexto, ref) || h('p', { class: 'ln' }, h('b', {}, 'RECIBIDO'), ` ${m.recibido || '—'}`),
       h('div', { class: 'a-reply' }, h('b', {}, 'RESPUESTA PROPUESTA'), h('p', { class: 'r-text' }, m.texto)),
       m.motivo ? h('p', { class: 'note' }, m.motivo) : null,
       soloTexto && m.estado === 'PENDIENTE' ? h('p', { class: 'note', 'data-solo-texto': '1' }, `Sólo texto: este agente no envía por ${m.canal}. Cópialo y envíalo tú; CEOPadre no lo enviará.`) : null,
-      h('div', { class: 'a-acts' }, acts, h('button', { class: 'btn ghost small', type: 'button', onclick: (e) => original(m, e.currentTarget) }, 'Ver original e historial')));
+      off && m.estado === 'PENDIENTE' ? h('p', { class: 'note' }, 'El PC no está conectado: puedes leerla, pero no aprobarla ni enviarla hasta que vuelva.') : null,
+      h('div', { class: 'a-acts' }, acts),
+      comunes({ detalles: (b) => original(m, b) }));
+  }
+  // T35 · WhatsApp de Alquileres pendiente de tu aprobación: misma tarjeta, su propio circuito (alquiler.msg.*). Aprobar el
+  // TEXTO no envía: el envío real es otra confirmación en Alquileres y exige su autorización específica.
+  function waCard(m, compacta = false) {
+    const ref = `wa-${m.id}`;
+    const off = !online();
+    const rec = REC[m.contexto?.recomendacion?.accion]?.[2] || null;
+    const mejorar = () => ai?.open({ tipo: 'alquiler', id: m.id });
+    const editar = async (b) => {
+      const r = await ask({ title: `Editar WhatsApp a ${m.destinatario}`, ok: 'Guardar (no envía)', fields: [{ name: 'texto', label: 'Mensaje', type: 'textarea', value: m.texto }] });
+      if (r) await cmd('alquiler.msg.guardar', { id: m.id, texto: r.texto, base: m.huella_texto }, 'Guardado (sin enviar)', b);
+    };
+    const aprobar = async (b) => {
+      const ok = await ask({ title: `¿Aprobar el texto para ${m.destinatario}?`, ok: 'Aprobar el texto (no envía)',
+        help: `«${m.texto.length > 300 ? `${m.texto.slice(0, 300)}…` : m.texto}»\n\nAprobar NO envía: el envío real es otra confirmación en Alquileres → WhatsApp / Comunicaciones.` });
+      if (ok) await cmd('alquiler.msg.aprobar', { id: m.id, huella_texto: m.huella_texto }, 'Texto aprobado (no enviado)', b);
+    };
+    const descartar = async (b) => {
+      const r = await ask({ title: `Descartar el WhatsApp a ${m.destinatario}`, ok: 'Descartar', danger: true, fields: [{ name: 'motivo', label: 'Motivo (opcional)', type: 'textarea', required: false }] });
+      if (r) await cmd('alquiler.msg.descartar', { id: m.id, motivo: r.motivo }, 'Descartado', b);
+    };
+    const hist = () => viewText(`${m.destinatario} · WhatsApp`, [`TEXTO VIGENTE\n${m.texto}`, m.editado ? `ORIGINAL\n${m.original}` : '', m.fuente ? `FUENTE\n${m.fuente}` : '', m.motivo ? `NOTA\n${m.motivo}` : '',
+      `HISTORIAL\n${m.historial_n} evento(s): el detalle completo está en Agentes → Alquileres → WhatsApp / Comunicaciones.`].filter(Boolean).join('\n\n'));
+    const bloqueado = !!m.bloqueo || m.pendientes;
+    return h('article', { class: `a-msg t-ask${compacta ? ' compacta' : ''}`, 'data-id': ref },
+      h('header', {}, h('b', {}, m.destinatario), chip('Texto pendiente de tu aprobación', 'ask')),
+      h('p', { class: 'a-meta muted' }, [m.proyectoNombre, 'whatsapp', fecha(m.creado), m.editado ? 'editado por ti' : 'borrador'].filter(Boolean).join(' · ')),
+      contextBlock(m, m.contexto, ref),
+      h('div', { class: 'a-reply' }, h('b', {}, 'MENSAJE PROPUESTO'), h('p', { class: 'r-text' }, m.texto)),
+      m.bloqueo ? h('p', { class: 'note' }, m.bloqueo) : null,
+      h('div', { class: 'a-acts' }, decideRow({ yes: off || bloqueado ? null : una(ref, aprobar), yesLabel: 'Aprobar el texto (no envía)', no: una(ref, descartar), noLabel: 'Descartar', ask: mejorar, rec }),
+        h('div', { class: 'row' }, h('button', { class: 'btn ghost small', type: 'button', onclick: una(ref, editar) }, '✎ Editar'),
+          h('button', { class: 'btn accent small', type: 'button', onclick: mejorar }, 'Pedir al CEO que lo mejore'))),
+      comunes({ detalles: hist }));
   }
   let bar = null;
   function paintBar() {
@@ -533,9 +612,11 @@ export function autoUi({ api, ask, toast, show, data, run, viewText, ai, alquile
     paintBar();
     const order = ['PENDIENTE', 'BLOQUEADO', 'NO_CONFIRMADO', 'FALLIDO', 'APROBADO', 'ENVIANDO'];
     const sorted = [...xs].sort((a, b) => order.indexOf(a.estado) - order.indexOf(b.estado) || String(a.creado).localeCompare(String(b.creado)));
+    const wa = waInbox();
     return [!online() ? h('p', { class: 'pcline' }, 'El PC no está conectado: puedes revisar, pero no aprobar ni enviar hasta que vuelva.') : null,
       xs.length ? bar : null,
-      xs.length ? sorted.map(message) : h('p', { class: 'empty' }, 'No hay respuestas esperando. Cuando una automatización prepare respuestas, aparecerán aquí.')];
+      xs.length ? sorted.map((m) => message(m)) : wa.length ? null : h('p', { class: 'empty' }, 'No hay respuestas esperando. Cuando una automatización prepare respuestas, aparecerán aquí.'),
+      wa.length ? [h('h4', {}, 'WhatsApp de Alquileres · texto por aprobar'), wa.map((m) => waCard(m))] : null];
   }
 
   // ------------------------------------------------------------ pintar
@@ -545,11 +626,12 @@ export function autoUi({ api, ask, toast, show, data, run, viewText, ai, alquile
     const t = document.getElementById(mode === 'inbox' ? 'bi-title' : 'a-title');
     if (mode === 'inbox') {
       // No se repinta con un diálogo abierto (se perdería lo que se escribe) ni si nada cambió.
-      const s = JSON.stringify(inbox().map((m) => [m.id, m.estado, m.texto, m.motivo])) + online();
+      const s = JSON.stringify([...inbox(), ...waInbox()].map((m) => [m.id, m.estado, m.texto, m.motivo, m.contexto])) + online();
       if (!force && (s === sig || document.querySelector('dialog[open]'))) return;
       sig = s;
       t.textContent = 'Respuestas por aprobar';
-      document.getElementById('bi-sub').textContent = `${pending().length} pendiente${pending().length === 1 ? '' : 's'} · ${online() ? 'PC conectado' : 'PC desconectado'}`;
+      const np = pending().length + waInbox().length;
+      document.getElementById('bi-sub').textContent = `${np} pendiente${np === 1 ? '' : 's'} · ${online() ? 'PC conectado' : 'PC desconectado'}`;
       document.getElementById('bi-body').replaceChildren(...inboxView().flat(Infinity).filter(Boolean));
       return;
     }

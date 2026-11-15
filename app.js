@@ -845,7 +845,7 @@ function paintList() {
   paintNet();
   const o = office(data.proyectos);
   const d = direccion(data.proyectos);
-  const inboxN = data.proyectos.reduce((a, c) => a + (c.bandeja || []).filter((m) => ['PENDIENTE', 'BLOQUEADO', 'NO_CONFIRMADO', 'FALLIDO'].includes(m.estado)).length, 0);
+  const inboxN = data.proyectos.reduce((a, c) => a + (c.bandeja || []).filter((m) => ['PENDIENTE', 'BLOQUEADO', 'NO_CONFIRMADO', 'FALLIDO'].includes(m.estado)).length + (c.wa_pendientes || []).length, 0);
   const negNeed = (data.negocio?.te_necesitan || 0) + (data.negocio?.necesidades || 0);
   // Cosas que te esperan (no tarjetas): cada pregunta, cada puesto que te pide algo, las respuestas y los objetivos de negocio.
   const need = d.kpis.decisiones + d.necesita.filter((c) => !needsDecision(c)).length + d.tuyas.length + inboxN + negNeed;

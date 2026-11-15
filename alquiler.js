@@ -788,7 +788,7 @@ export function alquileresUi({ run, ask, cmd, toast, LOCAL }) {
       const dest = d.destinatarios.find((x) => x.ref === ref);
       const a = lst.find((x) => `alquiler:${x.id}` === ref);
       const ms = d.mensajes.filter((m) => m.ref === ref);
-      // Antonio llama «Kelsy» a Adilson (misma persona, una sola ficha: la clave de la ficha es el nombre que usa él).
+      // Un inquilino puede figurar con otro nombre en la ficha (misma persona, una sola ficha: la clave es el nombre que usa Antonio).
       const llano = (x) => String(x || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/-/g, ' ');
       const alias = a && !llano(dest?.inquilino).startsWith(llano(a.id)) ? ` («${a.id[0].toUpperCase()}${a.id.slice(1)}»)` : '';
       const nombre = dest ? `${dest.inquilino}${alias}${dest.via ? ` → ${dest.nombre}` : ''}` : ms[0]?.destinatario || ref;

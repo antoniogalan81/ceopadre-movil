@@ -2165,7 +2165,13 @@ function pwa() {
   if ('PushManager' in window && 'Notification' in window) {
     const b = $('#b-avisos');
     const pintar = (on) => { b.hidden = false; b.textContent = on ? '🔔 Avisos ✓' : '🔔 Avisos'; b.title = on ? 'Avisos activados en este móvil (pulsa para probar o desactivar)' : 'Activar avisos en este móvil'; };
-    navigator.serviceWorker.ready.then(async (reg) => pintar(!!(await reg.pushManager.getSubscription()))).catch(() => {});
+    // 15-11: el «✓» lo decide el PC, no sólo el navegador. Si el PC borró la suscripción (el servicio de push la dio por
+    // caducada), se retira también aquí y el botón vuelve a «Avisos» para activarlos de nuevo. Sin respuesta del PC, como antes.
+    navigator.serviceWorker.ready.then(async (reg) => {
+      const s = await reg.pushManager.getSubscription();
+      if (s) { const x = await api.cmd('aviso.estado', { endpoint: s.endpoint }).catch(() => null); if (x?.ok && !x.data.activa) { await s.unsubscribe().catch(() => {}); pintar(false); return; } }
+      pintar(!!s);
+    }).catch(() => {});
     b.addEventListener('click', async () => {
       try {
         const reg = await navigator.serviceWorker.ready;

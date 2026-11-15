@@ -2291,12 +2291,25 @@ function pwa() {
   if ('PushManager' in window && 'Notification' in window) {
     const b = $('#b-avisos');
     const pintar = (on) => { b.hidden = false; b.textContent = on ? '🔔 Avisos ✓' : '🔔 Avisos'; b.title = on ? 'Avisos activados en este móvil (pulsa para probar o desactivar)' : 'Activar avisos en este móvil'; };
+    // Suscribe este dispositivo y se lo dice al PC. Devuelve null si todo fue bien o el texto del error.
+    const BAJA = 'ceo-avisos-baja'; // Antonio los desactivó a mano en este dispositivo: nunca se reactivan solos
+    const suscribir = async (reg) => {
+      const k = await api.cmd('aviso.clave', {});
+      if (!k?.ok) return k?.error || 'El PC no responde';
+      const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: Uint8Array.from(atob(k.data.clave.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0)) });
+      const r = await api.cmd('aviso.suscribir', { suscripcion: sub.toJSON(), dispositivo: navigator.userAgentData?.platform || navigator.platform || 'móvil' });
+      if (!r?.ok) { await sub.unsubscribe().catch(() => {}); return r?.error || 'No se pudo activar'; }
+      localStorage.removeItem(BAJA);
+      return null;
+    };
     // 15-11: el «✓» lo decide el PC, no sólo el navegador. Si el PC borró la suscripción (el servicio de push la dio por
-    // caducada), se retira también aquí y el botón vuelve a «Avisos» para activarlos de nuevo. Sin respuesta del PC, como antes.
+    // caducada) o el navegador ya no la tiene, y el permiso sigue concedido sin baja manual, se renueva sola (T22: así un
+    // aviso no se descarta por «sin_dispositivo» sólo porque la suscripción caducó). Sin respuesta del PC, como antes.
     navigator.serviceWorker.ready.then(async (reg) => {
-      const s = await reg.pushManager.getSubscription();
-      if (s) { const x = await api.cmd('aviso.estado', { endpoint: s.endpoint }).catch(() => null); if (x?.ok && !x.data.activa) { await s.unsubscribe().catch(() => {}); pintar(false); return; } }
-      pintar(!!s);
+      let s = await reg.pushManager.getSubscription();
+      if (s) { const x = await api.cmd('aviso.estado', { endpoint: s.endpoint }).catch(() => null); if (x?.ok && !x.data.activa) { await s.unsubscribe().catch(() => {}); s = null; } else { pintar(true); return; } }
+      if (Notification.permission === 'granted' && !localStorage.getItem(BAJA)) { pintar(!(await suscribir(reg).catch((e) => e.message))); return; }
+      pintar(false);
     }).catch(() => {});
     b.addEventListener('click', async () => {
       try {
@@ -2306,17 +2319,14 @@ function pwa() {
           const r = await ask({ title: 'Avisos en este móvil', help: 'Están activados: te llega un aviso cuando algo te necesita o termina.', ok: 'Enviar un aviso de prueba',
             fields: [{ name: 'baja', label: 'Desactivarlos en este móvil', type: 'checkbox' }] });
           if (!r) return;
-          if (r.baja) { await api.cmd('aviso.baja', { endpoint: cur.endpoint }); await cur.unsubscribe(); pintar(false); toast('Avisos desactivados en este móvil', 'ok'); return; }
+          if (r.baja) { localStorage.setItem(BAJA, '1'); await api.cmd('aviso.baja', { endpoint: cur.endpoint }); await cur.unsubscribe(); pintar(false); toast('Avisos desactivados en este móvil', 'ok'); return; }
           const x = await api.cmd('aviso.probar', {});
           toast(x?.ok ? x.data.mensaje : x?.error || 'No se pudo', x?.ok ? 'ok' : 'bad');
           return;
         }
         if (await Notification.requestPermission() !== 'granted') { toast('El navegador no ha dado permiso para avisos', 'bad'); return; }
-        const k = await api.cmd('aviso.clave', {});
-        if (!k?.ok) { toast(k?.error || 'El PC no responde', 'bad'); return; }
-        const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: Uint8Array.from(atob(k.data.clave.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0)) });
-        const r = await api.cmd('aviso.suscribir', { suscripcion: sub.toJSON(), dispositivo: navigator.userAgentData?.platform || navigator.platform || 'móvil' });
-        if (!r?.ok) { await sub.unsubscribe(); toast(r?.error || 'No se pudo activar', 'bad'); return; }
+        const err = await suscribir(reg);
+        if (err) { toast(err, 'bad'); return; }
         pintar(true);
         toast('Avisos activados: te llegará uno cuando algo te necesite o termine', 'ok');
       } catch (e) { toast(`Avisos: ${e.message}`, 'bad'); }

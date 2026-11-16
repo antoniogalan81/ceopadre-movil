@@ -1,12 +1,12 @@
 // MAMA (T9): la sección «Mama» de CEOPadre. Una sola conversación con la asistente personal, privada y cifrada en el PC, y
 // lo que MAMA ha encargado a CEOPadre (lista cerrada) con su estado real. Sólo pinta lo que devuelven mama.ver / mama.enviar.
-// En el móvil (PWA remota) no se lee ni se escribe: por Supabase viajaría legible. El móvil (FocoGravital) habla con MAMA por
-// el canal cifrado de T10 (src/mama-canal.js), que se empareja AQUÍ con un código de un solo uso (tarjeta «Móvil»).
+// En el móvil (PWA remota) la conversación NO va por ceo_orden (viajaría legible): va por el canal cifrado de T10
+// (src/mama-canal.js) con el cliente de FocoGravital APP (web/mama-movil.js), emparejado AQUÍ con un código de un solo uso.
 import { h } from './dom.js';
 import { planDia } from './mama-plan.js';
+import { mamaMovil } from './mama-movil.js';
+import { tareasUi } from './mama-tareas.js';
 
-// Enlace directo a la conversación en FocoGravital (app.json: scheme ingravitalapp, paquete com.agalansevilla.Ingravitalapp).
-export const INTENT_MAMA = 'intent://mama#Intent;scheme=ingravitalapp;package=com.agalansevilla.Ingravitalapp;end';
 const fecha = (iso) => (iso ? new Date(iso).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '');
 const ESTADO = { HECHA: ['Hecha', 'ok'], DENEGADA: ['Denegada', 'bad'], TOPE: ['Tope diario', 'ask'], ERROR: ['Falló', 'bad'], PROPUESTA: ['Propuesta', 'ask'] };
 // Fase REAL del encargo (src/mama.js faseOrden): «Hecha» ya no existe; «Terminado» sólo cuando el trabajo terminó.
@@ -19,11 +19,18 @@ const kb = (b) => (b < 1024 * 1024 ? `${Math.max(1, Math.round(b / 1024))} KB` :
 const chip = (label, tone) => h('span', { class: `a-chip t-${tone}` }, label);
 // T20: qué hizo MAMA con el mensaje o la nota (src/mama.js salidasDe). «Sólo conversación» = no creó nada.
 const SALIDA = { MEMORIA: ['Memoria', 'ok'], FICHA: ['Ficha de proyecto', 'ok'], TAREA: ['Tarea propuesta', 'ask'], SEGUIMIENTO: ['Seguimiento', 'work'], DELEGAR: ['Delegación', 'work'], CONVERSACION: ['Sólo conversación', 'idle'], ERROR: ['No interpretada', 'bad'] };
+// MEMORIA/FICHA cuentan DATOS anotados (salidasDe cuenta propuestas de memoria), no fichas: «Ficha de proyecto ×2» con dos datos en
+// UNA ficha parecía una ficha duplicada (T38 r11, conv. real #124). El resto cuenta elementos (×n).
+export const etiquetaSalida = (s) => {
+  const [t, tone] = SALIDA[s.tipo] || [s.tipo, 'idle'];
+  const datos = s.tipo === 'MEMORIA' || s.tipo === 'FICHA';
+  return [s.n > 1 ? `${t}${datos ? ` · ${s.n} datos` : ` ×${s.n}`}` : t, tone];
+};
 const interpretacion = (m) => {
   const i = m.interpretacion;
   if (!i?.salidas?.length) return null;
   return h('div', { class: 'mama-interp', role: 'group', 'aria-label': 'Qué ha hecho Mama' },
-    h('p', { class: 'msg-who' }, ...i.salidas.map((s) => { const [t, tone] = SALIDA[s.tipo] || [s.tipo, 'idle']; return [chip(`${t}${s.n > 1 ? ` ×${s.n}` : ''}`, tone), ' ']; }).flat()),
+    h('p', { class: 'msg-who' }, ...i.salidas.map((s) => [chip(...etiquetaSalida(s)), ' ']).flat()),
     i.fuente?.texto ? h('p', { class: 'muted small' }, `Fuente: ${i.fuente.tipo === 'nota' ? 'nota de tu tarea' : 'tu mensaje'} (${i.fuente.texto})`) : null);
 };
 
@@ -33,12 +40,15 @@ export function mamaUi({ api, toast, show, local }) {
   let mem = null, memDe = null;
   const memFichas = new Map(); // id → ficha abierta (vigente + historial), sólo en esta pestaña
   const body = () => document.getElementById('m-body');
+  let movil = null, movilVivo = false;
+  const panelTareas = local ? tareasUi({ api, toast }) : null; // nodo único: se recoloca en cada repintado, no se recrea // MAMA en la PWA (web/mama-movil.js): el mismo canal cifrado que FocoGravital APP
 
   async function load() {
     if (!local) { v = null; paint(); return; }
     const [r, c] = await Promise.all([api.cmd('mama.ver', {}), api.cmd('mama.canal.ver', {})]);
     if (!r?.ok) { toast(r?.error || 'No se pudo abrir MAMA', 'bad'); return; }
     v = r.data; canal = c?.ok ? c.data : null;
+    void panelTareas?.cargar();
     const ult = v.mensajes?.at(-1)?.id ?? 0;
     if (ult !== memDe) { memDe = ult; await cargarMemoria(); }
     paint();
@@ -60,7 +70,7 @@ export function mamaUi({ api, toast, show, local }) {
   }
   function programar() { clearTimeout(timer); if (abierta) timer = setTimeout(async () => { if (!document.hidden) await load(); programar(); }, v?.pensando ? 1500 : 8000); }
   function open() { abierta = true; sig = ''; show('p-mama'); window.scrollTo(0, 0); void load().then(programar); }
-  function back() { abierta = false; clearTimeout(timer); show('p-list'); }
+  function back() { abierta = false; clearTimeout(timer); movil?.parar(); movilVivo = false; show('p-list'); }
 
   // T31: abrir un adjunto = vale de un solo uso (mama.adjunto.enlace). La pestaña se abre YA (gesto del usuario) y luego se dirige.
   async function abrirAdjunto(a) {
@@ -119,13 +129,13 @@ export function mamaUi({ api, toast, show, local }) {
     const b = body();
     if (!b) return;
     if (!local) {
-      // T22: aquí aterriza el toque en un aviso de Mama (?v=mama). La conversación NO se lee por este canal (viajaría legible
-      // en la nube): se abre en FocoGravital, que la tiene cifrada (ingravitalapp://mama, vía intent de Android).
-      b.replaceChildren(h('section', { class: 'side-card mama-aviso' }, h('h2', {}, 'Mama'),
-        h('p', {}, 'Tu conversación con Mama es privada y cifrada: en el móvil se abre en FocoGravital.'),
-        h('a', { class: 'btn primary', href: INTENT_MAMA, id: 'm-abrir-foco' }, 'Abrir la conversación en FocoGravital'),
-        h('p', { class: 'muted small' }, 'En el PC, en la sección Mama de CEOPadre.'),
-        h('p', { class: 'muted small', id: 'm-copia-solo-pc' }, 'La copia de seguridad de la memoria y su frase de recuperación sólo se hacen en el PC (la frase no viaja por internet): en CEOPadre del PC, Más → «Copia de Mama (frase)».')));
+      // Misión 16-11: MAMA vive en CEOPadre también en el móvil. La conversación viaja por el canal cifrado de extremo a extremo
+      // (no por ceo_orden, que sería legible en la nube). T22: aquí aterriza también el toque en un aviso de Mama (?v=mama).
+      if (movilVivo) return;
+      movilVivo = true;
+      // Un archivo de la conversación se abre en el PC (el móvil web no guarda ficheros): se enseña su nombre, sin botón.
+      movil ??= mamaMovil({ toast, burbuja: (m) => burbuja(m.adjunto ? { ...m, adjunto: undefined, texto: `📎 ${m.adjunto.nombre || 'archivo'} · se abre en CEOPadre del PC` } : m) });
+      void movil.iniciar(b);
       return;
     }
     const s = JSON.stringify([enviando, v?.mensajes?.length, v?.mensajes?.at(-1)?.id, v?.pensando, v?.ordenes?.map((o) => [o.id, o.trabajo_estado, o.estado_encargo]), v?.uso, v?.panel, canal, v?.plan, simulacion, ocupado, mem, [...memFichas]]);
@@ -157,7 +167,7 @@ export function mamaUi({ api, toast, show, local }) {
     const frases = ['m-frase', 'm-frase2'].map((id) => document.getElementById(id)?.value || ''); // una repintada no borra lo tecleado
     const copiaAbierta = document.getElementById('m-mem-copia')?.open || false;
     b.replaceChildren(h('div', { class: 'mama-grid' }, h('section', { class: 'mama-chat', 'aria-label': 'Conversación' }, lista, form),
-      h('div', { class: 'mama-side' }, tarjetaPlan(), tarjetaReglas(), tarjetaMovil(), ...tarjetas(v?.panel), tarjetaMemoria(), encargos)));
+      h('div', { class: 'mama-side' }, panelTareas.el, tarjetaPlan(), tarjetaReglas(), tarjetaMovil(), ...tarjetas(v?.panel), tarjetaMemoria(), encargos)));
     ['m-frase', 'm-frase2'].forEach((id, i) => { const el = document.getElementById(id); if (el) el.value = frases[i]; });
     const dc = document.getElementById('m-mem-copia'); if (dc && copiaAbierta) dc.open = true;
     const ta = document.getElementById('m-text');

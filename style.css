@@ -1529,3 +1529,12 @@ dialog.cp-dlg { width: min(860px, calc(100vw - 24px)); overflow: auto; }
 .a-fold .f-plegar, .a-fold[open] .f-ver { display: none; } .a-fold[open] .f-plegar { display: inline; }
 .a-fold > .a-msg { border: 0; border-top: 1px solid var(--line); border-radius: 0 0 var(--radius) var(--radius); }
 .a-fold > .a-msg > header { display: none; } /* el resumen plegado ya dice quién y el estado */
+
+/* Panel de tareas de FocoGravital en Mama (web/mama-tareas.js) */
+.mama-tareas .mt-alta, .mama-tareas .mt-mini { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 6px 0; }
+.mama-tareas .mt-alta input:not([type]), .mama-tareas .mt-mini input:not([type]) { flex: 1 1 12rem; min-width: 0; }
+.mama-tareas .mt-vistas, .mama-tareas .mt-acc { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
+.mama-tareas .mt-buscar { width: 100%; margin: 4px 0 8px; }
+.mama-tareas .mt-fila { padding: 8px 0; border-bottom: 1px solid var(--line, #e3e7ee); }
+.mama-tareas .mt-atrasada strong { color: var(--bad, #b42318); }
+.mama-tareas .mt-mas summary { cursor: pointer; font-size: .9em; }

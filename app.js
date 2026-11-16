@@ -5,6 +5,7 @@ import { claro, h } from './dom.js';
 import { advice, comunes, decideRow, EFECTO, explica, mapBody, mapPanel, pendingDecisions, proposals } from './map.js';
 import { remoteUi } from './remoto.js';
 import { autoUi } from './automatizaciones.js';
+import { mensajesUi } from './mensajes.js';
 import { negocioUi } from './negocio.js';
 import { mamaUi } from './mama.js';
 import { aiEditor } from './redactor.js';
@@ -2217,7 +2218,8 @@ async function start() {
   const ai = aiEditor({ api, toast, onApplied: () => void refresh() }); // EDITAR CON IA (uno solo para todas las bandejas)
   ALQ.usarEditor(ai); // «Pedir al CEO» en WhatsApp / Comunicaciones de Alquileres
   rui ??= remoteUi({ api, ask, toast, show, data: () => data, ago, local: LOCAL, ai });
-  aui ??= autoUi({ api, ask, toast, show, data: () => data, run, viewText: (t, x) => view(t, x), ai, alquileres: () => [...copiaMinis(), ...ALQ.minis(data.proyectos)] });
+  aui ??= autoUi({ api, ask, toast, show, data: () => data, run, viewText: (t, x) => view(t, x), ai, alquileres: () => [...copiaMinis(), ...ALQ.minis(data.proyectos)],
+    mensajes: LOCAL ? mensajesUi({ api, toast }) : null }); // MENSAJES (16-11): contactos y memoria, sólo en el PC
   nui ??= negocioUi({ api, ask, toast, show, data: () => data, run, viewText: (t, x) => view(t, x), onChange: () => { goals.at = 0; paintGoals(); } });
   mui ??= mamaUi({ api, toast, show, local: LOCAL });
   show('p-list');

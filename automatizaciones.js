@@ -22,7 +22,7 @@ const fecha = (iso) => (iso ? new Date(iso).toLocaleString('es-ES', { day: '2-di
 const chip = (label, tone) => h('span', { class: `a-chip t-${tone}` }, label);
 const sha256 = async (s) => [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s)))].map((x) => x.toString(16).padStart(2, '0')).join('');
 
-export function autoUi({ api, ask, toast, show, data, run, viewText, ai, alquileres = () => [] }) {
+export function autoUi({ api, ask, toast, show, data, run, viewText, ai, alquileres = () => [], mensajes = null }) {
   let mode = null;           // 'list' | 'edit' | 'runs' | 'inbox'
   let onlyProject = null;    // lista de un solo proyecto (desde DETALLES)
   let form = null;           // editor: { id?, proyecto, nombre, … pasos[] }
@@ -45,7 +45,8 @@ export function autoUi({ api, ask, toast, show, data, run, viewText, ai, alquile
     const b = document.getElementById('b-autos');
     const r = document.getElementById('b-inbox');
     if (b) b.hidden = false;
-    if (r) { r.hidden = !n; r.textContent = `Respuestas · ${n}`; }
+    // MENSAJES (16-11): siempre accesible (también sin pendientes: contactos, memoria y preferencias); el número sólo si hay.
+    if (r) { r.hidden = false; r.textContent = n ? `Mensajes · ${n}` : 'Mensajes'; r.classList.toggle('need', !!n); }
     // T35 · DIRECCIÓN: cada respuesta que espera a Antonio con su contexto y sus acciones, la MISMA tarjeta que en Respuestas
     // (mismas órdenes, mismo estado). No se repinta con una ventana abierta (se perdería lo que escribes) y los detalles
     // desplegados siguen abiertos.
@@ -59,7 +60,7 @@ export function autoUi({ api, ask, toast, show, data, run, viewText, ai, alquile
       box.hidden = !n;
       box.replaceChildren(...(n ? [h('p', { class: 'ln' }, h('b', {}, 'RESPUESTAS A MENSAJES'), ` · ${n} esperan tu revisión. Nada sale sin tu aprobación.`),
         ...vivos.map((m) => plegada(m, m.destinatario ? waCard(m, true) : message(m, true))),
-        h('div', { class: 'row' }, h('button', { class: 'link', type: 'button', onclick: () => openInbox() }, 'Ver todas en Respuestas (opcional)'))] : []));
+        h('div', { class: 'row' }, h('button', { class: 'link', type: 'button', onclick: () => openInbox() }, 'Ver todas en Mensajes (opcional)'))] : []));
       for (const x of box.querySelectorAll('details')) if (abiertos.has(x.dataset.k)) x.open = true;
     }
   }
@@ -87,7 +88,7 @@ export function autoUi({ api, ask, toast, show, data, run, viewText, ai, alquile
 
   // ------------------------------------------------------------ pantallas
   function openList(projectId = null) { mode = 'list'; onlyProject = projectId; sig = ''; paint(true); show('p-autos'); window.scrollTo(0, 0); }
-  function openInbox() { mode = 'inbox'; sig = ''; paint(true); show('p-bandeja'); window.scrollTo(0, 0); }
+  function openInbox() { mode = 'inbox'; sig = ''; paint(true); show('p-bandeja'); window.scrollTo(0, 0); void mensajes?.cargar(); }
   async function openEditor(a = null, projectId = null) {
     if (a) {
       const r = await api.cmd('automatizacion.ver', { id: a.id });
@@ -333,7 +334,7 @@ export function autoUi({ api, ask, toast, show, data, run, viewText, ai, alquile
     return [h('div', { class: 'ag-bar' },
       h('button', { class: 'btn primary', type: 'button', disabled: !online(), onclick: (e) => nuevoAgente(e.currentTarget) }, '+ Nuevo agente'),
       n > 6 ? buscar : null,
-      pending().length ? h('button', { class: 'btn accent small', type: 'button', onclick: openInbox }, `Aprobaciones pendientes · ${pending().length}`) : inbox().length ? h('button', { class: 'btn ghost small', type: 'button', onclick: openInbox }, 'Respuestas') : null,
+      pending().length ? h('button', { class: 'btn accent small', type: 'button', onclick: openInbox }, `Aprobaciones pendientes · ${pending().length}`) : inbox().length ? h('button', { class: 'btn ghost small', type: 'button', onclick: openInbox }, 'Mensajes') : null,
       onlyProject ? h('button', { class: 'btn ghost small', type: 'button', onclick: () => openList(null) }, 'Ver todos los proyectos') : null),
     // Una sola rejilla (el proyecto va en cada tarjeta): primero lo que te necesita o falla, después lo que trabaja.
     items.length ? h('div', { class: 'ag-grid' }, items.map((x) => x.el))
@@ -658,10 +659,11 @@ export function autoUi({ api, ask, toast, show, data, run, viewText, ai, alquile
       const s = JSON.stringify([...inbox(), ...waInbox()].map((m) => [m.id, m.estado, m.texto, m.motivo, m.contexto])) + online();
       if (!force && (s === sig || document.querySelector('dialog[open]'))) return;
       sig = s;
-      t.textContent = 'Respuestas por aprobar';
+      t.textContent = 'Mensajes';
       const np = pending().length + waInbox().length;
       document.getElementById('bi-sub').textContent = `${np} pendiente${np === 1 ? '' : 's'} · ${online() ? 'PC conectado' : 'PC desconectado'}`;
-      document.getElementById('bi-body').replaceChildren(...inboxView().flat(Infinity).filter(Boolean));
+      // MENSAJES (16-11): bajo los borradores, contactos y memoria (sólo PC; su nodo se conserva entre repintados).
+      document.getElementById('bi-body').replaceChildren(...inboxView().flat(Infinity).filter(Boolean), ...(mensajes ? [mensajes.el] : []));
       return;
     }
     // El editor sólo se pinta al abrirlo o al cambiar su estructura: el refresco periódico no borra lo que se escribe.

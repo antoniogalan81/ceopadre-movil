@@ -1051,6 +1051,8 @@ details.z-projects[open] > summary { margin-bottom: 12px; }
 .mama-chat { display: flex; flex-direction: column; gap: 8px; min-height: 60vh; max-height: calc(100dvh - 190px); }
 .mama-msgs { min-height: 240px; border: 1px solid var(--line); border-radius: 14px; padding: 10px; background: var(--paper); }
 .msg.yo .m-at { color: color-mix(in oklch, #fff 75%, transparent); text-align: right; margin-top: 4px; }
+.msg.yo .m-envio { color: color-mix(in oklch, #fff 85%, transparent); }
+.msg.yo .m-envio.bad { color: #ffd2cc; }
 .mama-orden + .mama-orden { margin-top: 8px; }
 .mama-orden p { margin: 2px 0 0; }
 .mama-aviso { max-width: 560px; }

@@ -15,6 +15,10 @@ const AVISO = {
   respuesta_no_autenticada: 'La respuesta del PC no se pudo autenticar: no se ha emparejado.', par_no_visible: 'No veo el emparejamiento en el servidor.',
   historial_local_ilegible: 'El historial guardado en este móvil no se pudo leer; la conversación sigue completa en el PC.',
 };
+const ERROR_ADJ = { adj_tamano: 'El archivo está vacío o supera 5 MB.', adj_tipo: 'Tipo no admitido: PDF, imagen, texto, CSV u Office.',
+  adj_cola_llena: 'Ya hay 3 archivos esperando a salir: espera a que el PC los reciba.', sin_par: 'Empareja primero este móvil.' };
+// Lo que el navegador del móvil enseña en una pestaña; el resto (PDF, Office, CSV, HEIC) se descarga y lo abre su visor.
+const VER = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'text/plain']);
 const ESTADO_ENVIO = { pendiente: 'en cola', enviado: 'enviado', recibido: 'recibido por el PC', rechazado: 'no aceptado' };
 
 // ---------------------------------------------------------------- almacenes del navegador
@@ -37,6 +41,13 @@ const seguro = {
   async set(k, v) { const iv = crypto.getRandomValues(new Uint8Array(12)); await idb.set(`s:${k}`, { iv, ct: await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, await llave(), new TextEncoder().encode(v)) }); },
   del: (k) => idb.del(`s:${k}`),
 };
+// T31: ficheros del canal (archivo cifrado con la clave del canal y sobres YA sellados): IndexedDB, nunca en claro.
+// `borrar` admite una carpeta (borra también lo que cuelga de «nombre/»), como FicherosLike de canal.ts.
+export const ficheros = {
+  escribir: (n, v) => idb.set(`f:${n}`, v),
+  leer: async (n) => (await idb.get(`f:${n}`)) ?? null,
+  borrar: (n) => tx('readwrite', (s) => { s.delete(`f:${n}`); return s.delete(IDBKeyRange.bound(`f:${n}/`, `f:${n}/￿`)); }),
+};
 const almacen = { getItem: async (k) => (await idb.get(`a:${k}`)) ?? null, setItem: (k, v) => idb.set(`a:${k}`, v), removeItem: (k) => idb.del(`a:${k}`) };
 
 // ---------------------------------------------------------------- cliente
@@ -49,7 +60,7 @@ async function cargarBase() {
 }
 
 /** Monta MAMA móvil dentro de `cuerpo`. `burbuja(m)` es la de web/mama.js (una sola forma de pintar la conversación). */
-export function mamaMovil({ burbuja, toast }) {
+export function mamaMovil({ burbuja, toast, ADJ_MAX = 5 * 1024 * 1024 }) {
   let canal = null, uid = null, foto = null, timer = null, vivo = false, paso = 'cargando', email = '', ocupado = false, cuerpo = null, firma = '';
 
   async function iniciar(c) {
@@ -58,7 +69,7 @@ export function mamaMovil({ burbuja, toast }) {
       const { sb, MamaCanal } = await cargarBase();
       const s = (await sb.auth.getSession()).data.session;
       if (!s) { paso = 'correo'; return pintar(); }
-      if (uid !== s.user.id) { uid = s.user.id; canal = new MamaCanal({ sb, uid, almacen, seguro, rand: (n) => crypto.getRandomValues(new Uint8Array(n)) }); }
+      if (uid !== s.user.id) { uid = s.user.id; canal = new MamaCanal({ sb, uid, almacen, seguro, ficheros, rand: (n) => crypto.getRandomValues(new Uint8Array(n)) }); }
       foto = await canal.preparar();
       paso = 'canal';
       pintar(); await ciclo();
@@ -106,6 +117,37 @@ export function mamaMovil({ burbuja, toast }) {
     setTimeout(ciclo, 300);
   });
 
+  // T31: adjuntar = leer el archivo aquí y entregarlo al canal (lo trocea, lo sella y lo deja en cola ANTES de la red).
+  async function adjuntar(e) {
+    const f = e.target.files?.[0];
+    e.target.value = '';
+    if (!f || ocupado) return;
+    if (!f.size || f.size > ADJ_MAX) { toast(ERROR_ADJ.adj_tamano, 'bad'); return; }
+    ocupado = true; pintar();
+    try { foto = await canal.enviarAdjunto(new Uint8Array(await f.arrayBuffer()), f.name, f.type); setTimeout(ciclo, 300); }
+    catch (x) { toast(ERROR_ADJ[x?.codigo] || `No se pudo adjuntar: ${x?.codigo || x?.message || x}`, 'bad'); }
+    finally { ocupado = false; firma = ''; pintar(); }
+  }
+  // Abrir: el archivo cifrado del propio móvil, descifrado y con su huella comprobada (abrirAdjunto devuelve null si no cuadra).
+  async function abrirAdjunto(a) {
+    const w = VER.has(a.mime) ? window.open('about:blank', '_blank') : null; // dentro del gesto: si no, el navegador la bloquea
+    try {
+      const r = await canal.abrirAdjunto(a.id);
+      if (!r) { w?.close(); toast('Ese archivo aún no está en este móvil o no se pudo comprobar.', 'bad'); return; }
+      const url = URL.createObjectURL(new Blob([r.datos], { type: r.mime }));
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      if (w) { w.opener = null; w.location.href = url; return; }
+      const x = h('a', { href: url, download: r.nombre, hidden: true });
+      document.body.append(x); x.click(); x.remove();
+    } catch { w?.close(); toast('No se pudo abrir el archivo.', 'bad'); }
+  }
+  const pintarMensaje = (m) => {
+    const a = m.adjunto;
+    if (!a) return burbuja(m);
+    if (a.fallido || !a.listo) return burbuja({ ...m, adjunto: undefined, texto: `📎 ${a.nombre || 'archivo'} · ${a.fallido ? 'no se pudo recibir' : 'llegando…'}` });
+    return burbuja({ ...m, adjunto: { ...a, ver: VER.has(a.mime) } }, abrirAdjunto);
+  };
+
   let pantalla = '';
   function pintar(error = '') {
     if (!cuerpo || !vivo) return;
@@ -152,17 +194,21 @@ export function mamaMovil({ burbuja, toast }) {
         h('form', { class: 'm-form', onsubmit: enviar },
           h('label', { for: 'mm-text', class: 'sr-only' }, 'Mensaje para Mama'),
           h('textarea', { id: 'mm-text', rows: 2, maxlength: TEXTO_MAX, placeholder: 'Escribe a Mama… (el dictado del teclado también vale)' }),
+          h('input', { type: 'file', id: 'mm-file', hidden: true, onchange: adjuntar, accept: '.pdf,.jpg,.jpeg,.png,.gif,.webp,.heic,.txt,.csv,.docx,.xlsx,.pptx,.doc,.xls' }),
+          h('button', { class: 'btn', type: 'button', id: 'mm-adjuntar', title: 'Adjuntar un archivo (hasta 5 MB)', 'aria-label': 'Adjuntar un archivo',
+            onclick: () => document.getElementById('mm-file')?.click() }, '📎'),
           h('button', { class: 'btn primary', type: 'submit', id: 'mm-enviar' }, 'Enviar'))));
     }
     document.getElementById('mm-enviar').disabled = ocupado;
-    const s = JSON.stringify([f.pcActivo, f.aviso, (f.mensajes || []).map((m) => [m.id, m.estado, m.texto.length])]);
+    document.getElementById('mm-adjuntar').disabled = ocupado;
+    const s = JSON.stringify([f.pcActivo, f.aviso, (f.mensajes || []).map((m) => [m.id, m.estado, m.texto.length, m.adjunto?.listo, m.adjunto?.fallido])]);
     if (s === firma) return;
     firma = s;
     document.getElementById('mm-estado').replaceChildren(
       f.pcActivo === false ? h('p', { class: 'muted small', role: 'status' }, 'El PC está apagado o sin conexión: Mama responderá cuando vuelva. Lo que escribas queda en cola.') : '', aviso || '');
     const lista = document.getElementById('mm-msgs');
     lista.replaceChildren(...(f.mensajes || []).map((m) => {
-      const b = burbuja(m);
+      const b = pintarMensaje(m);
       if (m.via === 'movil' && m.estado && m.estado !== 'recibido') b.append(h('p', { class: `msg-who m-envio${m.estado === 'rechazado' ? ' bad' : ''}` }, ESTADO_ENVIO[m.estado] || m.estado));
       return b;
     }));

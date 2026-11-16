@@ -81,17 +81,18 @@ export function mamaUi({ api, toast, show, local }) {
     const x = h('a', { href: r.data.url, download: r.data.nombre, hidden: true });
     document.body.append(x); x.click(); x.remove();
   }
-  const adjunto = (m) => (m.adjunto?.id && !m.adjunto.fallido
-    ? h('button', { class: 'btn mama-adj', type: 'button', 'data-adj': m.adjunto.id, onclick: () => abrirAdjunto(m.adjunto),
+  // `abrir`: en el PC, el vale del servidor; en la PWA, el archivo cifrado que guarda el propio móvil (web/mama-movil.js).
+  const adjunto = (m, abrir = abrirAdjunto) => (m.adjunto?.id && !m.adjunto.fallido
+    ? h('button', { class: 'btn mama-adj', type: 'button', 'data-adj': m.adjunto.id, onclick: () => abrir(m.adjunto),
       'aria-label': `${m.adjunto.ver ? 'Abrir' : 'Descargar'} ${m.adjunto.nombre || 'archivo'}` }, `📎 ${m.adjunto.nombre || 'archivo'} · ${kb(m.adjunto.bytes || 0)} · ${m.adjunto.ver ? 'Abrir' : 'Descargar'}`)
     : null);
-  const burbuja = (m) => {
-    if (m.rol === 'antonio' && m.adjunto?.id) return h('div', { class: 'msg yo' }, adjunto(m), h('p', { class: 'msg-who m-at' }, `${fecha(m.at)}${m.via === 'movil' ? ' · desde el móvil' : ''}`));
+  const burbuja = (m, abrir) => {
+    if (m.rol === 'antonio' && m.adjunto?.id) return h('div', { class: 'msg yo' }, adjunto(m, abrir), h('p', { class: 'msg-who m-at' }, `${fecha(m.at)}${m.via === 'movil' ? ' · desde el móvil' : ''}`));
     if (m.rol === 'antonio') return h('div', { class: 'msg yo' }, h('p', {}, m.texto), h('p', { class: 'msg-who m-at' }, `${fecha(m.at)}${m.via === 'movil' ? ' · desde el móvil' : ''}`));
     if (m.rol === 'sistema') return h('div', { class: 'msg sis' }, h('p', {}, m.texto));
     // Su cara identifica a MAMA (12-11): no se repite «MAMA» en cada respuesta; el nombre queda para los lectores de pantalla.
     return h('div', { class: 'msg ceo msg-mama' }, h('img', { class: 'mama-av', src: 'mama-avatar-64.png', srcset: 'mama-avatar-64.png 1x, mama-avatar-128.png 2x', alt: '', width: 32, height: 32 }),
-      h('div', { class: 'msg-mama-cuerpo' }, h('p', { class: 'msg-who' }, h('span', { class: 'sr-only' }, 'MAMA · '), fecha(m.at)), h('p', { class: 'msg-r' }, m.texto), adjunto(m), interpretacion(m),
+      h('div', { class: 'msg-mama-cuerpo' }, h('p', { class: 'msg-who' }, h('span', { class: 'sr-only' }, 'MAMA · '), fecha(m.at)), h('p', { class: 'msg-r' }, m.texto), adjunto(m, abrir), interpretacion(m),
         m.inciertos?.length ? h('details', { class: 'msg-more' }, h('summary', {}, 'Lo que no sabe seguro'), h('ul', {}, m.inciertos.map((x) => h('li', {}, x)))) : null));
   };
 
@@ -133,8 +134,8 @@ export function mamaUi({ api, toast, show, local }) {
       // (no por ceo_orden, que sería legible en la nube). T22: aquí aterriza también el toque en un aviso de Mama (?v=mama).
       if (movilVivo) return;
       movilVivo = true;
-      // Un archivo de la conversación se abre en el PC (el móvil web no guarda ficheros): se enseña su nombre, sin botón.
-      movil ??= mamaMovil({ toast, burbuja: (m) => burbuja(m.adjunto ? { ...m, adjunto: undefined, texto: `📎 ${m.adjunto.nombre || 'archivo'} · se abre en CEOPadre del PC` } : m) });
+      // T31: los archivos de la conversación se adjuntan, reciben y abren también aquí (web/mama-movil.js, misma burbuja).
+      movil ??= mamaMovil({ toast, burbuja, ADJ_MAX });
       void movil.iniciar(b);
       return;
     }
@@ -144,7 +145,7 @@ export function mamaUi({ api, toast, show, local }) {
     const ms = v?.mensajes || [];
     const u = v?.uso || {};
     const lista = h('div', { class: 'ceo-msgs mama-msgs', role: 'log', 'aria-live': 'polite', 'aria-label': 'Conversación con Mama' },
-      ms.length ? ms.map(burbuja) : h('p', { class: 'muted ceo-vacio' }, 'Cuéntale a Mama lo que quieras: una novedad, un compromiso o algo para CEOPadre.'),
+      ms.length ? ms.map((m) => burbuja(m)) : h('p', { class: 'muted ceo-vacio' }, 'Cuéntale a Mama lo que quieras: una novedad, un compromiso o algo para CEOPadre.'),
       v?.pensando ? h('div', { class: 'msg ceo pensando', role: 'status' }, h('p', {}, h('span', { class: 'dots', 'aria-hidden': 'true' }, '• • •'), ' Mama está respondiendo…')) : null);
     const form = h('form', { class: 'ceo-form', onsubmit: enviar },
       h('textarea', { id: 'm-text', 'aria-label': 'Mensaje para Mama', rows: '2', maxlength: '4000', placeholder: 'Escribe a Mama…', onkeydown: (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) enviar(e); } }),

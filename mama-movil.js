@@ -172,7 +172,7 @@ export function mamaMovil({ burbuja, toast, ADJ_MAX = 5 * 1024 * 1024 }) {
     return burbuja({ ...m, adjunto: { ...a, ver: VER.has(a.mime) } }, abrirAdjunto);
   };
 
-  let pantalla = '';
+  let pantalla = '', ultimaEtapa = '';
   function pintar(error = '') {
     if (!cuerpo || !vivo) return;
     // Fuera del chat, sólo se repinta si cambia lo que se ve (el ciclo no borra el código que se está tecleando).
@@ -180,6 +180,10 @@ export function mamaMovil({ burbuja, toast, ADJ_MAX = 5 * 1024 * 1024 }) {
     const chat = paso === 'canal' && foto?.fase === 'activo';
     if (!chat && p === pantalla && cuerpo.firstChild) return;
     pantalla = p;
+    // 16-11 (Android real): al cambiar de PASO (correo → código → emparejar → chat) la pantalla se repintaba con la página
+    // desplazada (teclado abierto) y su encabezado quedaba bajo la cabecera fija. Cada paso nuevo empieza arriba.
+    const etapa = `${paso}|${foto?.fase || ''}`;
+    if (etapa !== ultimaEtapa) { ultimaEtapa = etapa; if (window.scrollY > 0) window.scrollTo(0, 0); }
     const sec = (...x) => h('section', { class: 'side-card mama-movil' }, h('h2', {}, 'Mama'), ...x);
     if (paso === 'cargando') return cuerpo.replaceChildren(sec(h('p', { class: 'muted' }, 'Abriendo tu conversación…')));
     if (paso === 'error') return cuerpo.replaceChildren(sec(h('p', { class: 'bad' }, `No se pudo abrir Mama: ${error}`), h('button', { class: 'btn', type: 'button', onclick: () => iniciar(cuerpo) }, 'Reintentar')));

@@ -58,10 +58,31 @@ export function autoUi({ api, ask, toast, show, data, run, viewText, ai, alquile
       const abiertos = new Set([...box.querySelectorAll('details[open]')].map((x) => x.dataset.k));
       box.hidden = !n;
       box.replaceChildren(...(n ? [h('p', { class: 'ln' }, h('b', {}, 'RESPUESTAS A MENSAJES'), ` · ${n} esperan tu revisión. Nada sale sin tu aprobación.`),
-        ...vivos.map((m) => (m.destinatario ? waCard(m, true) : message(m, true))),
+        ...vivos.map((m) => plegada(m, m.destinatario ? waCard(m, true) : message(m, true))),
         h('div', { class: 'row' }, h('button', { class: 'link', type: 'button', onclick: () => openInbox() }, 'Ver todas en Respuestas (opcional)'))] : []));
       for (const x of box.querySelectorAll('details')) if (abiertos.has(x.dataset.k)) x.open = true;
     }
+  }
+
+  // T35 · añadido #8 §4: en Dirección cada respuesta empieza PLEGADA: quién, proyecto, asunto, qué necesita de ti y estado. Al
+  // pulsar se despliega aquí mismo la tarjeta completa (contexto, propuesta, recomendación y acciones). El repintado conserva
+  // las abiertas (data-k) y no repinta con una ventana de edición abierta: no se pierde lo que escribes.
+  const NECESITA = { BLOQUEADO: 'La conversación cambió: revisar de nuevo', NO_CONFIRMADO: 'Comprobar si salió', FALLIDO: 'No salió: reintentar o rechazar' };
+  function plegada(m, tarjeta) {
+    const wa = !!m.destinatario;
+    const quien = m.contacto || m.destinatario;
+    const c = m.contexto || {};
+    const proyecto = c.proyecto || m.proyectoNombre || '';
+    const asunto = c.asunto || m.titulo || m.recibido || c.ultimo || (wa ? 'Mensaje de WhatsApp' : 'Respuesta preparada');
+    const necesita = m.revision ? 'Faltan datos confirmados antes de enviar' : NECESITA[m.estado]
+      || (wa ? 'Revisar el borrador antes de aprobarlo' : m.enviable === false ? 'Revisar y copiar el texto (lo envías tú)' : 'Revisar la respuesta antes de enviarla');
+    const [label, tone] = m.revision ? ['Pendiente de datos', 'warn'] : wa ? ['Pendiente de aprobación', 'ask'] : MSG[m.estado] || [m.estado, 'idle'];
+    const corto = (t, n) => (String(t).length > n ? `${String(t).slice(0, n - 1)}…` : String(t));
+    return h('details', { class: `a-fold t-${tone}`, 'data-k': `fold-${wa ? 'wa' : 'msg'}-${m.id}` },
+      h('summary', { 'aria-label': `${quien} · ${proyecto} · ${asunto} · ${necesita}. Ver mensaje` },
+        h('span', { class: 'f-main' }, h('b', {}, quien), h('small', { class: 'muted' }, ` · ${proyecto} · ${corto(asunto, 70)}`)),
+        h('span', { class: 'f-need' }, necesita), chip(label, tone), h('span', { class: 'f-cta' }, h('span', { class: 'f-ver' }, 'Ver mensaje'), h('span', { class: 'f-plegar' }, 'Plegar'))),
+      tarjeta);
   }
 
   // ------------------------------------------------------------ pantallas
@@ -467,7 +488,7 @@ export function autoUi({ api, ask, toast, show, data, run, viewText, ai, alquile
       const d = r.data;
       viewText(`${d.contacto} · conversación`, [`MENSAJE RECIBIDO\n${d.recibido_texto || d.recibido || '(sin texto)'}`, d.conversacion ? `Conversación: ${d.conversacion}` : '',
         d.texto !== d.propuesta ? `PROPUESTA ORIGINAL DE LA IA\n${d.propuesta}` : '', d.notas ? `NOTAS\n${d.notas}` : '',
-        `HISTORIAL\n${d.eventos.map((e) => `${fecha(e.at)} · ${e.tipo} · ${e.origen || ''}`).join('\n')}`, d.evidencia ? `EVIDENCIA DEL ENVÍO\n${d.evidencia}` : ''].filter(Boolean).join('\n\n'));
+        `HISTORIAL\n${d.eventos.map((e) => `${fecha(e.at)} · ${e.tipo} · ${e.origen || ''}${e.quien ? ` · ${e.quien}` : ''}`).join('\n')}`, d.evidencia ? `EVIDENCIA DEL ENVÍO\n${d.evidencia}` : ''].filter(Boolean).join('\n\n'));
     } finally { btn.disabled = false; }
   }
   async function approve(ms, btn) {
@@ -508,6 +529,10 @@ export function autoUi({ api, ask, toast, show, data, run, viewText, ai, alquile
     card?.setAttribute('aria-busy', 'true');
     try { await fn(b); } finally { enVuelo.delete(ref); for (const y of bs) y.disabled = false; card?.removeAttribute('aria-busy'); }
   };
+  // #9 §5: alternativa que explica SÓLO los hechos confirmados. Abre el mismo editor con IA con la petición ya escrita: tú
+  // la envías, eliges la versión y la aplicas; nada se aprueba ni se envía desde aquí.
+  const SOLO_CONFIRMADO = 'Prepara una versión que explique sólo los hechos confirmados: quita los importes, fechas o datos que no estén confirmados (y los marcadores PENDIENTE), di con naturalidad que ese dato se enviará cuando esté confirmado y no inventes ninguna cantidad.';
+  const soloConfirmado = (destino) => h('button', { class: 'btn ghost small', type: 'button', onclick: () => ai?.open(destino, { sugerencia: SOLO_CONFIRMADO }) }, 'Versión con sólo lo confirmado');
   const REC = { ENVIAR: ['Enviar', 'yes', 'APROBAR'], MODIFICAR: ['Modificar antes de enviar', 'ans', null], ESPERAR: ['Esperar', 'wait', null], RECHAZAR: ['Rechazar', 'no', 'RECHAZAR'] };
   const ctxLine = (k, v) => h('p', { class: 'ln' }, h('b', {}, k), ' ', v);
   const noConsta = () => h('span', { class: 'muted' }, 'no consta');
@@ -541,9 +566,10 @@ export function autoUi({ api, ask, toast, show, data, run, viewText, ai, alquile
     const mejorar = () => ai?.open({ tipo: 'bandeja', id: m.id });
     const B = (txt, fn, cls = 'ghost') => h('button', { class: `btn ${cls} small`, type: 'button', onclick: una(ref, fn) }, txt);
     const acts = {
-      PENDIENTE: [decideRow({ yes: off ? null : una(ref, (b) => (soloTexto ? copyText(m) : approve([m], b))), yesLabel: soloTexto ? 'Copiar el texto (lo envías tú)' : 'Aprobar y enviar',
+      PENDIENTE: [decideRow({ yes: off || m.revision ? null : una(ref, (b) => (soloTexto ? copyText(m) : approve([m], b))), yesLabel: soloTexto ? 'Copiar el texto (lo envías tú)' : 'Aprobar y enviar',
         no: una(ref, (b) => reject([m], b)), noLabel: 'Rechazar', ask: mejorar, rec }),
-      h('div', { class: 'row' }, B('✎ Editar', (b) => edit(m, b)), h('button', { class: 'btn accent small', type: 'button', onclick: mejorar }, 'Pedir al CEO que la mejore'))],
+      h('div', { class: 'row' }, B('✎ Editar', (b) => edit(m, b)), h('button', { class: 'btn accent small', type: 'button', onclick: mejorar }, 'Pedir al CEO que la mejore'),
+        m.revision ? soloConfirmado({ tipo: 'bandeja', id: m.id }) : null)],
       BLOQUEADO: [B('Revisar de nuevo', (b) => cmd('bandeja.revisar', { id: m.id }, 'Vuelve a revisión', b), 'primary'), B('Rechazar', (b) => reject([m], b), 'ghost-danger')],
       FALLIDO: [B('Reintentar envío', (b) => cmd('bandeja.reintentar', { id: m.id }, 'En cola', b), 'primary'), B('Rechazar', (b) => reject([m], b), 'ghost-danger')],
       NO_CONFIRMADO: [B('Sí salió', (b) => cmd('bandeja.resolver', { id: m.id, enviado: true }, 'Marcada como enviada', b)),
@@ -557,6 +583,7 @@ export function autoUi({ api, ask, toast, show, data, run, viewText, ai, alquile
       contextBlock(m, m.contexto, ref) || h('p', { class: 'ln' }, h('b', {}, 'RECIBIDO'), ` ${m.recibido || '—'}`),
       h('div', { class: 'a-reply' }, h('b', {}, 'RESPUESTA PROPUESTA'), h('p', { class: 'r-text' }, m.texto)),
       m.motivo ? h('p', { class: 'note' }, m.motivo) : null,
+      m.revision ? h('p', { class: 'note', 'data-revision': '1', role: 'status' }, m.revision) : null,
       soloTexto && m.estado === 'PENDIENTE' ? h('p', { class: 'note', 'data-solo-texto': '1' }, `Sólo texto: este agente no envía por ${m.canal}. Cópialo y envíalo tú; CEOPadre no lo enviará.`) : null,
       off && m.estado === 'PENDIENTE' ? h('p', { class: 'note' }, 'El PC no está conectado: puedes leerla, pero no aprobarla ni enviarla hasta que vuelva.') : null,
       h('div', { class: 'a-acts' }, acts),
@@ -584,16 +611,18 @@ export function autoUi({ api, ask, toast, show, data, run, viewText, ai, alquile
     };
     const hist = () => viewText(`${m.destinatario} · WhatsApp`, [`TEXTO VIGENTE\n${m.texto}`, m.editado ? `ORIGINAL\n${m.original}` : '', m.fuente ? `FUENTE\n${m.fuente}` : '', m.motivo ? `NOTA\n${m.motivo}` : '',
       `HISTORIAL\n${m.historial_n} evento(s): el detalle completo está en Agentes → Alquileres → WhatsApp / Comunicaciones.`].filter(Boolean).join('\n\n'));
-    const bloqueado = !!m.bloqueo || m.pendientes;
+    const bloqueado = !!m.bloqueo || m.pendientes || !!m.revision;
     return h('article', { class: `a-msg t-ask${compacta ? ' compacta' : ''}`, 'data-id': ref },
       h('header', {}, h('b', {}, m.destinatario), chip('Texto pendiente de tu aprobación', 'ask')),
       h('p', { class: 'a-meta muted' }, [m.proyectoNombre, 'whatsapp', fecha(m.creado), m.editado ? 'editado por ti' : 'borrador'].filter(Boolean).join(' · ')),
       contextBlock(m, m.contexto, ref),
       h('div', { class: 'a-reply' }, h('b', {}, 'MENSAJE PROPUESTO'), h('p', { class: 'r-text' }, m.texto)),
       m.bloqueo ? h('p', { class: 'note' }, m.bloqueo) : null,
+      m.revision && !m.bloqueo ? h('p', { class: 'note', 'data-revision': '1', role: 'status' }, m.revision) : null,
       h('div', { class: 'a-acts' }, decideRow({ yes: off || bloqueado ? null : una(ref, aprobar), yesLabel: 'Aprobar el texto (no envía)', no: una(ref, descartar), noLabel: 'Descartar', ask: mejorar, rec }),
         h('div', { class: 'row' }, h('button', { class: 'btn ghost small', type: 'button', onclick: una(ref, editar) }, '✎ Editar'),
-          h('button', { class: 'btn accent small', type: 'button', onclick: mejorar }, 'Pedir al CEO que lo mejore'))),
+          h('button', { class: 'btn accent small', type: 'button', onclick: mejorar }, 'Pedir al CEO que lo mejore'),
+          m.revision && !m.bloqueo ? soloConfirmado({ tipo: 'alquiler', id: m.id }) : null)),
       comunes({ detalles: hist }));
   }
   let bar = null;

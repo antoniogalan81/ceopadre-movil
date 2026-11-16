@@ -19,7 +19,7 @@ export function aiEditor({ api, toast, onApplied }) {
   }
 
   /** Abre (o recupera) el editor de ese texto. destino: {tipo:'bandeja',id} | {tipo:'remoto',proyecto,item,plataforma}. */
-  async function open(destino) {
+  async function open(destino, { sugerencia = '' } = {}) {
     $('red-title').textContent = 'Editar con IA';
     $('red-body').replaceChildren(h('p', { class: 'muted' }, 'Abriendo…'));
     // Hasta tener la sesión (en el móvil, 1-2 s por la cola del PC) no se puede pedir ni aplicar nada.
@@ -32,7 +32,7 @@ export function aiEditor({ api, toast, onApplied }) {
     chosen = null;
     scope = '';
     $('red-cancel').disabled = false;
-    if (!$('red-input').value.trim()) $('red-input').value = load(DRAFT(v.id)); // lo ya escrito no se pisa
+    if (!$('red-input').value.trim()) $('red-input').value = load(DRAFT(v.id)) || sugerencia; // lo ya escrito no se pisa; si no hay nada, la petición sugerida
     dlg.dataset.ready = '1';
     if (v.recuperada) toast('Conversación recuperada: sigue donde lo dejaste', 'ok');
     paint();

@@ -1517,3 +1517,15 @@ dialog.cp-dlg { width: min(860px, calc(100vw - 24px)); overflow: auto; }
 @media (max-width: 560px) { .a-msg .a-acts .row .btn { min-height: 44px; } }
 /* Permisos por decidir (añadido #3 §8): en el móvil, botones de dedo (44 px) como las respuestas. */
 @media (max-width: 560px) { .aut-card .a-acts .btn { min-height: 44px; } }
+/* T35 · añadido #8 §4: respuestas PLEGADAS en Dirección (quién · proyecto · asunto · qué necesita · estado · Ver mensaje). */
+.a-fold { background: var(--paper); border: 1px solid var(--line); border-left: 5px solid var(--ask); border-radius: var(--radius); }
+.a-fold.t-warn { border-left-color: var(--warn); } .a-fold.t-bad { border-left-color: var(--bad); } .a-fold.t-work { border-left-color: var(--work); }
+.a-fold > summary { list-style: none; cursor: pointer; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding: 10px 12px; min-height: 44px; }
+.a-fold > summary::-webkit-details-marker { display: none; }
+.a-fold > summary:focus-visible { outline: 2px solid var(--work); outline-offset: 2px; }
+.a-fold .f-main { flex: 1 1 260px; min-width: 0; overflow-wrap: anywhere; }
+.a-fold .f-need { font-size: 13px; color: var(--ink-2); }
+.a-fold .f-cta { font-weight: 700; color: var(--work); white-space: nowrap; }
+.a-fold .f-plegar, .a-fold[open] .f-ver { display: none; } .a-fold[open] .f-plegar { display: inline; }
+.a-fold > .a-msg { border: 0; border-top: 1px solid var(--line); border-radius: 0 0 var(--radius) var(--radius); }
+.a-fold > .a-msg > header { display: none; } /* el resumen plegado ya dice quién y el estado */

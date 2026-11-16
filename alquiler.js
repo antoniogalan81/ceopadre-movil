@@ -758,7 +758,7 @@ export function alquileresUi({ run, ask, cmd, toast, LOCAL }) {
       m.motivo ? h('p', { class: 'note' }, m.motivo) : null,
       h('div', { class: 'alq-acciones' }, acts, h('button', { class: 'link', type: 'button', 'aria-expanded': String(abierto),
         onclick: () => { if (abierto) wa.abierto.delete(m.id); else wa.abierto.add(m.id); repintar(); } }, `${abierto ? 'Ocultar' : 'Ver'} historial (${m.eventos.length})`)),
-      abierto ? h('ul', { class: 'alq-partes small' }, m.eventos.map((e) => h('li', {}, `${fecha(e.at.slice(0, 10))} ${e.at.slice(11, 16)} · ${WA_EV[e.tipo] || e.tipo} · ${e.origen || ''}`))) : null,
+      abierto ? h('ul', { class: 'alq-partes small' }, m.eventos.map((e) => h('li', {}, `${fecha(e.at.slice(0, 10))} ${e.at.slice(11, 16)} · ${WA_EV[e.tipo] || e.tipo} · ${e.origen || ''}${e.quien ? ` · ${e.quien}` : ''}`))) : null,
       a ? h('button', { class: 'link small', type: 'button', onclick: () => abrirFicha(a) }, `Ficha de ${a.inquilino}`) : null);
   }
   function tabWhatsapp(lst, repintar) {

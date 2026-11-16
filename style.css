@@ -5,6 +5,11 @@
 [hidden] { display: none !important; }
 
 :root {
+  /* CAPAS (16-11): una sola escala para todo CEOPadre. Contenido < pegajoso < menús < barra inferior < botón flotante < cabecera
+     < avisos. Los diálogos modales (showModal) van en la capa superior del navegador, por encima de todo esto. */
+  --capa-pegajosa: 4; --capa-menu: 30; --capa-barra: 40; --capa-flotante: 44; --capa-cabecera: 46; --capa-aviso: 60;
+  /* Alto que ocupa la barra inferior del móvil (los avisos y botones flotantes se colocan por encima). */
+  --pie: calc(76px + env(safe-area-inset-bottom));
   --bg: oklch(0.962 0.008 240); --paper: oklch(0.995 0.002 240); --ink: oklch(0.23 0.025 240); --ink-2: oklch(0.40 0.02 240);
   --ink-3: oklch(0.49 0.016 240); --line: oklch(0.885 0.014 240);
   --accent: oklch(0.43 0.075 240); --mint: oklch(0.87 0.07 240);
@@ -186,7 +191,9 @@ input, textarea {
 input:focus, textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent); }
 .error { color: var(--bad); }
 .sheet {
-  border: none; padding: 0; width: min(560px, 100%); max-width: 100%; margin: auto auto 0; border-radius: 20px 20px 0 0;
+  /* 16-11: en el móvil la ventana se abre CENTRADA en lo visible (antes pegada al borde inferior, la zona que tapan la barra y
+     los dedos); con teclado, dialog.sheet ya se encoge a --vvh y se desplaza por dentro. */
+  border: none; padding: 0; width: min(560px, calc(100% - 16px)); max-width: 100%; margin: auto; border-radius: 20px;
   background: var(--paper); color: var(--ink); box-shadow: 0 -10px 40px rgba(0,0,0,.25);
 }
 @media (min-width: 700px) { .sheet { margin: auto; border-radius: 20px; } }
@@ -196,7 +203,9 @@ input:focus, textarea:focus { outline: none; border-color: var(--accent); box-sh
 /* Teclado del móvil (web/modal.js pone --vvh/--kb con visualViewport): la ventana cabe en lo que queda visible, se desplaza
    por dentro y Volver/Aceptar siguen a la vista; el selector no se sale y el texto largo no empuja los botones fuera. */
 dialog.sheet { max-height: calc(var(--vvh, 100dvh) - 8px); overflow: auto; overscroll-behavior: contain; }
-@media (max-width: 699px) { dialog.sheet:not(.composer) { margin-bottom: var(--kb, 0px); } }
+/* 16-11: el teclado RESTA espacio por abajo (bottom) y la ventana se centra en lo que queda (margin:auto); antes margin-bottom
+   anulaba el centrado y la dejaba pegada al borde inferior. */
+@media (max-width: 699px) { dialog.sheet:not(.composer) { bottom: var(--kb, 0px); } }
 .sheet form > .row:last-child { position: sticky; bottom: 0; z-index: 1; background: var(--paper); padding-top: 10px; margin-top: 4px; }
 .sheet select { width: 100%; max-width: 100%; text-overflow: ellipsis; min-height: 44px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--paper); color: var(--ink); font: inherit; }
 .sheet textarea { max-height: 45dvh; resize: vertical; }
@@ -206,6 +215,7 @@ dialog.sheet { max-height: calc(var(--vvh, 100dvh) - 8px); overflow: auto; overs
   position: fixed; left: 50%; bottom: calc(18px + env(safe-area-inset-bottom)); transform: translate(-50%, 20px);
   background: var(--ink); color: var(--paper); padding: 12px 16px; border-radius: 12px; font-weight: 600; font-size: 14px;
   opacity: 0; pointer-events: none; transition: opacity .2s, transform .2s; max-width: calc(100% - 32px); overflow-wrap: anywhere;
+  z-index: var(--capa-aviso); /* 16-11: sin capa, el aviso quedaba DETRÁS de la barra inferior del móvil (errores invisibles) */
 }
 .toast.show { opacity: 1; transform: translate(-50%, 0); }
 .toast.bad { background: var(--bad); color: #fff; }
@@ -342,7 +352,7 @@ dialog.sheet { max-height: calc(var(--vvh, 100dvh) - 8px); overflow: auto; overs
 
 /* ---- aviso de versión nueva (PWA) */
 .update {
-  position: fixed; left: 50%; bottom: calc(14px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 30;
+  position: fixed; left: 50%; bottom: calc(14px + env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: var(--capa-aviso);
   display: flex; align-items: center; gap: 12px; padding: 8px 8px 8px 16px; border-radius: 14px;
   background: var(--bar); color: var(--bar-ink); font-weight: 700; font-size: 14px; box-shadow: 0 10px 30px -10px oklch(0.2 0.05 240 / 0.6);
   max-width: calc(100% - 24px);
@@ -373,7 +383,7 @@ dialog.sheet { max-height: calc(var(--vvh, 100dvh) - 8px); overflow: auto; overs
 .quota > summary svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
 .quota > summary:focus-visible { outline: 3px solid var(--mint); outline-offset: 2px; }
 .top .quota > summary { background: var(--idle-bg); color: var(--ink-2); }
-.quota-pop { position: absolute; right: 0; top: calc(100% + 6px); z-index: 20; width: max-content; max-width: min(92vw, 380px);
+.quota-pop { position: absolute; right: 0; top: calc(100% + 6px); z-index: var(--capa-menu); width: max-content; max-width: min(92vw, 380px);
   background: var(--paper); color: var(--ink); border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px;
   box-shadow: 0 14px 40px -12px rgba(0,0,0,.35); display: grid; gap: 6px; }
 .quota-pop table { border-collapse: collapse; font-size: 13px; }
@@ -735,7 +745,7 @@ a.btn { display: inline-flex; align-items: center; justify-content: center; text
 .a-more { position: relative; }
 .a-more > summary { list-style: none; display: inline-flex; align-items: center; }
 .a-more > summary::-webkit-details-marker { display: none; }
-.a-menu { position: absolute; right: 0; z-index: 5; display: grid; gap: 4px; min-width: 190px; padding: 8px; margin-top: 4px;
+.a-menu { position: absolute; right: 0; z-index: var(--capa-menu); display: grid; gap: 4px; min-width: 190px; padding: 8px; margin-top: 4px;
   background: var(--paper); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 10px 30px oklch(0.2 0.03 240 / 0.18); }
 .a-runrow { border-top: 1px solid var(--line); padding: 10px 0; display: grid; gap: 6px; }
 .a-runrow:first-of-type { border-top: 0; }
@@ -825,7 +835,7 @@ a.btn { display: inline-flex; align-items: center; justify-content: center; text
 .more > summary::-webkit-details-marker { display: none; }
 .more > summary > span:first-child { font-size: 20px; line-height: 1; }
 .more[open] > summary { background: oklch(1 0 0 / 0.12); }
-.more-pop { position: absolute; right: 0; top: calc(100% + 8px); z-index: 30; width: 250px; display: grid; gap: 6px; padding: 10px; border-radius: 14px;
+.more-pop { position: absolute; right: 0; top: calc(100% + 8px); z-index: var(--capa-menu); width: 250px; display: grid; gap: 6px; padding: 10px; border-radius: 14px;
   background: var(--paper); color: var(--ink); box-shadow: 0 18px 40px -12px oklch(0.2 0.05 240 / 0.45), inset 0 0 0 1px var(--line); }
 .more-pop .btn { width: 100%; justify-content: flex-start; }
 .more-pop .top-remotes { display: grid; gap: 6px; }
@@ -918,7 +928,7 @@ a.btn { display: inline-flex; align-items: center; justify-content: center; text
 .pchip small { font-size: 11.5px; font-weight: 600; }
 
 /* Barra de pestañas del móvil. */
-.tabbar { position: fixed; z-index: 40; left: 0; right: 0; bottom: 0; display: none; grid-template-columns: repeat(4, 1fr);
+.tabbar { position: fixed; z-index: var(--capa-barra); left: 0; right: 0; bottom: 0; display: none; grid-template-columns: repeat(4, 1fr);
   padding: 6px 6px calc(6px + env(safe-area-inset-bottom)); background: color-mix(in oklch, var(--paper) 92%, transparent);
   backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); box-shadow: 0 -1px 0 var(--line), 0 -10px 30px -20px oklch(0.2 0.05 240 / 0.5); }
 .tabbar button { appearance: none; position: relative; display: grid; justify-items: center; gap: 2px; min-height: 52px; padding: 6px 2px; border: 0; border-radius: 12px;
@@ -936,6 +946,7 @@ a.btn { display: inline-flex; align-items: center; justify-content: center; text
 @media (max-width: 760px) {
   .tabs { display: none; }
   .tabbar:not([hidden]) { display: grid; }
+  .toast { bottom: calc(var(--pie) + 8px); } /* por encima de la barra inferior */
   body { padding-bottom: calc(80px + 76px + env(safe-area-inset-bottom)); } /* barra inferior + botón del CEO: lo último se puede subir por encima del botón */
   .home .bar { grid-template-columns: 1fr; padding: 10px 12px; gap: 8px; }
   .home .bar-side { width: 100%; justify-content: space-between; }
@@ -1141,7 +1152,7 @@ details.z-projects[open] > summary { margin-bottom: 12px; }
 #conex-body small.ok { color: var(--ok); } #conex-body small.warn { color: var(--warn); }
 
 /* V3.6 — navegación fija y conversación con el CEO */
-.ceo-fab { position: fixed; z-index: 44; right: 16px; bottom: calc(16px + env(safe-area-inset-bottom)); display: inline-flex; align-items: center; gap: 8px; min-height: 48px; padding: 0 18px;
+.ceo-fab { position: fixed; z-index: var(--capa-flotante); right: 16px; bottom: calc(16px + env(safe-area-inset-bottom)); display: inline-flex; align-items: center; gap: 8px; min-height: 48px; padding: 0 18px;
   border: 0; border-radius: 999px; background: var(--accent); color: #fff; font: 700 14px/1 var(--sans); box-shadow: 0 6px 18px oklch(0 0 0 / .25); cursor: pointer; }
 .ceo-fab:focus-visible { outline: 3px solid var(--ink); outline-offset: 2px; }
 @media (max-width: 760px) { .ceo-fab { bottom: calc(76px + env(safe-area-inset-bottom)); right: 12px; padding: 0 14px; } .ceo-fab-t { display: none; } .ceo-fab { width: 52px; justify-content: center; } }
@@ -1180,7 +1191,7 @@ dialog.ceo-chat::backdrop { background: oklch(0 0 0 / .25); }
 .ceo-vacio { margin: auto 0; text-align: center; }
 
 /* V3.6 — CABECERA COMPLETA FIJA (la de siempre, ahora fuera de la pantalla de Dirección y presente en todas) */
-.appbar.home { position: sticky; top: 0; z-index: 46; max-width: none; margin: 0; padding: 0 16px; background: var(--paper); }
+.appbar.home { position: sticky; top: 0; z-index: var(--capa-cabecera); max-width: none; margin: 0; padding: 0 16px; background: var(--paper); }
 .appbar.home .bar { max-width: 1480px; margin: 0 auto; border-radius: 0 0 18px 18px; }
 .appbar.home::after { content: ''; position: absolute; left: 0; right: 0; bottom: -8px; height: 8px; background: linear-gradient(var(--paper), transparent); pointer-events: none; }
 .home-side { top: calc(var(--appbar-h, 0px) + 12px); }
@@ -1540,3 +1551,7 @@ dialog.cp-dlg { width: min(860px, calc(100vw - 24px)); overflow: auto; }
 .mama-tareas .mt-fila { padding: 8px 0; border-bottom: 1px solid var(--line, #e3e7ee); }
 .mama-tareas .mt-atrasada strong { color: var(--bad, #b42318); }
 .mama-tareas .mt-mas summary { cursor: pointer; font-size: .9em; }
+
+/* Acceso a MAMA en el móvil: el error se ve junto al campo y las acciones no quedan bajo la barra. */
+.mm-acceso { display: grid; gap: 10px; }
+.mm-acceso .mm-fallo { margin: 0; padding: 8px 10px; border-radius: 10px; background: var(--bad-bg); }

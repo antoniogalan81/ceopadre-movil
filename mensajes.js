@@ -100,7 +100,14 @@ export function mensajesUi({ api, toast }) {
     lista.replaceChildren(xs.length ? h('ul', { class: 'side-list' }, xs.map(fila)) : h('p', { class: 'muted small' }, filtro === 'pendientes' ? 'No hay contactos sin clasificar.' : 'Ninguno aquí.'));
     panel.replaceChildren();
     if (!escribiendo) {
-      prefsBox.replaceChildren(prefs.filter((p) => p.estado === 'ACTIVA').length ? h('ul', { class: 'side-list' }, prefs.filter((p) => p.estado === 'ACTIVA').map((p) => h('li', {},
+      // Aprendido de TUS ediciones (punto 5): sólo propuestas; nada se aplica hasta que lo confirmas.
+      const cand = prefs.filter((p) => p.estado === 'CANDIDATA');
+      const candidatas = cand.length ? h('div', { class: 'msj-cand' }, h('p', { class: 'muted small' }, 'Aprendido de cómo editas los borradores (no se aplica hasta que lo confirmes):'),
+        h('ul', { class: 'side-list' }, cand.map((p) => h('li', {}, h('span', { class: 'muted small' }, `${contactos.find((c) => c.id === p.objetivo)?.nombre || p.objetivo}: `), p.texto,
+          h('span', { class: 'muted small' }, ` (${(String(p.evidencia || '').match(/#\d+/g) || []).length} borrador(es))`), ' ',
+          h('button', { class: 'btn small primary', type: 'button', onclick: () => accion('conf', () => api.cmd('mensajes.preferencia.confirmar', { id: p.id }), () => 'Confirmada: se aplica en los próximos borradores') }, 'Confirmar'), ' ',
+          h('button', { class: 'btn small', type: 'button', onclick: () => accion('desc', () => api.cmd('mensajes.preferencia.retirar', { id: p.id }), () => 'Descartada') }, 'Descartar'))))) : null;
+      prefsBox.replaceChildren(candidatas || '',prefs.filter((p) => p.estado === 'ACTIVA').length ? h('ul', { class: 'side-list' }, prefs.filter((p) => p.estado === 'ACTIVA').map((p) => h('li', {},
         h('span', { class: 'muted small' }, `${AMBITO[p.ambito]}${p.objetivo ? ` (${contactos.find((c) => c.id === p.objetivo)?.nombre || p.objetivo})` : ''}: `), p.texto, ' ',
         h('button', { class: 'link small', type: 'button', onclick: () => accion('ret', () => api.cmd('mensajes.preferencia.retirar', { id: p.id }), () => 'Retirada') }, 'Retirar')))) : h('p', { class: 'muted small' }, 'Aún no hay preferencias guardadas.'),
       formPreferencia());

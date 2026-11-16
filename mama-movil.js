@@ -59,16 +59,33 @@ async function cargarBase() {
   return (base = { sb, MamaCanal });
 }
 
+/** Error del acceso en palabras de Antonio (códigos reales de Supabase Auth; medido 16-11: correo sin cuenta → 422 otp_disabled). */
+export function explicar(e) {
+  const c = String(e?.code || e?.error_code || ''), m = String(e?.message || e || ''), st = Number(e?.status) || 0;
+  if (c === 'otp_disabled' || /signups not allowed/i.test(m)) return 'Ese correo no tiene cuenta en FocoGravital. Escribe el mismo correo con el que entras en FocoGravital.';
+  if (st === 429 || /rate limit|too many|security purposes/i.test(m)) return 'Se han pedido demasiados códigos seguidos. Espera unos minutos y vuelve a intentarlo (el último código enviado sigue valiendo un rato).';
+  if (c === 'otp_expired' || /expired|invalid.*(token|otp)|token.*(invalid|not found)/i.test(m)) return 'El código ha caducado, ya se usó o no es correcto. Pulsa «Reenviar código» y usa el último que llegue.';
+  if (c === 'email_address_invalid' || /invalid.*email|email.*invalid/i.test(m)) return 'Ese correo no es válido. Revísalo.';
+  if (e instanceof TypeError || /failed to fetch|network|load failed/i.test(m)) return 'Sin conexión con el servidor de FocoGravital. Comprueba la conexión y vuelve a intentarlo.';
+  return `No se pudo continuar: ${m || 'error desconocido'}`;
+}
+
 /** Monta MAMA móvil dentro de `cuerpo`. `burbuja(m)` es la de web/mama.js (una sola forma de pintar la conversación). */
 export function mamaMovil({ burbuja, toast, ADJ_MAX = 5 * 1024 * 1024 }) {
   let canal = null, uid = null, foto = null, timer = null, vivo = false, paso = 'cargando', email = '', ocupado = false, cuerpo = null, firma = '';
+  let fallo = ''; // 16-11: el error del acceso se ve EN el formulario (el aviso flotante quedaba detrás de la barra inferior)
+  // Paso del acceso guardado SIN secretos (correo y momento; nunca el código): recargar no obliga a pedir otro código.
+  const LOGIN = 'ceopadre-mama-acceso';
+  const recordar = (x) => { try { if (x) localStorage.setItem(LOGIN, JSON.stringify(x)); else localStorage.removeItem(LOGIN); } catch { /* sin almacenamiento */ } };
+  const recordado = () => { try { const x = JSON.parse(localStorage.getItem(LOGIN) || 'null'); return x && Date.now() - x.at < 60 * 60_000 ? x : null; } catch { return null; } };
 
   async function iniciar(c) {
     cuerpo = c; vivo = true;
     try {
       const { sb, MamaCanal } = await cargarBase();
       const s = (await sb.auth.getSession()).data.session;
-      if (!s) { paso = 'correo'; return pintar(); }
+      if (!s) { const r = recordado(); email ||= r?.email || ''; paso = r?.paso === 'codigo' ? 'codigo' : 'correo'; return pintar(); }
+      recordar(null);
       if (uid !== s.user.id) { uid = s.user.id; canal = new MamaCanal({ sb, uid, almacen, seguro, ficheros, rand: (n) => crypto.getRandomValues(new Uint8Array(n)) }); }
       foto = await canal.preparar();
       paso = 'canal';
@@ -87,23 +104,30 @@ export function mamaMovil({ burbuja, toast, ADJ_MAX = 5 * 1024 * 1024 }) {
     if (ocupado) return;
     // Los campos se leen ANTES de repintar (al pasar a «ocupado» el formulario se rehace y quedaría vacío).
     const v = Object.fromEntries([...cuerpo.querySelectorAll('input, textarea')].map((x) => [x.id, x.value]));
-    ocupado = true; pintar();
-    try { await f(v); } catch (x) { toast(x?.codigo ? `No se pudo: ${x.codigo}` : String(x?.message || x), 'bad'); }
-    finally { ocupado = false; pintar(); }
+    ocupado = true; fallo = ''; pintar();
+    try { await f(v); } catch (x) {
+      const t = x?.codigo ? `No se pudo: ${x.codigo}` : explicar(x);
+      if (paso === 'correo' || paso === 'codigo') fallo = t; // en el acceso, junto al campo (sin repetirlo en un aviso)
+      else toast(t, 'bad');
+    } finally { ocupado = false; pintar(); }
   };
 
-  const pedirCodigo = accion(async (v) => {
-    email = v['mm-email'].trim();
-    const { error } = await base.sb.auth.signInWithOtp({ email, options: { shouldCreateUser: false } });
-    if (error) throw new Error(`No se pudo enviar el correo: ${error.message}`);
-    paso = 'codigo';
-  });
+  const pedir = async (correo) => {
+    const { error } = await base.sb.auth.signInWithOtp({ email: correo, options: { shouldCreateUser: false } });
+    if (error) throw error; // nunca «código enviado» si el servicio no lo confirma
+    email = correo; paso = 'codigo'; recordar({ email, paso, at: Date.now() });
+  };
+  const pedirCodigo = accion(async (v) => { email = v['mm-email'].trim(); await pedir(email); }); // lo escrito no se pierde si falla
+  const reenviar = accion(async () => { await pedir(email); toast(`Código nuevo enviado a ${email}`, 'ok'); });
   const entrar = accion(async (v) => {
     const r = v['mm-otp'].trim();
-    const hash = /token_hash=([^&\s]+)/.exec(r)?.[1];
-    const { error } = hash ? await base.sb.auth.verifyOtp({ token_hash: decodeURIComponent(hash), type: 'magiclink' })
+    // Enlace del correo: «token_hash=» (plantilla propia) o «token=» (plantilla por defecto de Supabase); si no, el código.
+    const hash = /[?&#](?:token_hash|token)=([^&\s]+)/.exec(r)?.[1];
+    const tipo = /[?&#]type=(magiclink|email|signup)/.exec(r)?.[1] || 'magiclink';
+    const { error } = hash ? await base.sb.auth.verifyOtp({ token_hash: decodeURIComponent(hash), type: tipo === 'signup' ? 'email' : tipo })
       : await base.sb.auth.verifyOtp({ email, token: r.replace(/\s/g, ''), type: 'email' });
-    if (error) throw new Error(`Código no válido: ${error.message}`);
+    if (error) throw error;
+    recordar(null);
     await iniciar(cuerpo);
   });
   const emparejar = accion(async (v) => { foto = await canal.emparejar(v['mm-par'], 'CEOPadre móvil'); void ciclo(); });
@@ -152,25 +176,29 @@ export function mamaMovil({ burbuja, toast, ADJ_MAX = 5 * 1024 * 1024 }) {
   function pintar(error = '') {
     if (!cuerpo || !vivo) return;
     // Fuera del chat, sólo se repinta si cambia lo que se ve (el ciclo no borra el código que se está tecleando).
-    const p = JSON.stringify([paso, foto?.fase, foto?.aviso, ocupado, error]);
+    const p = JSON.stringify([paso, foto?.fase, foto?.aviso, ocupado, error, fallo]);
     const chat = paso === 'canal' && foto?.fase === 'activo';
     if (!chat && p === pantalla && cuerpo.firstChild) return;
     pantalla = p;
     const sec = (...x) => h('section', { class: 'side-card mama-movil' }, h('h2', {}, 'Mama'), ...x);
     if (paso === 'cargando') return cuerpo.replaceChildren(sec(h('p', { class: 'muted' }, 'Abriendo tu conversación…')));
     if (paso === 'error') return cuerpo.replaceChildren(sec(h('p', { class: 'bad' }, `No se pudo abrir Mama: ${error}`), h('button', { class: 'btn', type: 'button', onclick: () => iniciar(cuerpo) }, 'Reintentar')));
+    const alerta = fallo ? h('p', { class: 'bad mm-fallo', role: 'alert' }, fallo) : null;
+    // r13 (T22): en el móvil el formulario puede quedar a la altura de la barra inferior: el motivo se trae al centro, a la vista.
+    const conAlerta = (x) => { cuerpo.replaceChildren(x); alerta?.scrollIntoView?.({ block: 'center' }); };
     if (paso === 'correo') {
-      return cuerpo.replaceChildren(sec(h('p', {}, 'Una sola vez en este móvil: entra con tu cuenta de FocoGravital (sin contraseña, te llega un código por correo).'),
-        h('form', { onsubmit: pedirCodigo }, h('label', { for: 'mm-email' }, 'Correo de tu cuenta'),
-          h('input', { id: 'mm-email', type: 'email', required: true, autocomplete: 'email', value: email }),
-          h('button', { class: 'btn primary', type: 'submit', disabled: ocupado }, ocupado ? 'Enviando…' : 'Enviarme el código'))));
+      return conAlerta(sec(h('p', {}, 'Una sola vez en este móvil: entra con tu cuenta de FocoGravital (sin contraseña, te llega un código por correo).'),
+        h('form', { class: 'mm-acceso', onsubmit: pedirCodigo }, h('label', { for: 'mm-email' }, 'Correo de tu cuenta de FocoGravital'),
+          h('input', { id: 'mm-email', type: 'email', required: true, autocomplete: 'email', inputmode: 'email', value: email }), alerta,
+          h('button', { class: 'btn primary', type: 'submit', disabled: ocupado, 'aria-busy': String(ocupado) }, ocupado ? 'Enviando código…' : 'Enviarme el código'))));
     }
     if (paso === 'codigo') {
-      return cuerpo.replaceChildren(sec(h('p', {}, `Escribe el código que te ha llegado a ${email} (o pega el enlace del correo).`),
-        h('form', { onsubmit: entrar }, h('label', { for: 'mm-otp' }, 'Código o enlace'),
-          h('input', { id: 'mm-otp', required: true, autocomplete: 'one-time-code', inputmode: 'text' }),
-          h('button', { class: 'btn primary', type: 'submit', disabled: ocupado }, ocupado ? 'Comprobando…' : 'Entrar'),
-          h('button', { class: 'btn', type: 'button', onclick: () => { paso = 'correo'; pintar(); } }, 'Volver'))));
+      return conAlerta(sec(h('p', { role: 'status' }, `El servicio confirmó el envío a ${email}. Escribe el código del correo (o pega el enlace: mantén pulsado el botón del correo → Copiar enlace). Si tarda, mira en Spam.`),
+        h('form', { class: 'mm-acceso', onsubmit: entrar }, h('label', { for: 'mm-otp' }, 'Código o enlace'),
+          h('input', { id: 'mm-otp', required: true, autocomplete: 'one-time-code', inputmode: 'text' }), alerta,
+          h('button', { class: 'btn primary', type: 'submit', disabled: ocupado, 'aria-busy': String(ocupado) }, ocupado ? 'Comprobando…' : 'Entrar'),
+          h('div', { class: 'row' }, h('button', { class: 'btn', type: 'button', disabled: ocupado, onclick: reenviar }, 'Reenviar código'),
+            h('button', { class: 'btn', type: 'button', disabled: ocupado, onclick: () => { paso = 'correo'; fallo = ''; recordar(null); pintar(); } }, 'Cambiar de correo')))));
     }
     const f = foto || {};
     const aviso = f.aviso ? h('p', { class: 'muted small', role: 'status' }, AVISO[f.aviso] || f.aviso) : null;

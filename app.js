@@ -542,6 +542,8 @@ const actions = {
   pause: (c, b) => run('trabajo.pausar', { trabajo: c.trabajo }, 'Pausado', b),
   // CONTINUAR antes de la hora anunciada: el PC no llama a nadie y avisa; probar igualmente es decisión de Antonio.
   async resume(c, b) {
+    // «YA LO HE HECHO»: se registra la parte de Antonio (no reanuda nada ni da por buena la verificación técnica).
+    if (c.estado === 'ESPERANDO_ANTONIO') return run('espera.hecho', { trabajo: c.trabajo }, 'Registrado', b);
     b.disabled = true;
     let r;
     try { r = await api.cmd('trabajo.reanudar', { trabajo: c.trabajo }); } finally { b.disabled = false; }
@@ -776,7 +778,7 @@ function tuyaCard(x) {
     h('p', { class: 'ln goal', title: x.objetivo }, cleanGoal(x.objetivo)),
     line('TE NECESITA', hum.que ? hum.que.charAt(0).toUpperCase() + hum.que.slice(1) : x.condicion),
     h('p', { class: 'ln muted' }, 'Cuando lo hagas, CEOPadre lo comprueba solo y sigue. Si ya lo has hecho, pulsa el botón.'),
-    h('div', { class: 'row' }, h('button', { class: 'btn primary small', type: 'button', onclick: (e) => run('trabajo.reanudar', { trabajo: x.trabajo }, 'Comprobando', e.currentTarget) }, 'Ya lo he hecho'),
+    h('div', { class: 'row' }, h('button', { class: 'btn primary small', type: 'button', onclick: (e) => run('espera.hecho', { trabajo: x.trabajo }, 'Registrado', e.currentTarget) }, 'Ya lo he hecho'),
       h('button', { class: 'btn ghost small', type: 'button', onclick: () => openCeo(`trabajo:${x.trabajo}`, { pregunta: '¿Qué necesitas exactamente de mí, para qué, y hay alguna alternativa que no me necesite?' }) }, '💬 Consultar al CEO'),
       h('button', { class: 'btn ghost small', type: 'button', onclick: () => actions.details(x.c) }, 'Ver detalles')),
     // Otra instrucción: la de siempre del trabajo; no se pospone (CEOPadre ya lo comprueba solo, sin avisar de más).

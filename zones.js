@@ -214,6 +214,7 @@ export const EFECTOS_NEC = {
   ACCION: { boton: 'Ya lo he hecho', si_apruebo: 'Le dices que ya está hecho y el director sigue con lo que dependía de ello.', si_rechazo: 'No lo harás: el director replanifica sin ello.' },
   DATO: { boton: 'Responder', si_apruebo: null, si_rechazo: 'No lo darás: el director replanifica sin ese dato.' },
   DECISION: { boton: 'Responder', si_apruebo: null, si_rechazo: 'No decides eso: el director replanifica sin ello.' },
+  MENSAJES: { boton: 'Revisar e incluir', si_apruebo: 'Los contactos marcados pasan a «Sólo lectura» en Mensajes: desde ese momento se lee su historia. No se envía nada.', si_rechazo: 'No se incluye a nadie y no se lee nada suyo.' },
 };
 /** V3.11: potente por la orden o por lo que decide: aprobar/rechazar una NECESIDAD de un objetivo desde la conversación o la
  *  tarjeta (decision.resolver con ref necesidad:…) da trabajo al director igual que negocio.necesidad. */

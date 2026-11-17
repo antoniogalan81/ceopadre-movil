@@ -38,7 +38,7 @@ export function progreso(hj, compacto = false) {
     h('small', {}, `${c.hechas} de ${total} tareas hechas · ${pct} %${c.en_curso ? ` · ${c.en_curso} en marcha` : ''}${compacto ? '' : ` · ${c.pendientes} por hacer`}`));
 }
 const TIPO_NEC = { CONEXION: 'Conectar una cuenta', DATO: 'Un dato', ACCION: 'Algo que sólo puedes hacer tú', DECISION: 'Una decisión', CAPACIDAD: 'Herramienta nueva para el catálogo', AUTOMATIZACION: 'Activar una automatización',
-  KPI: 'Revisar un comando de medición' };
+  KPI: 'Revisar un comando de medición', MENSAJES: 'Incluir contactos en Mensajes' };
 // Estado de una tarea de la hoja tal como lo ve Antonio.
 const TAREA = { PENDIENTE: ['Pendiente', 'idle'], EN_CURSO: ['Ahora', 'work'], BLOQUEADA: ['Te necesita', 'ask'], PAUSADA: ['En pausa', 'idle'], HECHA: ['Hecho', 'ok'],
   ELIMINADA: ['Quitada', 'idle'], DESCARTADA: ['Descartada por el CEO', 'idle'], NO_NECESARIA: ['No necesaria tras el cierre', 'idle'] };
@@ -238,6 +238,7 @@ export function negocioUi({ api, ask, toast, show, data, run, viewText, onChange
     const ex = k && explica(k, 'necesidad');
     // CONEXION = actuación PROTEGIDA: se abre explícitamente su panel (en el PC); nunca se marca hecha desde aquí sin comprobarla.
     const si = n.tipo === 'CONEXION' ? () => window.dispatchEvent(new CustomEvent('ceo:conexiones', { detail: { servicio: n.conexion } }))
+      : n.tipo === 'MENSAJES' ? (b) => incluirNec(n, b)
       : n.abierta || n.tipo === 'ACCION' ? (b) => resolverNec(o, n, b)
         : (b) => after(cmd('negocio.necesidad', { id: n.id, respuesta: 'Aprobada' }, ef.boton || 'Aprobado', b));
     const contexto = ex || h('dl', { class: 'wait-dl' },
@@ -254,6 +255,7 @@ export function negocioUi({ api, ask, toast, show, data, run, viewText, onChange
     const recom = k?.veredicto ? advice(k) : n.recomendacion ? h('p', { class: 'advice v-ans' }, h('b', {}, 'EL CEO RECOMIENDA'), ` · ${n.recomendacion}`) : null;
     return h('article', { class: `need-card${compacto ? ' compacta' : ''}`, 'data-ref': n.ref },
       h('p', { class: 'need-t' }, h('b', {}, TIPO_NEC[n.tipo] || 'Necesito'), ` — ${n.que}`),
+      n.tipo === 'MENSAJES' ? listaMensajes(n) : null,
       compacto ? [
         h('p', { class: 'need-nivel' }, porque ? `Por qué: ${corto(porque, 220)}` : 'Por qué: no consta (pulsa «Consultar al CEO»).', h('small', { class: 'muted' }, ` · objetivo «${corto(o.titulo, 60)}»${n.origen ? ` · lo pide: ${n.origen}` : ''}`)),
         recom,
@@ -292,6 +294,25 @@ export function negocioUi({ api, ask, toast, show, data, run, viewText, onChange
   async function resolverNec(o, n, btn) {
     const r = await ask({ title: n.que, help: n.como || '', ok: 'Enviar', fields: [{ name: 'respuesta', label: n.tipo === 'ACCION' ? 'Qué has hecho (opcional)' : 'Tu respuesta', type: 'textarea', required: n.tipo !== 'ACCION' }] });
     if (r) await after(cmd('negocio.necesidad', { id: n.id, respuesta: r.respuesta || 'Hecho' }, 'Recibido: el CEO continúa', btn));
+  }
+  // T28 · inclusión en bloque en Mensajes: cada contacto con su motivo y fuente a la vista; al aprobar se puede desmarcar cualquiera.
+  const etiquetaMsg = (c) => `${c.nombre || c.id} · ${c.id.split(':')[0]} — ${c.motivo} (fuente: ${c.fuente})`;
+  function listaMensajes(n) {
+    const d = n.detalle || {};
+    return h('div', { class: 'need-msg' }, h('ul', { class: 'small' }, (d.contactos || []).map((c) => h('li', {}, etiquetaMsg(c)))),
+      d.excluidos?.length ? h('details', { class: 'prop-more', 'data-k': `excl-${n.ref}` }, h('summary', {}, `No propuestos (${d.excluidos.length})`),
+        h('ul', { class: 'small muted' }, d.excluidos.map((x) => h('li', {}, `${x.quien}: ${x.motivo}`)))) : null);
+  }
+  async function incluirNec(n, btn) {
+    const cs = n.detalle?.contactos || [];
+    // Servidor anterior a T28 (sin `detalle`): la lista está en «Cómo»; aprobar espera a que CEOPadre cargue la versión nueva.
+    if (!cs.length) { toast('Para aprobar esta propuesta CEOPadre tiene que cargar su versión nueva (reinicio seguro pendiente). Nada se ha incluido.', 'bad'); return; }
+    const r = await ask({ title: 'Incluir en Mensajes', help: 'Desmarca los que no quieras. Hasta ahora no se ha leído ningún mensaje suyo: sólo al aprobar se lee su historia. No se envía nada.',
+      ok: 'Aprobar los marcados', fields: cs.map((c, i) => ({ name: `c${i}`, type: 'checkbox', value: true, label: etiquetaMsg(c) })) });
+    if (!r) return;
+    const quitar = cs.filter((c, i) => !r[`c${i}`]).map((c) => c.id);
+    if (quitar.length === cs.length) { toast('No has marcado ninguno: usa «No lo voy a hacer» para rechazar', 'bad'); return; }
+    await after(cmd('negocio.necesidad', { id: n.id, quitar }, 'Incluidos en Mensajes', btn));
   }
   async function descartarNec(o, n, btn) {
     const r = await ask({ title: `¿Descartar «${n.que}»?`, help: 'El CEO replanifica sin ello.', ok: 'Descartar', fields: [{ name: 'motivo', label: 'Motivo (opcional)', required: false }] });
@@ -407,7 +428,7 @@ Elige qué hacer:`,
       { name: 'texto', label: 'Instrucción o comentario (obligatorio si das otra instrucción)', type: 'textarea', required: false }] });
     if (!r) return;
     if (r.accion === 'consultar') { window.dispatchEvent(new CustomEvent('ceo:abrir', { detail: { ref: `trabajo:${t.trabajo}` } })); return; }
-    if (r.accion === 'hecho') { await after(cmd('espera.resolver', { id: t.espera.id, resultado: 'CUMPLIDA', texto: r.texto || 'Antonio lo ha hecho' }, 'Hecho: el trabajo sigue', btn)); return; }
+    if (r.accion === 'hecho') { await after(cmd('espera.hecho', { id: t.espera.id }, 'Registrado: se verifica ahora', btn)); return; }
     if (!r.texto) { toast('Escribe la instrucción', 'bad'); return; }
     await after(cmd('objetivo.anadir', { trabajo: t.trabajo, texto: r.texto }, 'Instrucción enviada', btn));
   }

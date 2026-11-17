@@ -310,7 +310,9 @@ export function mamaUi({ api, toast, show, local }) {
     const botones = h('div', { class: 'mama-movil-bot' },
       c.codigo ? null : h('button', { class: 'btn primary', type: 'button', onclick: () => canalCmd('mama.canal.codigo') }, c.par ? 'Emparejar otro móvil' : 'Emparejar móvil'),
       c.par ? h('button', { class: 'btn', type: 'button', onclick: () => { if (window.confirm('¿Desemparejar el móvil? Su clave se borra y tendrás que emparejarlo de nuevo.')) void canalCmd('mama.canal.revocar', true); } }, 'Desemparejar') : null);
-    return card(estado, par, codigo, botones, h('p', { class: 'muted small' }, 'Sólo un móvil a la vez. La conversación viaja cifrada: la nube nunca la lee.'));
+    // 16-11: con qué correo entrar en MAMA del móvil (el de la cuenta de FocoGravital; con otro, «no tiene cuenta»).
+    const cuenta = c.cuenta ? h('p', { class: 'small', id: 'm-mov-cuenta' }, 'En el móvil, entra con el correo ', h('strong', {}, c.cuenta), ' (tu cuenta de FocoGravital).') : null;
+    return card(estado, cuenta, par, codigo, botones, h('p', { class: 'muted small' }, 'Sólo un móvil a la vez. La conversación viaja cifrada: la nube nunca la lee.'));
   }
 
   // §4: actividades y compromisos, decisiones pendientes y resumen del día. Sólo datos (sin IA): src/mama.js panel().

@@ -62,7 +62,7 @@ async function cargarBase() {
 /** Error del acceso en palabras de Antonio (códigos reales de Supabase Auth; medido 16-11: correo sin cuenta → 422 otp_disabled). */
 export function explicar(e) {
   const c = String(e?.code || e?.error_code || ''), m = String(e?.message || e || ''), st = Number(e?.status) || 0;
-  if (c === 'otp_disabled' || /signups not allowed/i.test(m)) return 'Ese correo no tiene cuenta en FocoGravital. Escribe el mismo correo con el que entras en FocoGravital.';
+  if (c === 'otp_disabled' || /signups not allowed/i.test(m)) return 'Ese correo no tiene cuenta en FocoGravital. Usa el de tu cuenta: lo ves en CEOPadre del PC → Mama → tarjeta «Móvil».';
   if (st === 429 || /rate limit|too many|security purposes/i.test(m)) return 'Se han pedido demasiados códigos seguidos. Espera unos minutos y vuelve a intentarlo (el último código enviado sigue valiendo un rato).';
   if (c === 'otp_expired' || /expired|invalid.*(token|otp)|token.*(invalid|not found)/i.test(m)) return 'El código ha caducado, ya se usó o no es correcto. Pulsa «Reenviar código» y usa el último que llegue.';
   if (c === 'email_address_invalid' || /invalid.*email|email.*invalid/i.test(m)) return 'Ese correo no es válido. Revísalo.';

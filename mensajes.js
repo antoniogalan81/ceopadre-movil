@@ -10,7 +10,7 @@ const AMBITO = { contacto: 'Sólo este contacto', categoria: 'Toda su categoría
 const fecha = (iso) => (iso ? new Date(iso).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—');
 
 export function mensajesUi({ api, toast }) {
-  let contactos = [], prefs = [], filtro = 'incluidos', abierto = null, analisis = null, ocupado = '';
+  let contactos = [], prefs = [], estilos = [], filtro = 'incluidos', abierto = null, analisis = null, ocupado = '';
   const lista = h('div', { class: 'msj-lista' });
   const panel = h('div', { class: 'msj-panel' });
   const vistas = h('div', { class: 'msj-vistas', role: 'tablist' });
@@ -24,7 +24,7 @@ export function mensajesUi({ api, toast }) {
   async function cargar() {
     const [c, p] = await Promise.all([api.cmd('mensajes.contactos', {}), api.cmd('mensajes.preferencias', {})]);
     if (!c?.ok) { lista.replaceChildren(h('p', { class: 'muted small' }, c?.error || 'No se pudieron leer los contactos')); return; }
-    contactos = c.data.contactos; prefs = p?.ok ? p.data.preferencias : [];
+    contactos = c.data.contactos; prefs = p?.ok ? p.data.preferencias : []; estilos = p?.ok ? p.data.estilos || [] : [];
     pintar();
   }
   async function accion(que, f, ok) {
@@ -100,16 +100,24 @@ export function mensajesUi({ api, toast }) {
     lista.replaceChildren(xs.length ? h('ul', { class: 'side-list' }, xs.map(fila)) : h('p', { class: 'muted small' }, filtro === 'pendientes' ? 'No hay contactos sin clasificar.' : 'Ninguno aquí.'));
     panel.replaceChildren();
     if (!escribiendo) {
-      // Aprendido de TUS ediciones (punto 5): sólo propuestas; nada se aplica hasta que lo confirmas.
-      const cand = prefs.filter((p) => p.estado === 'CANDIDATA');
-      const candidatas = cand.length ? h('div', { class: 'msj-cand' }, h('p', { class: 'muted small' }, 'Aprendido de cómo editas los borradores (no se aplica hasta que lo confirmes):'),
-        h('ul', { class: 'side-list' }, cand.map((p) => h('li', {}, h('span', { class: 'muted small' }, `${contactos.find((c) => c.id === p.objetivo)?.nombre || p.objetivo}: `), p.texto,
-          h('span', { class: 'muted small' }, ` (${(String(p.evidencia || '').match(/#\d+/g) || []).length} borrador(es))`), ' ',
-          h('button', { class: 'btn small primary', type: 'button', onclick: () => accion('conf', () => api.cmd('mensajes.preferencia.confirmar', { id: p.id }), () => 'Confirmada: se aplica en los próximos borradores') }, 'Confirmar'), ' ',
-          h('button', { class: 'btn small', type: 'button', onclick: () => accion('desc', () => api.cmd('mensajes.preferencia.retirar', { id: p.id }), () => 'Descartada') }, 'Descartar'))))) : null;
-      prefsBox.replaceChildren(candidatas || '',prefs.filter((p) => p.estado === 'ACTIVA').length ? h('ul', { class: 'side-list' }, prefs.filter((p) => p.estado === 'ACTIVA').map((p) => h('li', {},
-        h('span', { class: 'muted small' }, `${AMBITO[p.ambito]}${p.objetivo ? ` (${contactos.find((c) => c.id === p.objetivo)?.nombre || p.objetivo})` : ''}: `), p.texto, ' ',
-        h('button', { class: 'link small', type: 'button', onclick: () => accion('ret', () => api.cmd('mensajes.preferencia.retirar', { id: p.id }), () => 'Retirada') }, 'Retirar')))) : h('p', { class: 'muted small' }, 'Aún no hay preferencias guardadas.'),
+      // T27: aprendido de TUS ediciones (propuesto → lo que aprobaste o enviaste), sólo de contactos incluidos. Nada se aplica
+      // hasta que lo confirmas; lo rechazado no vuelve salvo que lo repitas en 3 borradores nuevos.
+      const quien = (e) => (e.ambito === 'global' ? AMBITO.global : `${AMBITO.contacto} (${contactos.find((c) => c.id === e.objetivo)?.nombre || e.objetivo})`);
+      const evid = (e) => `${e.apariciones} borrador${e.apariciones === 1 ? '' : 'es'}: ${e.borradores.slice(-5).map((i) => `#${i}`).join(', ')}${e.borradores.length > 5 ? '…' : ''}`;
+      const cand = estilos.filter((e) => e.estado === 'CANDIDATA');
+      const itemCand = (e) => h('li', {}, h('strong', {}, e.texto), ' ',
+        h('span', { class: 'muted small' }, `${quien(e)} · ${evid(e)}${e.reabierta ? ' · vuelve con evidencia nueva tras rechazarla' : ''}`), ' ',
+        h('button', { class: 'btn small primary', type: 'button', disabled: !!ocupado, onclick: () => accion('conf', () => api.cmd('mensajes.preferencia.confirmar', { estilo: e.id }), () => 'Confirmada: se aplica en los próximos borradores') }, 'Confirmar'), ' ',
+        h('button', { class: 'btn small', type: 'button', disabled: !!ocupado, onclick: () => accion('desc', () => api.cmd('mensajes.preferencia.retirar', { estilo: e.id }), () => 'Rechazada: no se volverá a proponer sin evidencia nueva') }, 'Rechazar'));
+      const VISIBLES = 4; // lo de más evidencia primero; el resto, plegado
+      const candidatas = cand.length ? h('div', { class: 'msj-cand' }, h('p', { class: 'muted small' }, `Aprendido de cómo editas los borradores (${cand.length}; no se aplica hasta que lo confirmes):`),
+        h('ul', { class: 'side-list' }, cand.slice(0, VISIBLES).map(itemCand)),
+        cand.length > VISIBLES ? h('details', {}, h('summary', { class: 'small' }, `Ver ${cand.length - VISIBLES} más`), h('ul', { class: 'side-list' }, cand.slice(VISIBLES).map(itemCand))) : null) : null;
+      const activas = [...prefs.filter((p) => p.estado === 'ACTIVA').map((p) => ({ texto: p.texto, quien: `${AMBITO[p.ambito]}${p.objetivo ? ` (${contactos.find((c) => c.id === p.objetivo)?.nombre || p.objetivo})` : ''}`, cmd: { id: p.id }, ok: 'Retirada' })),
+        ...estilos.filter((e) => e.estado === 'CONFIRMADA').map((e) => ({ texto: e.texto, quien: `${quien(e)} · aprendida (${evid(e)})`, cmd: { estilo: e.id }, ok: 'Retirada: queda rechazada' }))];
+      prefsBox.replaceChildren(candidatas || '', activas.length ? h('ul', { class: 'side-list' }, activas.map((p) => h('li', {},
+        h('span', { class: 'muted small' }, `${p.quien}: `), p.texto, ' ',
+        h('button', { class: 'link small', type: 'button', onclick: () => accion('ret', () => api.cmd('mensajes.preferencia.retirar', p.cmd), () => p.ok) }, 'Retirar')))) : h('p', { class: 'muted small' }, 'Aún no hay preferencias guardadas.'),
       formPreferencia());
     }
   }

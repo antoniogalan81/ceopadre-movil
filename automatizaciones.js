@@ -20,6 +20,11 @@ const MSG = {
 };
 const fecha = (iso) => (iso ? new Date(iso).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '');
 const chip = (label, tone) => h('span', { class: `a-chip t-${tone}` }, label);
+/** Estado de una respuesta: el MISMO en la tarjeta y en su cabecera plegada de Dirección (T24); lo que falta va en «qué necesita». */
+export function estadoMensaje(m) {
+  if (m.destinatario) return ['Texto pendiente de tu aprobación', 'ask']; // WhatsApp de Alquileres (alquiler.msg.*)
+  return m.enviable === false && m.estado === 'PENDIENTE' ? ['Borrador · sólo texto', 'ask'] : MSG[m.estado] || [m.estado, 'idle'];
+}
 const sha256 = async (s) => [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s)))].map((x) => x.toString(16).padStart(2, '0')).join('');
 
 export function autoUi({ api, ask, toast, show, data, run, viewText, ai, alquileres = () => [], mensajes = null }) {
@@ -77,9 +82,9 @@ export function autoUi({ api, ask, toast, show, data, run, viewText, ai, alquile
     const asunto = c.asunto || m.titulo || m.recibido || c.ultimo || (wa ? 'Mensaje de WhatsApp' : 'Respuesta preparada');
     const necesita = m.revision ? 'Faltan datos confirmados antes de enviar' : NECESITA[m.estado]
       || (wa ? 'Revisar el borrador antes de aprobarlo' : m.enviable === false ? 'Revisar y copiar el texto (lo envías tú)' : 'Revisar la respuesta antes de enviarla');
-    const [label, tone] = m.revision ? ['Pendiente de datos', 'warn'] : wa ? ['Pendiente de aprobación', 'ask'] : MSG[m.estado] || [m.estado, 'idle'];
+    const [label, tone] = estadoMensaje(m);
     const corto = (t, n) => (String(t).length > n ? `${String(t).slice(0, n - 1)}…` : String(t));
-    return h('details', { class: `a-fold t-${tone}`, 'data-k': `fold-${wa ? 'wa' : 'msg'}-${m.id}` },
+    return h('details', { class: `a-fold t-${m.revision ? 'warn' : tone}`, 'data-k': `fold-${wa ? 'wa' : 'msg'}-${m.id}` },
       h('summary', { 'aria-label': `${quien} · ${proyecto} · ${asunto} · ${necesita}. Ver mensaje` },
         h('span', { class: 'f-main' }, h('b', {}, quien), h('small', { class: 'muted' }, ` · ${proyecto} · ${corto(asunto, 70)}`)),
         h('span', { class: 'f-need' }, necesita), chip(label, tone), h('span', { class: 'f-cta' }, h('span', { class: 'f-ver' }, 'Ver mensaje'), h('span', { class: 'f-plegar' }, 'Plegar'))),
@@ -555,7 +560,7 @@ export function autoUi({ api, ask, toast, show, data, run, viewText, ai, alquile
   function message(m, compacta = false) {
     // T19b: canal que el enviador del proyecto no maneja (gmail/whatsapp en Comunicaciones) → borrador de SÓLO TEXTO: se copia, no se aprueba.
     const soloTexto = m.enviable === false;
-    const [label, tone] = soloTexto && m.estado === 'PENDIENTE' ? ['Borrador · sólo texto', 'ask'] : MSG[m.estado] || [m.estado, 'idle'];
+    const [label, tone] = estadoMensaje(m);
     const ref = `msg-${m.id}`;
     const box = compacta ? null : h('input', { type: 'checkbox', 'aria-label': `Seleccionar respuesta a ${m.contacto}`, disabled: m.estado !== 'PENDIENTE' || soloTexto });
     if (box) {
@@ -614,7 +619,7 @@ export function autoUi({ api, ask, toast, show, data, run, viewText, ai, alquile
       `HISTORIAL\n${m.historial_n} evento(s): el detalle completo está en Agentes → Alquileres → WhatsApp / Comunicaciones.`].filter(Boolean).join('\n\n'));
     const bloqueado = !!m.bloqueo || m.pendientes || !!m.revision;
     return h('article', { class: `a-msg t-ask${compacta ? ' compacta' : ''}`, 'data-id': ref },
-      h('header', {}, h('b', {}, m.destinatario), chip('Texto pendiente de tu aprobación', 'ask')),
+      h('header', {}, h('b', {}, m.destinatario), chip(...estadoMensaje(m))),
       h('p', { class: 'a-meta muted' }, [m.proyectoNombre, 'whatsapp', fecha(m.creado), m.editado ? 'editado por ti' : 'borrador'].filter(Boolean).join(' · ')),
       contextBlock(m, m.contexto, ref),
       h('div', { class: 'a-reply' }, h('b', {}, 'MENSAJE PROPUESTO'), h('p', { class: 'r-text' }, m.texto)),

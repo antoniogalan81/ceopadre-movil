@@ -602,6 +602,8 @@ dialog.sheet { max-height: calc(var(--vvh, 100dvh) - 8px); overflow: auto; overs
 .prop .ln.what { white-space: normal; }
 .prop-more > summary { cursor: pointer; font-size: 12.5px; font-weight: 700; color: var(--ink-2); }
 .prop-more[open] { display: grid; gap: 6px; }
+.dir-registro { margin: 2px 0 14px; } /* T41: quién aprobó los permisos, plegado en Dirección */
+.aut-registro li { display: grid; gap: 2px; }
 
 .advice { margin: 4px 0 0; padding: 6px 10px; border-radius: 10px; font-size: 13px; line-height: 1.35; background: var(--paper);
   border-left: 3px solid var(--accent); display: grid; gap: 2px; overflow-wrap: anywhere; }

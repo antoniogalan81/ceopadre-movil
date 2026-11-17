@@ -306,10 +306,13 @@ function avisoVersion(ui) {
   // 14-11 (GOAL 2.0): sólo con cambios REALES para el móvil, archivo a archivo contra lo publicado (src/ui-version.js); un cambio
   // que en el móvil no se ejecuta (p. ej. mama.js) ya no lo dispara. Sin la lista (PC antiguo) se compara la huella como antes.
   const cambios = Array.isArray(ui.relevantes) ? ui.relevantes : ui.movil && ui.movil !== ui.web ? ['interfaz'] : [];
+  // T40 · LOTE: mientras llegan entregas seguidas de web/, no se pide nada: se agrupan en UNA publicación (src/ui-version.js).
+  const agrupando = !txt && cambios.length && ui.lote && !ui.lote.listo;
   if (!txt && cambios.length) {
     const que = Array.isArray(ui.relevantes) ? ` (${cambios.slice(0, 4).join(', ')}${cambios.length > 4 ? '…' : ''})` : '';
-    txt = LOCAL ? `El móvil no tiene los últimos cambios confirmados de la interfaz${que}. AUTORIZAR prepara la publicación en Dirección, con lo que cambia y sus pruebas`
-      : `Esta app aún no tiene los últimos cambios del PC${que}. AUTORIZAR prepara la publicación en Dirección (se aprueba con tu contraseña)`;
+    txt = agrupando ? `Cambios del móvil agrupándose${que}: se te pedirá una sola publicación a partir de las ${new Date(ui.lote.listo_at).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })} si no llega otra entrega. «PUBLICAR YA» sólo si es urgente`
+      : LOCAL ? `El móvil no tiene los últimos cambios confirmados de la interfaz${que}. AUTORIZAR prepara la publicación en Dirección, con lo que cambia y sus pruebas`
+        : `Esta app aún no tiene los últimos cambios del PC${que}. AUTORIZAR prepara la publicación en Dirección (se aprueba con tu contraseña)`;
   }
   const clave = `${txt}|${ui.web}`;
   // Añadido #3 §8: si la publicación ya se te pide en Dirección (su tarjeta con la ficha), este aviso no la repite.
@@ -319,18 +322,18 @@ function avisoVersion(ui) {
   $('#aviso-ui-txt').textContent = txt;
   const autorizar = !recargar; // PC y móvil: el aviso nunca pide algo que no se pueda hacer desde aquí
   $('#b-aviso-ui').hidden = !recargar && !autorizar;
-  $('#b-aviso-ui').textContent = autorizar ? 'AUTORIZAR' : 'RECARGAR';
+  $('#b-aviso-ui').textContent = autorizar ? (agrupando ? 'PUBLICAR YA' : 'AUTORIZAR') : 'RECARGAR';
   $('#b-aviso-ui').onclick = async (e) => {
     if (autorizar) {
       // Prepara la solicitud (un uso, 2 días) o devuelve la que ya espera: nunca duplica ni concede nada; se aprueba en el panel.
       const b = e.currentTarget;
       b.disabled = true;
       const r = await api.cmd('autorizacion.solicitar', { proyecto: 'CEOPadre', accion: 'PUBLICAR_MOVIL', usos_total: 1, limite_semana: 1, dias: 2,
-        motivo: `cambios de la interfaz sin publicar: ${cambios.join(', ')}`.slice(0, 190) });
+        motivo: `${agrupando ? 'URGENTE · ' : ''}cambios de la interfaz sin publicar: ${cambios.join(', ')}`.slice(0, 190), ...(agrupando ? { urgente: true } : {}) });
       b.disabled = false;
       if (!r?.ok) { toast(r?.error || 'No se pudo preparar la solicitud', 'bad'); return; }
-      // Nada que publicar o ya cubierto por una autorización vigente: se dice y no se abre un panel que no pide nada.
-      if (r.data?.nada || r.data?.vigente) { toast(r.data.mensaje, 'ok'); uiCerrado = clave; bar.hidden = true; return; }
+      // Nada que publicar, ya cubierto por una autorización vigente o agrupándose: se dice y no se abre un panel que no pide nada.
+      if (r.data?.nada || r.data?.vigente || r.data?.agrupando) { toast(r.data.mensaje, 'ok'); uiCerrado = clave; bar.hidden = true; return; }
       // La solicitud aparece en Dirección con su ficha (paintAuts): se lleva allí, no a un panel técnico.
       uiCerrado = clave; bar.hidden = true;
       await refresh();
@@ -1557,14 +1560,21 @@ function autCard(a, despues = () => {}) {
     h('button', { class: 'btn ghost-danger small', type: 'button', disabled: off, onclick: (e) => hacer('autorizacion.revocar', { id: a.id }, 'Rechazada', e.currentTarget) }, 'Rechazar'),
   ] : a.estado === 'ACTIVA' ? [h('button', { class: 'btn ghost-danger small', type: 'button', disabled: off, onclick: (e) => hacer('autorizacion.revocar', { id: a.id }, 'Revocada', e.currentTarget) }, 'Revocar')] : [];
   const linea = (k, v) => (v ? h('p', { class: 'need-nivel' }, h('b', {}, `${k}: `), v) : null);
+  // T40 (RI1222 §5): arriba QUÉ, POR QUÉ, QUÉ CAMBIA (en palabras de los commits), DÓNDE, USOS Y CADUCIDAD; el detalle, plegado.
+  const asuntos = [...new Set((f?.cambia || []).map((c) => (c.asunto || '').replace(/^\w+(\([^)]*\))?!?:\s*/, '')).filter(Boolean))];
+  const cambia = !f?.cambia ? null : !f.cambia.length ? 'nada confirmado pendiente ahora; se usará con la próxima entrega'
+    : `${f.cambia.length} archivo${f.cambia.length === 1 ? '' : 's'} (${f.cambia.slice(0, 3).map((c) => c.archivo).join(', ')}${f.cambia.length > 3 ? '…' : ''})${asuntos.length ? ` — ${asuntos.slice(0, 2).join('; ')}${asuntos.length > 2 ? '…' : ''}` : ''}`;
+  const dias = Math.max(1, Math.round((Date.parse(a.hasta) - Date.parse(a.created_at)) / 86_400_000));
+  const usosCad = `${a.usos_total ? `${a.usos_total} uso${a.usos_total === 1 ? '' : 's'} en total · ` : 'sin tope total · '}${a.limite_semana ? `máx. ${a.limite_semana}/semana` : 'sin tope semanal'} · ${a.estado === 'SOLICITADA' ? `caduca a los ${dias} días de aprobarla` : a.hasta ? `vigente hasta el ${new Date(a.hasta).toLocaleDateString('es-ES')}` : 'sin caducidad'}`;
   return h('div', { class: 'need-card compacta aut-card', 'data-aut': String(a.id), role: 'group', 'aria-label': `Permiso #${a.id}: ${f?.que || a.accion_texto}` },
     h('p', { class: 'need-t' }, h('b', {}, f?.que || a.accion_texto), ` — ${a.categoria || 'Autorización'} · ${a.proyecto_nombre || a.project_id} · #${a.id}`),
-    f ? [linea('Por qué', f.porque), linea('Dónde', f.donde), linea('Riesgo', f.riesgo), linea('Qué permiso gasta', f.permiso), linea('Si apruebas', f.si_autorizo)]
-      : [linea('Qué permite', a.texto && a.texto !== a.accion_texto ? a.texto : a.accion_texto)],
+    f ? [linea('Por qué', f.porque), linea('Qué cambia', cambia), linea('Dónde', f.donde), linea('Usos y caducidad', usosCad), linea('Riesgo', f.riesgo), linea('Si apruebas', f.si_autorizo)]
+      : [linea('Qué permite', a.texto && a.texto !== a.accion_texto ? a.texto : a.accion_texto), linea('Usos y caducidad', usosCad)],
     bloqueada ? h('p', { class: 'bad small' }, 'La revisión previa ha encontrado un problema (en «Ver cambios y pruebas»): no se puede aprobar hasta corregirlo.') : null,
     a.fallo ? h('p', { class: 'bad small' }, `Último intento ${when(a.fallo.at)}: FALLÓ — ${a.fallo.motivo}. No gastó ningún uso.`) : null,
     f ? h('details', { class: 'prop-more', 'data-k': `aut-cambios-${a.id}` }, h('summary', {}, `Ver cambios y pruebas${f.cambia ? ` (${f.cambia.length} archivo${f.cambia.length === 1 ? '' : 's'})` : ''}`),
       f.version ? h('p', { class: 'muted small' }, `Se publica ${f.version}.`) : null,
+      f.permiso ? h('p', { class: 'muted small' }, f.permiso) : null,
       f.cambia ? (f.cambia.length ? h('ul', { class: 'mlist' }, f.cambia.map((c) => h('li', {}, h('b', {}, c.archivo), c.asunto ? ` — ${c.asunto}` : ''))) : h('p', { class: 'muted small' }, 'Nada confirmado pendiente de publicar.'))
         : h('p', { class: 'muted small' }, 'No se ha podido calcular la lista de cambios en este momento.'),
       h('p', { class: 'muted small' }, h('b', {}, 'Pruebas')), h('ul', { class: 'mlist' }, (f.pruebas || []).map((t) => h('li', {}, t)))) : null,
@@ -1572,10 +1582,35 @@ function autCard(a, despues = () => {}) {
       h('button', { class: 'link', type: 'button', onclick: () => openConexiones('autorizaciones') }, 'Ver historial'),
       h('button', { class: 'link', type: 'button', onclick: () => void openCeo('general', { pregunta: `Sobre el permiso #${a.id} («${f?.que || a.accion_texto}»): ¿qué recomiendas y qué riesgo real tiene?` }) }, 'Consultar al CEO')));
 }
+// T41 (RI1311 §6): REGISTRO de quién aprueba, rechaza o usa cada permiso, en palabras (sin huellas ni identificadores). El mismo
+// en Conexiones y en Dirección. Si la cadena de huellas no cuadra, se dice arriba y en rojo.
+function registroAut(reg, n = 40) {
+  if (!reg) return h('p', { class: 'muted small' }, 'El PC aún no tiene el registro de aprobaciones (se activa al recargar CEOPadre).');
+  const integro = reg.ok ? h('p', { class: 'ok small', 'data-registro': 'ok' }, `✓ Registro íntegro: ${reg.total} ${reg.total === 1 ? 'anotación' : 'anotaciones'}, ninguna cambiada ni borrada.`)
+    : h('p', { class: 'bad small', 'data-registro': 'roto' }, `✕ El registro de aprobaciones ha sido alterado (anotación ${reg.rota_en}: ${reg.motivo}). No te fíes de lo que diga a partir de ahí y avisa al CEO.`);
+  const linea = (r) => h('li', { 'data-reg': String(r.id) }, h('b', {}, `${r.cuando} · ${r.quien} ${r.que} el permiso #${r.autorizacion}`),
+    h('small', { class: 'muted' }, [r.operacion, r.proyecto, r.alcance, r.version ? `versión ${r.version}` : null, r.uso].filter(Boolean).join(' · ')),
+    r.resultado || r.publicacion || r.verificacion ? h('small', { class: 'muted' }, [r.publicacion ? `publicada ${r.publicacion}` : null, r.verificacion || null, !r.publicacion ? r.resultado : null].filter(Boolean).join(' · ')) : null);
+  return [integro, reg.filas.length ? h('ul', { class: 'mlist aut-registro' }, reg.filas.slice(0, n).map(linea))
+    : h('p', { class: 'muted small' }, 'Aún no hay anotaciones: las aprobaciones anteriores a este registro se ven como «Aprobador no acreditado» en el historial.')];
+}
 // Dirección: sólo lo que Antonio tiene que DECIDIR (solicitudes pendientes); lo usado, publicado o rechazado va al historial.
+// T41: debajo, plegado, quién aprobó los últimos permisos (se carga al abrirlo: no pesa en el estado de cada 2,5 s).
+function quienAproboDir() {
+  const caja = h('div', {}, h('p', { class: 'muted small' }, 'Cargando…'));
+  return h('details', { class: 'prop-more', id: 'dir-registro', 'data-k': 'dir-registro',
+    ontoggle: async (e) => {
+      if (!e.currentTarget.open) return;
+      const r = await api.cmd('conexion.lista', {});
+      fill(caja, r?.ok ? registroAut(r.data.registro, 8) : h('p', { class: 'bad small' }, r?.error || 'El PC no responde'),
+        h('button', { class: 'link', type: 'button', onclick: () => openConexiones('autorizaciones') }, 'Ver todo el historial'));
+    } }, h('summary', {}, 'Quién ha aprobado los últimos permisos'), caja);
+}
 function paintAuts() {
   const box = $('#need-auts');
   if (!box) return;
+  const reg = $('#dir-aut-registro'); // siempre a la vista (una línea plegada), haya o no permisos por decidir
+  if (reg && !reg.childElementCount) fill(reg, quienAproboDir());
   const xs = data.autorizaciones || [];
   const s2 = JSON.stringify(xs.map((a) => [a.id, a.estado, a.ficha, a.fallo])) + String(data.pc.online);
   if (box.dataset.sig === s2 || document.querySelector('dialog[open]')) return;
@@ -1649,7 +1684,9 @@ async function openConexiones(foco = null) {
   const fichaHist = (a) => h('li', { 'data-aut': String(a.id) }, h('b', {}, `#${a.id} · ${a.accion_texto}`),
     h('small', { class: a.etapa === 'VERIFICADA' ? 'ok' : ['PUBLICADA', 'APROBADA'].includes(a.etapa) ? 'warn' : 'muted' }, `${ETAPA_AUT[a.etapa] || ETAPA_AUT[a.estado] || a.estado} · ${a.proyecto_nombre || a.project_id} · pedida el ${fecha(a.created_at)}`),
     a.texto && a.texto !== a.accion_texto ? h('small', { class: 'muted' }, a.texto) : null,
-    h('small', { class: 'muted' }, `${detalle(a)}${a.quien ? ` · Aprobó: ${a.quien}` : ''}`),
+    h('small', { class: 'muted' }, detalle(a)),
+    a.quien ? h('small', { class: /^Aprobador no acreditado/.test(a.quien) ? 'warn' : 'muted', 'data-quien': String(a.id) }, a.quien) : null,
+    a.cierre ? h('small', { class: 'muted' }, a.cierre) : null,
     resultado(a),
     a.enlace ? h('small', {}, h('a', { href: a.enlace, target: '_blank', rel: 'noopener' }, 'Ver el despliegue en GitHub')) : null,
     a.fallo ? h('small', { class: 'bad' }, `Último intento ${fecha(a.fallo.at)}: falló — ${a.fallo.motivo}`) : null);
@@ -1661,13 +1698,17 @@ async function openConexiones(foco = null) {
   const porCat = (xs, fn) => [...new Set(xs.map((a) => a.categoria || 'Autorizaciones'))].map((c) => [h('h5', {}, c), h('ul', {}, xs.filter((a) => (a.categoria || 'Autorizaciones') === c).map(fn))]);
   const secAut = h('section', { class: `inf-sec${foco === 'autorizaciones' ? ' foco' : ''}`, id: 'conex-aut' },
     h('h3', {}, 'Autorizaciones · lo que el CEO puede hacer solo'),
+    // T40 · Caso F: lo subido a GitHub frente a lo que GitHub Pages sirve de verdad.
+    x.pages?.discrepancia ? h('p', { class: 'bad small', id: 'conex-pages' }, `GitHub Pages NO sirve lo publicado (${fecha(x.pages.discrepancia.at)}): ${x.pages.discrepancia.motivo}`)
+      : x.pages?.servida ? h('p', { class: 'muted small', id: 'conex-pages' }, `Móvil (GitHub Pages): sirve la versión ${x.pages.servida}${x.pages.publicada === x.pages.servida ? ', la misma que está publicada' : ''}${x.pages.comprobada_at ? ` · comprobado ${when(x.pages.comprobada_at)}` : ''}`) : null,
     h('button', { class: 'btn small', type: 'button', id: 'b-nueva-aut', onclick: (e) => autorizar(e.currentTarget) }, '+ Nueva autorización'),
     pend.length ? h('h4', {}, `Pendientes de tu aprobación (${pend.length})`) : null,
     pend.map((a) => autCard(a, reabrir)),
     h('h4', {}, `Vigentes (${act.length})`),
-    act.length ? porCat(act, (a) => h('li', {}, autCard(a, reabrir), h('small', { class: 'muted' }, `${detalle(a)}${a.quien ? ` · Aprobó: ${a.quien}` : ''}`)))
+    act.length ? porCat(act, (a) => h('li', {}, autCard(a, reabrir), h('small', { class: 'muted' }, `${detalle(a)}${a.quien ? ` · ${a.quien}` : ''}`)))
       : h('p', { class: 'muted small' }, 'Nada: publicar, enviar o activar automatizaciones lo apruebas tú cada vez.'),
-    hist.length ? h('details', { id: 'conex-hist' }, h('summary', {}, `Historial: usadas, publicadas, caducadas, revocadas, rechazadas y sustituidas (${hist.length})`), porCat(hist, fichaHist)) : null);
+    hist.length ? h('details', { id: 'conex-hist' }, h('summary', {}, `Historial: usadas, publicadas, caducadas, revocadas, rechazadas y sustituidas (${hist.length})`), porCat(hist, fichaHist)) : null,
+    h('details', { id: 'conex-registro', open: x.registro && !x.registro.ok }, h('summary', {}, `Registro de quién aprueba, rechaza y usa cada permiso${x.registro ? ` (${x.registro.total})` : ''}`), registroAut(x.registro)));
   fill(box, secAut,
     h('section', { class: 'inf-sec' }, h('h3', {}, 'Cuentas'), h('ul', {}, x.servicios.filter((sv) => sv.id !== 'demo' || x.conexiones.some((c) => c.servicio === 'demo')).map((sv) => {
       const cs = x.conexiones.filter((c) => c.servicio === sv.id && c.estado !== 'REVOCADA');

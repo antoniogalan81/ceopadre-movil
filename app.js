@@ -1,7 +1,7 @@
 // CEOPadre en el navegador. En el PC habla con la API local; en el móvil, con Supabase.
 // No ejecuta nada: pinta el estado y deja órdenes. Todo el texto se inserta como texto (nunca HTML).
 import { cleanGoal, conditionsText, decisionCount, decisionsText, direccion, esPotente, esperaHumana, gestText, mood, needsDecision, netStatus, office, passwordAt, pcOnline, priority, PROMPT_LIMIT, PROMPT_WARN, quotaView, REAUTH_MS, claude7d, actualizado, resetText, waitingConditions, zone } from './zones.js';
-import { marca } from './mama-contexto.js'; // T-A: contrato único de contexto para MAMA
+import { describir, leer, marca } from './mama-contexto.js'; // T-A: contrato único de contexto para MAMA (y del panel de consulta)
 import { claro, h } from './dom.js';
 import { advice, comunes, decideRow, EFECTO, explica, mapBody, mapPanel, pendingDecisions, proposals } from './map.js';
 import { remoteUi } from './remoto.js';
@@ -291,6 +291,8 @@ async function refresh() {
   }
   paintList();
   if (openId) paintDetail();
+  // Un resultado que llega tarde (encargo terminado) aparece en el panel abierto donde se pidió (sin repintar si no cambió nada).
+  try { if ($('#ceo')?.open && ceo.conv && !ceo.conv.pensando) void refreshCeo(); } catch { /* aún arrancando */ }
   rui?.paint();
   aui?.paint();
   nui?.paint();
@@ -1376,19 +1378,32 @@ async function openInforme(horas = 24) {
 }
 // CONSULTAR AL CEO: una conversación persistente por elemento (decisión, proyecto, objetivo, trabajo, espera, agente o
 // general). El CEO responde con el contexto ACTUAL; preguntar no aprueba nada; un cambio pedido se aplica con «Aplicar».
-const ceo = { conv: null, ref: null, timer: null, t0: 0 };
+const ceo = { conv: null, ref: null, timer: null, t0: 0, destino: 'AUTO', elemento: null };
+// CONSULTA CONTEXTUAL (ampliación 18-11): el panel sabe desde qué tarjeta se abrió (contrato data-mama-*: borrador, decisión,
+// tarea… con id y versión). Se lee al abrir y se guarda como dato: un repintado de la tarjeta no lo pierde.
+let ultimoClic = null;
+document.addEventListener('click', (e) => { if (!e.target.closest?.('#ceo')) ultimoClic = e.target; }, true);
+const DESTINO_TXT = { AUTO: 'Automático', MAMA: 'MAMA', CEO: 'CEO' };
+const DESTINO_PH = { AUTO: 'Escribe lo que necesitas: CEOPadre decide quién lo resuelve…', MAMA: 'Pide a MAMA lo que necesites…', CEO: 'Pregunta o da una orden al CEO…' };
+function pintarDestino() {
+  for (const b of document.querySelectorAll('#ceo-destino button')) b.setAttribute('aria-pressed', String(b.dataset.destino === ceo.destino));
+  $('#ceo-input').placeholder = DESTINO_PH[ceo.destino];
+}
 const VUELTA = { proyecto: 'Ir al proyecto', objetivo: 'Ir al objetivo', agentes: 'Ir a Agentes', inicio: 'Ir a Dirección' };
 const draftKey = (ref) => `ceo-borrador:${ref}`;
 const borradorCEO = { get: (ref) => { try { return localStorage.getItem(draftKey(ref)) || ''; } catch { return ''; } }, set: (ref, v) => { try { if (v) localStorage.setItem(draftKey(ref), v); else localStorage.removeItem(draftKey(ref)); } catch { /* sin almacenamiento */ } } };
 async function openCeo(ref, { pregunta = null, push = true, id = null } = {}) {
   if (!api) return;
   const dlg = $('#ceo');
+  if (ceo.ref !== ref) { ceo.elemento = leer(ultimoClic); ceo.destino = 'AUTO'; }
   ceo.ref = ref;
   if (!dlg.open) dlg.showModal();
   if (push) navPush({ ceo: ref });
-  $('#ceo-title').textContent = 'Consultar al CEO';
+  $('#ceo-title').textContent = 'Consultar';
+  pintarDestino();
   $('#ceo-ctx').textContent = '';
   fill($('#ceo-msgs'), h('p', { class: 'muted' }, 'Cargando la conversación…'));
+  delete $('#ceo-msgs').dataset.firma; // vaciado: al reabrir la MISMA conversación hay que repintarla (antes quedaba «Cargando…»)
   fill($('#ceo-res'), null); fill($('#ceo-dec'), null);
   const r = await api.cmd('ceo.conversacion', { ref, ...(id ? { id } : {}) });
   if (ceo.ref !== ref) return;
@@ -1492,12 +1507,12 @@ async function posponerCeo(d, b) {
   if (ok) await resueltoCeo({ fase: 'REGISTRADA', mensaje: 'Pospuesta 7 días: sigue pendiente, sin avisos; lo demás continúa.' });
 }
 function ceoMsg(m, aplicados) {
-  if (m.rol === 'antonio') return h('div', { class: 'msg yo' }, h('p', {}, m.texto));
+  if (m.rol === 'antonio') return h('div', { class: 'msg yo' }, m.datos?.destino && m.datos.destino !== 'AUTO' ? h('p', { class: 'msg-who' }, `A ${DESTINO_TXT[m.datos.destino]}`) : null, h('p', {}, m.texto));
   if (m.rol === 'sistema') return h('div', { class: 'msg sis' }, h('p', {}, m.texto));
   const d = m.datos || {};
   const fila = (t, v, cls = '') => (v ? [h('dt', { class: cls }, t), h('dd', { class: cls }, v)] : null);
   return h('div', { class: 'msg ceo' },
-    h('p', { class: 'msg-who' }, d.auto ? 'CEO · explicación inicial' : d.proveedor === 'CLAUDE' ? 'CEO · Claude (sustituto)' : 'CEO',
+    h('p', { class: 'msg-who' }, d.via === 'MAMA' ? 'MAMA' : d.auto ? 'CEO · explicación inicial' : d.proveedor === 'CLAUDE' ? 'CEO · Claude (sustituto)' : 'CEO',
       h('button', { class: 'link msg-copy', type: 'button', title: 'Copiar esta respuesta', onclick: async (e) => { if (await copiar(m.texto)) { e.currentTarget.textContent = '✓'; toast('Respuesta copiada'); } } }, '📋')),
     h('p', { class: 'msg-r' }, m.texto),
     d.quiere_hacer || d.recomienda || d.por_que || d.riesgo || d.si_no ? h('dl', { class: 'msg-dl' },
@@ -1535,8 +1550,8 @@ function cambioBox(m, d, aplicados) {
 function paintCeo() {
   const c = ceo.conv;
   if (!c) return;
-  $('#ceo-title').textContent = c.titulo || 'Hablar con el CEO';
-  $('#ceo-ctx').textContent = c.resumen || '';
+  $('#ceo-title').textContent = c.titulo || 'Consultar';
+  $('#ceo-ctx').textContent = [ceo.elemento && !['proyecto', 'objetivo'].includes(ceo.elemento.tipo) ? `Sobre: ${describir(ceo.elemento)}` : '', c.resumen || ''].filter(Boolean).join(' · ');
   const k = c.vuelta && Object.keys(c.vuelta).find((x) => c.vuelta[x]);
   const vb = $('#ceo-volver');
   vb.hidden = !k;
@@ -1564,7 +1579,7 @@ function paintCeo() {
   const y = box.scrollTop;
   box.dataset.firma = firma; box.dataset.conv = c.id; box.dataset.n = String(c.mensajes.length);
   fill(box, c.mensajes.length ? c.mensajes.map((m) => ceoMsg(m, aplicados)) : h('p', { class: 'muted ceo-vacio' }, c.ref === 'general' ? 'Pregúntale lo que quieras sobre tus proyectos: «¿Qué es lo más importante que nos queda pendiente?»' : 'Pregúntale lo que quieras sobre esto. Responde con los datos actuales de CEOPadre.'),
-    c.pensando ? h('div', { class: 'msg ceo pensando', role: 'status' }, h('p', {}, h('span', { class: 'dots', 'aria-hidden': 'true' }, '• • •'), ' Recibida. El CEO está respondiendo…')) : null,
+    c.pensando ? h('div', { class: 'msg ceo pensando', role: 'status' }, h('p', {}, h('span', { class: 'dots', 'aria-hidden': 'true' }, '• • •'), c.mensajes.at(-1)?.datos?.destino === 'MAMA' ? ' Recibida. MAMA está respondiendo…' : ' Recibida. Respondiendo (si hace falta, se consulta a MAMA)…')) : null,
     // El fallo se ve (antes sólo desaparecía «respondiendo…») y se reintenta SIN volver a guardar la pregunta.
     !c.pensando && c.error && c.mensajes.at(-1)?.rol === 'antonio' ? h('div', { class: 'msg sis ceo-err', role: 'alert' }, h('p', {}, h('b', {}, 'El CEO no ha podido responder: '), c.error),
       h('button', { class: 'btn primary small', type: 'button', onclick: async (e) => { if (await run('ceo.reintentar', { conversacion: c.id }, 'Reintentando', e.currentTarget)) { ceo.t0 = Date.now(); void refreshCeo(); pollCeo(); } } }, 'Reintentar')) : null);
@@ -1601,17 +1616,18 @@ function pollCeo() {
 async function enviarCeo(texto) {
   const t = String(texto || '').trim();
   if (!t || !ceo.conv) return;
-  const r = await api.cmd('ceo.preguntar', { conversacion: ceo.conv.id, texto: t });
+  const r = await api.cmd('ceo.preguntar', { conversacion: ceo.conv.id, texto: t, destino: ceo.destino, ...(ceo.elemento ? { contexto: ceo.elemento } : {}) });
   if (!r?.ok) { toast(r?.error || 'No se pudo enviar', 'bad'); return; }
   borradorCEO.set(ceo.ref, '');
   $('#ceo-input').value = '';
-  ceo.conv = { ...ceo.conv, pensando: true, error: null, mensajes: [...ceo.conv.mensajes, { id: -1, rol: 'antonio', texto: t }] };
+  ceo.conv = { ...ceo.conv, pensando: true, error: null, mensajes: [...ceo.conv.mensajes, { id: -1, rol: 'antonio', texto: t, datos: { destino: ceo.destino } }] };
   forzarAbajo = true;
   paintCeo();
   ceo.t0 = Date.now();
   pollCeo();
 }
 function ceoUi() {
+  $('#ceo-destino').addEventListener('click', (e) => { const b = e.target.closest('button[data-destino]'); if (!b) return; ceo.destino = b.dataset.destino; pintarDestino(); $('#ceo-input').focus(); });
   $('#ceo-form').addEventListener('submit', (e) => { e.preventDefault(); void enviarCeo($('#ceo-input').value); });
   $('#ceo-input').addEventListener('input', (e) => borradorCEO.set(ceo.ref, e.target.value));
   $('#ceo-input').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && matchMedia('(pointer: fine)').matches) { e.preventDefault(); void enviarCeo(e.target.value); } });

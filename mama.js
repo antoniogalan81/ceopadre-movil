@@ -138,6 +138,7 @@ export function mamaUi({ api, toast, show, local }) {
     enCurso = { texto, at: new Date().toISOString() };
     const l = body()?.querySelector('.mama-msgs');
     l?.querySelector('.ceo-vacio')?.remove(); l?.append(enviandoBurbuja()); if (l) l.scrollTop = l.scrollHeight;
+    bajar = true; // lo suyo y la respuesta se ven aunque estuviera leyendo arriba
     ta.value = '';
     enviando = true;
     const r = await api.cmd('mama.enviar', { texto, ...(enPanel && ctxActual ? { contexto: ctxActual } : {}) });
@@ -206,6 +207,12 @@ export function mamaUi({ api, toast, show, local }) {
         return h('li', { class: 'mama-orden' }, h('div', {}, chip(t, tone), ' ', h('strong', {}, `${o.tipo === 'ENCARGO' ? 'Encargo' : o.tipo === 'INSTRUCCION' ? 'Instrucción' : o.tipo}${o.proyecto ? ` · ${o.proyecto}` : ''}`)),
           h('p', { class: 'muted small' }, [fecha(o.at), o.estado_encargo ? `estado: ${ESTADO_ENCARGO[o.estado_encargo] || o.estado_encargo}` : '', o.trabajo_estado ? `trabajo: ${o.trabajo_estado}` : '', o.motivo || ''].filter(Boolean).join(' · ')));
       })) : h('p', { class: 'muted small' }, 'Todavía no ha encargado nada.'));
+    // POSICIÓN DE LECTURA (GOAL 18-11 §7.2): antes cada repintado (un encargo que avanza, el uso, una respuesta) bajaba al final y
+    // sacaba a Antonio de lo que leía. Ahora sólo se baja si ya estaba abajo o acaba de escribir; si no, se conserva y se avisa.
+    const vieja = b.querySelector('.mama-msgs');
+    const abajo = bajar || !vieja || vieja.scrollHeight - vieja.scrollTop - vieja.clientHeight < 80;
+    const y = vieja?.scrollTop || 0, nuevos = vieja ? ms.length - nVistos : 0;
+    nVistos = ms.length; bajar = false;
     const foco = document.activeElement?.id === 'm-text';
     const borrador = document.getElementById('m-text')?.value || '';
     const frases = ['m-frase', 'm-frase2'].map((id) => document.getElementById(id)?.value || ''); // una repintada no borra lo tecleado
@@ -216,8 +223,16 @@ export function mamaUi({ api, toast, show, local }) {
     const dc = document.getElementById('m-mem-copia'); if (dc && copiaAbierta) dc.open = true;
     const ta = document.getElementById('m-text');
     ta.value = borrador;
-    if (foco) ta.focus();
-    lista.scrollTop = lista.scrollHeight;
+    if (foco) ta.focus({ preventScroll: true });
+    if (abajo) lista.scrollTop = lista.scrollHeight;
+    else { lista.scrollTop = y; if (nuevos > 0) avisoNuevos(lista); }
+  }
+  let bajar = false, nVistos = 0;
+  /** «Mensajes nuevos ↓»: discreto; bajar es decisión de Antonio. Se quita solo al llegar abajo. */
+  function avisoNuevos(lista) {
+    const b = h('button', { class: 'btn primary small ceo-nuevo', type: 'button', onclick: () => { lista.scrollTo({ top: lista.scrollHeight, behavior: 'smooth' }); b.remove(); } }, 'Mensajes nuevos ↓');
+    lista.after(b);
+    lista.addEventListener('scroll', () => { if (lista.scrollHeight - lista.scrollTop - lista.clientHeight < 80) b.remove(); }, { passive: true });
   }
 
   // T36: lo que te espera, DENTRO de la conversación (decisiones, tareas propuestas, compromisos, encargos en curso). Un toque
@@ -441,7 +456,9 @@ export function mamaUi({ api, toast, show, local }) {
   const fab = document.getElementById('b-mama-fab');
   fab?.addEventListener('click', () => panel(contextoActual()));
   if (fab) {
-    const recolocar = () => { const destino = modal() || document.body; if (fab.parentNode !== destino) destino.append(fab); };
+    // Consulta contextual (ampliación 18-11): el panel «Consultar» ya ofrece MAMA (selector Automático · MAMA · CEO); el flotante,
+    // acceso secundario, no se duplica dentro de él (además tapaba su botón Enviar).
+    const recolocar = () => { const destino = modal() || document.body; fab.hidden = destino.id === 'ceo'; if (fab.parentNode !== destino) destino.append(fab); };
     new MutationObserver(recolocar).observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['open'] }); // childList: un panel quitado abierto
     document.addEventListener('close', (e) => { abiertoEn.delete(e.target); recolocar(); }, true); // un dialog cerrado y quitado del DOM no deja mutación de «open» que ver
   }

@@ -82,7 +82,7 @@ export function explicar(e) {
 
 /** Monta MAMA móvil dentro de `cuerpo`. `burbuja(m)` es la de web/mama.js (una sola forma de pintar la conversación). */
 export function mamaMovil({ burbuja, toast, ADJ_MAX = 5 * 1024 * 1024, contexto = () => null }) {
-  let canal = null, uid = null, foto = null, timer = null, vivo = false, paso = 'cargando', email = '', ocupado = false, cuerpo = null, firma = '';
+  let canal = null, uid = null, foto = null, timer = null, vivo = false, paso = 'cargando', email = '', ocupado = false, cuerpo = null, firma = '', nVistos = 0;
   let grab = null; // T36: nota de voz en curso { rec, trozos, t0, fin, cancelado, mime, reloj }
   let fallo = ''; // 16-11: el error del acceso se ve EN el formulario (el aviso flotante quedaba detrás de la barra inferior)
   // Paso del acceso guardado SIN secretos (correo y momento; nunca el código): recargar no obliga a pedir otro código.
@@ -278,7 +278,15 @@ export function mamaMovil({ burbuja, toast, ADJ_MAX = 5 * 1024 * 1024, contexto 
       return b;
     }));
     lista.scrollTop = lista.scrollHeight;
+    const n = (f.mensajes || []).length, nuevos = !primera && n > nVistos;
+    nVistos = n;
     if (alFinal) window.scrollTo(0, document.documentElement.scrollHeight);
+    else if (nuevos && !document.getElementById('mm-nuevos')) { // §7.2: leyendo arriba no se le mueve; se le avisa
+      const b = h('button', { id: 'mm-nuevos', class: 'btn primary small ceo-nuevo mm-nuevos', type: 'button', onclick: () => { window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'smooth' }); b.remove(); } }, 'Mensajes nuevos ↓');
+      lista.after(b);
+      const quitar = () => { if (window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 160) { b.remove(); window.removeEventListener('scroll', quitar); } };
+      window.addEventListener('scroll', quitar, { passive: true });
+    }
   }
 
   // T36 · VOZ: grabar aquí (MediaRecorder) y entregar al canal (T30: lo trocea, lo sella con la clave del canal y lo deja en cola

@@ -1,6 +1,7 @@
 // AUTOMATIZACIONES y BANDEJA DE APROBACIÓN en el PC y en el móvil (la misma pantalla). Pinta lo que llega en las tarjetas
 // (`automatizaciones`, `bandeja`) y deja órdenes de la lista cerrada; no ejecuta nada. Todo el texto entra como texto.
 import { h } from './dom.js';
+import { marca } from './mama-contexto.js'; // T-A: contrato único de contexto para MAMA
 import { fraseAutomatizacion } from './zones.js';
 import { miniTarjeta } from './tarjeta.js';
 import { comunes, decideRow } from './map.js';
@@ -59,7 +60,7 @@ export function autoUi({ api, ask, toast, show, data, run, viewText, ai, alquile
     if (box) {
       const vivos = [...inbox().filter((m) => ['PENDIENTE', 'BLOQUEADO', 'NO_CONFIRMADO', 'FALLIDO'].includes(m.estado)), ...waInbox()];
       const s2 = JSON.stringify(vivos.map((m) => [m.id, m.estado, m.texto, m.motivo, m.contexto])) + online();
-      if (box.dataset.sig === s2 || document.querySelector('dialog[open]')) return;
+      if (box.dataset.sig === s2 || document.querySelector('dialog[open]:not(#mama-panel)')) return;
       box.dataset.sig = s2;
       const abiertos = new Set([...box.querySelectorAll('details[open]')].map((x) => x.dataset.k));
       box.hidden = !n;
@@ -215,7 +216,7 @@ export function autoUi({ api, ask, toast, show, data, run, viewText, ai, alquile
   function tarjeta(a) {
     const s = situacion(a);
     const [txt, on, cls] = s.accion;
-    return miniTarjeta({ id: `auto-${a.id}`, titulo: a.nombre.charAt(0) + a.nombre.slice(1).toLowerCase(), sub: a.proyectoNombre || '', desc: a.descripcion,
+    return miniTarjeta({ id: `auto-${a.id}`, ctx: { tipo: 'agente', id: a.id, proyecto: a.proyecto, titulo: a.nombre }, titulo: a.nombre.charAt(0) + a.nombre.slice(1).toLowerCase(), sub: a.proyectoNombre || '', desc: a.descripcion,
       estado: [s.label, s.tone], accion: { txt, on, cls, disabled: !online() && cls === 'primary' }, abrir: () => openRuns(a) });
   }
 
@@ -236,7 +237,7 @@ export function autoUi({ api, ask, toast, show, data, run, viewText, ai, alquile
     const B = (txt, on, cls = 'ghost', dis = false) => h('button', { class: `btn ${cls} small`, type: 'button', disabled: dis, onclick: on }, txt);
     const pausar = g ? B(g.activa ? 'Pausar' : 'Reanudar', (e) => cmd('automatizacion.programar', { id: a.id, activa: !g.activa }, g.activa ? 'Horario en pausa' : 'Horario activo', e.currentTarget))
       : B(a.activa ? 'Desactivar' : 'Activar', (e) => cmd('automatizacion.activar', { id: a.id, activa: !a.activa }, 'Hecho', e.currentTarget));
-    return h('article', { class: `a-card agent t-${tone}`, 'data-id': `auto-${a.id}` },
+    return h('article', { class: `a-card agent t-${tone}`, 'data-id': `auto-${a.id}`, ...marca({ tipo: 'agente', id: a.id, proyecto: a.proyecto, titulo: a.nombre }) },
       h('header', {}, h('div', { class: 'ag-title' }, h('h3', {}, a.nombre.charAt(0) + a.nombre.slice(1).toLowerCase()), h('small', { class: 'muted' }, a.proyectoNombre || '')),
         chip(!a.activa ? 'Desactivado' : g?.activa && g.proxima ? 'Activo · programado' : label, !a.activa ? 'idle' : tone)),
       a.descripcion ? h('p', { class: 'a-desc' }, a.descripcion) : null,
@@ -583,7 +584,7 @@ export function autoUi({ api, ask, toast, show, data, run, viewText, ai, alquile
       // Aprobada pero aún en cola: editarla (a mano o con IA) anula esa aprobación y vuelve a pedirla.
       APROBADO: [h('button', { class: 'btn accent small', type: 'button', onclick: mejorar }, 'Pedir al CEO que la mejore')],
     }[m.estado] || [];
-    return h('article', { class: `a-msg t-${tone}${compacta ? ' compacta' : ''}`, 'data-id': ref },
+    return h('article', { class: `a-msg t-${tone}${compacta ? ' compacta' : ''}`, 'data-id': ref, ...marca({ tipo: 'mensaje', id: ref, proyecto: m.proyecto, titulo: `Para ${m.contacto}` }) },
       h('header', {}, box ? h('label', { class: 'a-sel' }, box, h('b', {}, m.contacto)) : h('b', {}, m.contacto), chip(label, tone)),
       h('p', { class: 'a-meta muted' }, [m.proyectoNombre, m.canal, fecha(m.creado), m.editada ? 'editada por ti' : 'propuesta por la IA'].filter(Boolean).join(' · ')),
       contextBlock(m, m.contexto, ref) || h('p', { class: 'ln' }, h('b', {}, 'RECIBIDO'), ` ${m.recibido || '—'}`),
@@ -603,7 +604,7 @@ export function autoUi({ api, ask, toast, show, data, run, viewText, ai, alquile
     const rec = REC[m.contexto?.recomendacion?.accion]?.[2] || null;
     const mejorar = () => ai?.open({ tipo: 'alquiler', id: m.id });
     const editar = async (b) => {
-      const r = await ask({ title: `Editar WhatsApp a ${m.destinatario}`, ok: 'Guardar (no envía)', fields: [{ name: 'texto', label: 'Mensaje', type: 'textarea', value: m.texto }] });
+      const r = await ask({ title: `Editar WhatsApp a ${m.destinatario}`, ok: 'Guardar (no envía)', ctx: { tipo: 'borrador', id: ref, version: m.huella_texto, titulo: `Para ${m.destinatario}`, acciones: ['alquiler.msg.guardar'] }, fields: [{ name: 'texto', label: 'Mensaje', type: 'textarea', value: m.texto }] });
       if (r) await cmd('alquiler.msg.guardar', { id: m.id, texto: r.texto, base: m.huella_texto }, 'Guardado (sin enviar)', b);
     };
     const aprobar = async (b) => {
@@ -618,7 +619,7 @@ export function autoUi({ api, ask, toast, show, data, run, viewText, ai, alquile
     const hist = () => viewText(`${m.destinatario} · WhatsApp`, [`TEXTO VIGENTE\n${m.texto}`, m.editado ? `ORIGINAL\n${m.original}` : '', m.fuente ? `FUENTE\n${m.fuente}` : '', m.motivo ? `NOTA\n${m.motivo}` : '',
       `HISTORIAL\n${m.historial_n} evento(s): el detalle completo está en Agentes → Alquileres → WhatsApp / Comunicaciones.`].filter(Boolean).join('\n\n'));
     const bloqueado = !!m.bloqueo || m.pendientes || !!m.revision;
-    return h('article', { class: `a-msg t-ask${compacta ? ' compacta' : ''}`, 'data-id': ref },
+    return h('article', { class: `a-msg t-ask${compacta ? ' compacta' : ''}`, 'data-id': ref, ...marca({ tipo: 'borrador', id: ref, version: m.huella_texto, titulo: `Para ${m.destinatario}`, acciones: ['alquiler.msg.guardar'] }) },
       h('header', {}, h('b', {}, m.destinatario), chip(...estadoMensaje(m))),
       h('p', { class: 'a-meta muted' }, [m.proyectoNombre, 'whatsapp', fecha(m.creado), m.editado ? 'editado por ti' : 'borrador'].filter(Boolean).join(' · ')),
       contextBlock(m, m.contexto, ref),
@@ -662,7 +663,7 @@ export function autoUi({ api, ask, toast, show, data, run, viewText, ai, alquile
     if (mode === 'inbox') {
       // No se repinta con un diálogo abierto (se perdería lo que se escribe) ni si nada cambió.
       const s = JSON.stringify([...inbox(), ...waInbox()].map((m) => [m.id, m.estado, m.texto, m.motivo, m.contexto])) + online();
-      if (!force && (s === sig || document.querySelector('dialog[open]'))) return;
+      if (!force && (s === sig || document.querySelector('dialog[open]:not(#mama-panel)'))) return;
       sig = s;
       t.textContent = 'Mensajes';
       const np = pending().length + waInbox().length;
@@ -679,7 +680,7 @@ export function autoUi({ api, ask, toast, show, data, run, viewText, ai, alquile
       const a = all().find((x) => x.id === viewing.id);
       const s = JSON.stringify([a?.estado, a?.activa, a?.version, a?.ultima?.id, a?.ultima?.estado, a?.ultima?.progreso, a?.ultima?.texto, a?.ultima?.aprobaciones, a?.programa, online()]);
       if (!force) {
-        if (s === sig || document.querySelector('dialog[open], details.a-more[open], details.a-what[open]')) return;
+        if (s === sig || document.querySelector('dialog[open]:not(#mama-panel), details.a-more[open], details.a-what[open]')) return;
         sig = s;
         void api.cmd('automatizacion.ver', { id: viewing.id }).then((r) => { if (r?.ok && mode === 'runs' && viewing?.id === r.data.id) { viewing = { id: viewing.id, ver: r.data }; paint(true); } });
         return;
@@ -688,7 +689,7 @@ export function autoUi({ api, ask, toast, show, data, run, viewText, ai, alquile
     }
     if (mode === 'list') {
       const s = JSON.stringify(all().map((a) => [a.id, a.estado, a.activa, a.version, a.ultima?.id, a.ultima?.estado, a.ultima?.progreso, a.ultima?.texto, a.ultima?.aprobaciones, a.integraciones, a.programa])) + onlyProject + online() + inbox().length + (win?.leido || '') + JSON.stringify(projects().map((p) => p.alquileres || null));
-      if (!force && (s === sig || document.querySelector('dialog[open], details.a-more[open], details.a-what[open]') || document.activeElement?.closest?.('.ag-search'))) return; // no se come lo que escribes
+      if (!force && (s === sig || document.querySelector('dialog[open]:not(#mama-panel), details.a-more[open], details.a-what[open]') || document.activeElement?.closest?.('.ag-search'))) return; // no se come lo que escribes
       sig = s;
     }
     const p = onlyProject && projects().find((x) => x.id === onlyProject);

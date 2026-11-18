@@ -247,7 +247,14 @@ const TU_TURNO = ['ESPERANDO_ANTONIO', 'LISTO', 'ESPERANDO_CLAUDE', 'ESPERANDO_C
 const PROBLEMA = ['ERROR', 'BLOQUEADO'];
 const DIA = 86_400_000;
 const tms = (c) => Date.parse(c.updated_at || c.ultima_actividad || c.usado || '') || 0;
+// T-H (18-11): una espera de cuota que CEOPadre reanuda solo (ajuste reanudar_cuota y sólo falta que vuelva el proveedor) es
+// SEGUIMIENTO automático (clase RECUPERABLE de src/clase-trabajo.js), no «Necesita tu intervención». Sesión caducada,
+// automatización desactivada o reintentos agotados sí le necesitan.
+export const cuotaSola = (c) => ['ESPERANDO_CLAUDE', 'ESPERANDO_CEO'].includes(c.estado) && !!c.cuota?.auto
+  && (!c.cuota.no_reanuda || /^(el proveedor vuelve|todavía sin cuota)/.test(c.cuota.no_reanuda));
+const cuotaTexto = (c) => `Vuelve la cuota de ${c.estado === 'ESPERANDO_CLAUDE' ? 'Claude' : 'los CEO'}${c.cuota?.no_reanuda?.startsWith('el proveedor') ? ` (${c.cuota.no_reanuda})` : ''}. Al cumplirse: CEOPadre lo reanuda solo`;
 export function seccion(c) {
+  if (cuotaSola(c) && !needsDecision(c)) return 'esperando';
   if (needsDecision(c) || TU_TURNO.includes(c.estado)) return 'necesita';
   if (PROBLEMA.includes(c.estado)) return 'problema';
   if (WORKING.includes(c.estado)) return 'trabajando';
@@ -260,7 +267,7 @@ export function direccion(cards, now = Date.now()) {
   const by = (s) => sortMarcha(cards.filter((c) => seccion(c) === s));
   const necesita = by('necesita'), problemas = by('problema'), trabajando = by('trabajando');
   // Esperando algo externo: el objetivo que enseña la tarjeta y los OTROS objetivos del proyecto que esperan (sin repetir tarjeta).
-  const esperando = [...by('esperando').map((c) => ({ c, trabajo: c.trabajo, objetivo: c.objetivo, esperas: c.esperas_info || [], condicion: c.condicion })),
+  const esperando = [...by('esperando').map((c) => ({ c, trabajo: c.trabajo, objetivo: c.objetivo, esperas: cuotaSola(c) ? [] : c.esperas_info || [], condicion: cuotaSola(c) ? cuotaTexto(c) : c.condicion })),
     ...cards.flatMap((c) => (c.esperando || []).filter((x) => !x.te_necesita).map((x) => ({ c, trabajo: x.trabajo, objetivo: x.objetivo, esperas: x.esperas || [], condicion: x.condicion, otro: true })))];
   // Otro objetivo del proyecto que espera algo que SÓLO puede hacer Antonio: le necesita (no es «externo»).
   const tuyas = cards.flatMap((c) => (c.esperando || []).filter((x) => x.te_necesita).map((x) => ({ c, trabajo: x.trabajo, objetivo: x.objetivo, condicion: x.condicion })));

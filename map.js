@@ -1,6 +1,7 @@
 // MAPA DEL PROYECTO: el canon pintado para Antonio. Sólo lee los campos que manda el PC (src/canon.js mapView);
 // sin IA, sin YAML/JSON a la vista y sin rutas. Lo técnico (id, huella, esquema) queda plegado.
 import { h } from './dom.js';
+import { marca } from './mama-contexto.js'; // T-A: contrato único de contexto para MAMA
 
 const MARK = { hecho: '✓', en_curso: '●', falta: '○', bloqueado: '⛔' };
 const COLS = [['hecho', 'HECHO'], ['en_curso', 'EN CURSO'], ['falta', 'FALTA']];
@@ -131,7 +132,7 @@ export function proposals(m, decide, consult = null, copy = null) {
 export function pendingDecisions(list, { answer, postpone, consult = null, alternativa = null, copy = null }, title = true) {
   if (!list?.length) return null;
   return h('div', { class: 'dec-pend' }, title ? lbl(`DECISIONES PENDIENTES (${list.length})`) : null,
-    h('ul', { class: 'mlist' }, list.map((d) => h('li', { class: 'dec-item', 'data-ref': d.ref || null },
+    h('ul', { class: 'mlist' }, list.map((d) => h('li', { class: 'dec-item', 'data-ref': d.ref || null, ...marca({ tipo: 'decision', id: d.ref, version: d.version, titulo: d.pregunta, acciones: ['decision.resolver'] }) },
       h('p', {}, '• ', d.pregunta),
       explica(d.consejo, 'pregunta') || advice(d.consejo),
       h('div', { class: 'dec-btns', role: 'group', 'aria-label': 'Decidir' },

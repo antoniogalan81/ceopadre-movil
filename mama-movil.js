@@ -7,6 +7,7 @@
 //    no protege de un script inyectado en la página, sí de leer el almacenamiento en bruto); historial cifrado con la clave del canal;
 //  · emparejar = el código de 10 caracteres que da el PC (Mama → tarjeta «Móvil»). Un solo móvil: éste sustituye al anterior.
 import { h } from './dom.js';
+import { sellar, separar } from './mama-contexto.js';
 
 const TEXTO_MAX = 4000, CICLO_MS = 5000;
 const AVISO = {
@@ -80,7 +81,7 @@ export function explicar(e) {
 }
 
 /** Monta MAMA móvil dentro de `cuerpo`. `burbuja(m)` es la de web/mama.js (una sola forma de pintar la conversación). */
-export function mamaMovil({ burbuja, toast, ADJ_MAX = 5 * 1024 * 1024 }) {
+export function mamaMovil({ burbuja, toast, ADJ_MAX = 5 * 1024 * 1024, contexto = () => null }) {
   let canal = null, uid = null, foto = null, timer = null, vivo = false, paso = 'cargando', email = '', ocupado = false, cuerpo = null, firma = '';
   let grab = null; // T36: nota de voz en curso { rec, trozos, t0, fin, cancelado, mime, reloj }
   let fallo = ''; // 16-11: el error del acceso se ve EN el formulario (el aviso flotante quedaba detrás de la barra inferior)
@@ -151,7 +152,9 @@ export function mamaMovil({ burbuja, toast, ADJ_MAX = 5 * 1024 * 1024 }) {
     prov.classList.add('m-pend'); prov.append(h('p', { class: 'msg-who m-envio' }, 'guardando…'));
     document.getElementById('mm-msgs')?.append(prov); window.scrollTo(0, document.documentElement.scrollHeight);
     const caja = document.getElementById('mm-text'); caja.value = '';
-    try { foto = await canal.enviar(t); } catch (x) { prov.remove(); if (!caja.value) caja.value = t; throw x; }
+    // T-A: el canal sólo lleva texto; el contexto del panel va como sobre en la primera línea (el PC lo separa al recibirlo).
+    const sellado = sellar(t, contexto());
+    try { foto = await canal.enviar(sellado.length <= TEXTO_MAX ? sellado : t); } catch (x) { prov.remove(); if (!caja.value) caja.value = t; throw x; }
     firma = '';
     setTimeout(ciclo, 300);
   });
@@ -183,7 +186,9 @@ export function mamaMovil({ burbuja, toast, ADJ_MAX = 5 * 1024 * 1024 }) {
       document.body.append(x); x.click(); x.remove();
     } catch { w?.close(); toast('No se pudo abrir el archivo.', 'bad'); }
   }
-  const pintarMensaje = (m) => {
+  const pintarMensaje = (m0) => {
+    const s = separar(m0.texto); // lo enviado desde el panel guarda el sobre en este móvil: se pinta el mensaje y su «Sobre:»
+    const m = s.contexto ? { ...m0, texto: s.texto, contexto: s.contexto } : m0;
     const a = m.adjunto;
     if (!a) return burbuja(m);
     if (a.fallido || !a.listo) return burbuja({ ...m, adjunto: undefined, texto: `📎 ${a.nombre || 'archivo'} · ${a.fallido ? 'no se pudo recibir' : 'llegando…'}` });

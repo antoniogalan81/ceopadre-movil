@@ -1584,3 +1584,21 @@ body:has(#p-mama:not([hidden])) .ceo-fab { display: none; }
 .mm-form.grabando .mm-grabando { display: flex; }
 .mm-form.grabando > :not(.mm-grabando) { display: none !important; }
 .mm-rec { flex: 1; font-weight: 700; color: var(--bad); }
+
+/* T-A · MAMA UNIVERSAL: su cara, siempre a mano (encima del botón del CEO), y su panel sobre la pantalla actual. */
+.mama-fab { position: fixed; z-index: var(--capa-flotante); right: 16px; bottom: calc(76px + env(safe-area-inset-bottom)); width: 56px; height: 56px; padding: 0; border: 3px solid var(--paper);
+  border-radius: 50%; background: var(--paper); box-shadow: 0 6px 18px oklch(0 0 0 / .25); cursor: pointer; overflow: hidden; display: grid; place-items: center; }
+.mama-fab img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
+.mama-fab:hover { transform: translateY(-1px); } .mama-fab:focus-visible { outline: 3px solid var(--ink); outline-offset: 2px; }
+@media (max-width: 760px) { .mama-fab { right: 12px; width: 52px; height: 52px; bottom: calc(136px + env(safe-area-inset-bottom)); } }
+@media (prefers-reduced-motion: reduce) { .mama-fab:hover { transform: none; } }
+body:has(#p-mama:not([hidden])) .mama-fab { display: none; }
+.mama-panel .mama-cab { display: flex; align-items: center; gap: 10px; }
+.mama-panel .mp-host { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.mama-panel #m-body { flex: 1; min-height: 0; display: flex; flex-direction: column; padding: 0; }
+.mama-panel .mama-grid { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.mama-panel .mama-side { display: none; } /* tareas, plan y memoria siguen en «Ver todo» */
+.mama-panel .mama-chat { flex: 1; min-height: 0; max-height: none; }
+.mama-panel .mama-msgs { flex: 1; min-height: 120px; max-height: none; overflow-y: auto; }
+.msg.yo .m-ctx { color: color-mix(in oklch, #fff 85%, transparent); font-style: italic; text-align: right; margin-top: 2px; }
+.mama-panel .mama-movil > h2 { display: none; } /* el panel ya lleva la cabecera de Mama */

@@ -1,6 +1,7 @@
 // CEOPadre en el navegador. En el PC habla con la API local; en el móvil, con Supabase.
 // No ejecuta nada: pinta el estado y deja órdenes. Todo el texto se inserta como texto (nunca HTML).
 import { cleanGoal, conditionsText, decisionCount, decisionsText, direccion, esPotente, esperaHumana, gestText, mood, needsDecision, netStatus, office, passwordAt, pcOnline, priority, PROMPT_LIMIT, PROMPT_WARN, quotaView, REAUTH_MS, claude7d, actualizado, resetText, waitingConditions, zone } from './zones.js';
+import { marca } from './mama-contexto.js'; // T-A: contrato único de contexto para MAMA
 import { claro, h } from './dom.js';
 import { advice, comunes, decideRow, EFECTO, explica, mapBody, mapPanel, pendingDecisions, proposals } from './map.js';
 import { remoteUi } from './remoto.js';
@@ -169,6 +170,10 @@ const hhmm = (iso) => {
   const d = new Date(iso), t = d.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
   return d.toDateString() === new Date().toDateString() ? t : `${d.toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric' })} ${t}`;
 };
+// Indicador INTERMEDIO en Dirección (c2a957fa): sin «de 50» ni nada que sugiera ahorro; la fecha de sus DATOS va aparte
+// de la de medición y, si el comprobador no la declara, se dice. null = no es intermedio (cada sitio lo pinta como siempre).
+const kpiIntermedio = (k) => (k.tipo !== 'intermedio' ? null : `${k.nombre}: ${k.error ? 'sin medir' : k.valor ?? '—'}${k.unidad ? ` ${k.unidad}` : ''}` +
+  ` · intermedio, no es resultado ni ahorro · ${k.datos_at ? `datos del ${hhmm(k.datos_at)}` : 'fecha de los datos: no consta'}${k.medido_at ? ` · medido ${hhmm(k.medido_at)}` : ''}`);
 function waitLines(c) {
   const who = c.estado === 'ESPERANDO_CLAUDE' ? 'Claude' : 'un CEO';
   // Reanudación automática (ajuste de Antonio): lo dice la tarjeta, y si ésta en concreto no se reanuda, por qué.
@@ -217,7 +222,7 @@ const show = (id) => {
   for (const s of ['p-login', 'p-list', 'p-detail', 'p-remote', 'p-autos', 'p-bandeja', 'p-negocio', 'p-mama']) $('#' + s).hidden = s !== id;
   const bar = $('#tabbar');
   bar.hidden = id === 'p-login';
-  const fab = $('#b-ceo'); if (fab && id === 'p-login') fab.hidden = true;
+  if (id === 'p-login') for (const f of ['#b-ceo', '#b-mama-fab']) { const x = $(f); if (x) x.hidden = true; }
   $('#appbar').hidden = id === 'p-login';
   marcarTab(TAB_OF[id]);
   for (const b of bar.querySelectorAll('button')) { const on = b.dataset.go === TAB_OF[id]; b.classList.toggle('on', on); if (on) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current'); }
@@ -373,8 +378,11 @@ async function run(op, params, okMsg, btn) {
 
 // Hoja modal reutilizable. fields: [{name, label, type:'textarea'|'text', value, placeholder}]
 const enviados = new Set(); // borradores de ventanas aceptadas cuya orden aún no ha confirmado el PC (la confirmación de contraseña también abre una)
-function ask({ title, help = '', fields = [], ok = 'Aceptar', danger = false }) {
+function ask({ title, help = '', fields = [], ok = 'Aceptar', danger = false, ctx = null }) {
   const dlg = $('#dlg');
+  // T-C: un editor dice QUÉ se edita (contrato T-A): MAMA abierta desde él habla de ESE elemento. Sin ctx, la hoja no se marca.
+  for (const k of Object.keys(dlg.dataset)) if (k.startsWith('mama')) delete dlg.dataset[k];
+  for (const [k, v] of Object.entries(marca(ctx || {}))) dlg.setAttribute(k, v);
   // Lo escrito y cerrado sin aceptar (fuera, Escape o Volver) vuelve al reabrir la misma pregunta (web/modal.js).
   const clave = `${title}|${fields.map((f) => f.name).join(',')}`;
   const previo = borrador.leer(clave);
@@ -767,7 +775,7 @@ function desk(c) {
   const running = ['TRABAJANDO', 'SIN_ACTIVIDAD'].includes(c.estado);
   const decision = jobDecision(c);
   const need = needLine(c);
-  return pulsable(h('article', { class: `desk m-${mood(c)}`, 'data-id': c.id },
+  return pulsable(h('article', { class: `desk m-${mood(c)}`, 'data-id': c.id, ...marca({ tipo: ['ERROR', 'BLOQUEADO'].includes(c.estado) ? 'error' : c.trabajo ? 'trabajo' : 'proyecto', id: c.trabajo || c.id, proyecto: c.id, titulo: c.nombre, acciones: c.trabajo ? ['trabajo.instruccion'] : [] }) },
     h('header', { class: 'unit-head' }, logo(c),
       h('div', { class: 'title' }, h('h3', { title: c.nombre }, c.nombre), status(c)),
       c.estado === 'TRABAJANDO' ? h('span', { class: 'beacon', title: 'Trabajando ahora', 'aria-hidden': 'true' }) : null),
@@ -787,7 +795,7 @@ function desk(c) {
 /** Otro objetivo del proyecto que espera algo que sólo puedes hacer tú (renovar un permiso…): qué y el botón que lo resuelve. */
 function tuyaCard(x) {
   const hum = esperaHumana(x.condicion || '');
-  return h('article', { class: 'desk m-need', 'data-id': `${x.c.id}:${x.trabajo}` },
+  return h('article', { class: 'desk m-need', 'data-id': `${x.c.id}:${x.trabajo}`, ...marca({ tipo: 'espera', id: x.trabajo, proyecto: x.c.id, titulo: x.c.nombre, acciones: ['espera.hecho', 'trabajo.instruccion'] }) },
     h('header', { class: 'unit-head' }, logo(x.c), h('div', { class: 'title' }, h('h3', {}, x.c.nombre), status({ estado: 'ESPERANDO_ANTONIO' }))),
     h('p', { class: 'ln goal', title: x.objetivo }, cleanGoal(x.objetivo)),
     line('TE NECESITA', hum.que ? hum.que.charAt(0).toUpperCase() + hum.que.slice(1) : x.condicion),
@@ -813,7 +821,7 @@ function waitCard(x) {
   const tuya = clase === 'TU_RESPUESTA';
   const cj = { ...c, trabajo: x.trabajo }; // las acciones van al trabajo que espera (puede no ser el que enseña la tarjeta)
   const dep = e ? [e.depende, e.depende_estado ? ` · ahora ${(MOOD_LABEL[e.depende_estado] || e.depende_estado).toLowerCase()}${e.depende_actividad ? `: ${e.depende_actividad}` : ''}` : ''].join('') : 'No consta';
-  return pulsable(h('article', { class: 'wait-card', 'data-id': `${c.id}:${x.trabajo}` },
+  return pulsable(h('article', { class: 'wait-card', 'data-id': `${c.id}:${x.trabajo}`, ...marca({ tipo: 'espera', id: x.trabajo, proyecto: c.id, titulo: `${c.nombre} — ${titulo}`, acciones: ['espera.comprobar', 'trabajo.instruccion'] }) },
     h('header', { class: 'unit-head' }, logo(c), h('div', { class: 'title' }, h('h3', {}, `${c.nombre} — ${titulo}`),
       h('small', { class: 'muted goal1', title: x.objetivo }, hum.asunto || cleanGoal(x.objetivo)))),
     h('dl', { class: 'wait-dl' },
@@ -833,7 +841,7 @@ function waitCard(x) {
 
 /** Azulejo (EN ESPERA): logo, nombre, estado mínimo y las acciones de siempre (y, si espera, qué espera). */
 function tile(c) {
-  return pulsable(h('article', { class: `tile m-${mood(c)}`, 'data-id': c.id },
+  return pulsable(h('article', { class: `tile m-${mood(c)}`, 'data-id': c.id, ...marca({ tipo: 'proyecto', id: c.id, titulo: c.nombre }) },
     logo(c),
     h('div', { class: 'title' }, h('h3', { title: c.nombre }, c.nombre), status(c),
       c.estado === 'ESPERANDO_CONDICION' && c.condicion ? h('small', { class: 'muted cond', title: c.condicion }, c.condicion) : null,
@@ -976,7 +984,12 @@ function paintGoals() {
       .finally(() => { goals.at = Date.now(); goals.busy = false; paintGoals(); });
   }
   const list = n ? (goals.list || []).filter((g) => !['ALCANZADA', 'CANCELADA', 'CERRADA', 'ACEPTADA'].includes(g.estado)) : [];
-  const kpi = (g) => { const x = g.kpis.find((k) => k.disponible && k.valor != null); return x ? `${x.nombre}: ${x.valor}${x.unidad ? ` ${x.unidad}` : ''} de ${x.objetivo}` : g.kpis.length ? 'resultados aún sin medir' : 'sin indicadores aprobados'; };
+  const kpi = (g) => {
+    const medido = (k) => k.disponible && k.valor != null;
+    const r = g.kpis.find((k) => (k.tipo || 'resultado') === 'resultado' && medido(k)), i = g.kpis.find((k) => k.tipo === 'intermedio' && medido(k));
+    return r ? `Resultado: ${r.nombre}: ${r.valor}${r.unidad ? ` ${r.unidad}` : ''} de ${r.objetivo}` : i ? `Resultado aún sin medir · ${kpiIntermedio(i)}`
+      : g.kpis.length ? 'Resultado: aún sin medir' : 'Resultado: sin indicadores aprobados';
+  };
   const sig = JSON.stringify([n, data.pc.online, list.map((g) => [g.id, g.estado, g.pregunta, kpi(g), g.trabajos.terminados, g.trabajos.en_curso?.ahora,
     (g.necesidades || []).map((x) => [x.id, x.estado, x.version, x.pospuesta, x.consejo?.estado, x.consejo?.veredicto, x.entrega?.estado])])]);
   const box = $('#s-goals');
@@ -993,7 +1006,7 @@ function paintGoals() {
       : list.length ? h('ul', { class: 'side-list goals' }, list.map((g) => h('li', { class: `g-${g.te_necesita ? 'need' : 'ok'}` },
         h('button', { class: 'side-item', type: 'button', onclick: () => nui?.openOne(g.id) },
           h('b', {}, g.titulo), h('span', { class: `a-chip t-${g.te_necesita ? 'ask' : g.estado === 'ACTIVA' ? 'work' : 'idle'}` }, g.estado_texto),
-          h('small', { class: 'muted' }, `Resultado: ${kpi(g)} · ${g.trabajos.terminados} trabajo${g.trabajos.terminados === 1 ? '' : 's'} hecho${g.trabajos.terminados === 1 ? '' : 's'}${g.trabajos.en_curso ? ` · ahora en ${g.trabajos.en_curso.proyecto}` : ''}`)))))
+          h('small', { class: 'muted' }, `${kpi(g)} · ${g.trabajos.terminados} trabajo${g.trabajos.terminados === 1 ? '' : 's'} hecho${g.trabajos.terminados === 1 ? '' : 's'}${g.trabajos.en_curso ? ` · ahora en ${g.trabajos.en_curso.proyecto}` : ''}`)))))
         : [h('p', { class: 'muted small' }, 'Escribe el resultado que quieres («Quiero conseguir clientes para GEST7 por redes sociales»): el CEO lo analiza, te pregunta lo necesario, lo organiza y trabaja solo.'),
           h('button', { class: 'btn primary', type: 'button', disabled: data.pc.online === false, onclick: (e) => nui?.crear(e.currentTarget) }, '+ Nuevo objetivo de negocio')]);
 }
@@ -1059,7 +1072,7 @@ function paintDone(d) {
   const day = (iso) => new Date(iso).toLocaleDateString('es-ES', { day: '2-digit', month: 'short' });
   fill(box, sideHead('h-done', 'Terminado y comprobado', null),
     d.terminados.length || d.autosHechas.length ? h('ul', { class: 'side-list done' },
-      d.terminados.slice(0, 3).map((c) => h('li', {}, h('button', { class: 'side-item', type: 'button', onclick: () => actions.details(c) },
+      d.terminados.slice(0, 3).map((c) => h('li', marca({ tipo: 'resultado', id: c.trabajo || c.id, proyecto: c.id, titulo: c.nombre }), h('button', { class: 'side-item', type: 'button', onclick: () => actions.details(c) },
         h('span', { class: 'ico ok', 'aria-hidden': 'true' }, '✓'), h('b', {}, c.nombre), h('small', { class: 'muted' }, `${day(c.updated_at)} · ${c.ahora || 'terminado'}`)))),
       d.autosHechas.slice(0, 2).map((a) => h('li', {}, h('button', { class: 'side-item', type: 'button', onclick: () => $('#b-autos').click() },
         h('span', { class: 'ico ok', 'aria-hidden': 'true' }, '⚙'), h('b', {}, `${a.nombre.toLowerCase()} · ${a.proyectoNombre}`),
@@ -1275,7 +1288,7 @@ async function openInforme(horas = 24) {
   if (!r?.ok) { fill(box, h('p', { class: 'bad' }, r?.error || 'El PC no responde')); return; }
   const x = r.data;
   const sec = (cls, title, items, row) => items.length ? h('section', { class: `inf-sec ${cls}` }, h('h3', {}, `${title} (${items.length})`), h('ul', {}, items.map((i) => h('li', {}, row(i))))) : null;
-  const kpi = (k) => `${k.nombre}: ${k.error ? 'sin medir' : k.valor ?? '—'}${k.unidad ? ` ${k.unidad}` : ''}${k.anterior != null && k.valor != null && k.anterior !== k.valor ? ` (antes ${k.anterior})` : ''} · objetivo ${k.sentido} ${k.objetivo}`;
+  const kpi = (k) => kpiIntermedio(k) || `${k.nombre}: ${k.error ? 'sin medir' : k.valor ?? '—'}${k.unidad ? ` ${k.unidad}` : ''}${k.anterior != null && k.valor != null && k.anterior !== k.valor ? ` (antes ${k.anterior})` : ''} · objetivo ${k.sentido} ${k.objetivo}`;
   const hechos = [x.necesita.length, x.problemas.length, x.trabajando.length, x.terminados.length];
   fill(box,
     h('p', { class: 'inf-lead' }, `${x.terminados.length} terminado${x.terminados.length === 1 ? '' : 's'} · ${x.trabajando.length} en marcha · ${x.necesita.length ? `${x.necesita.length} te necesita${x.necesita.length === 1 ? '' : 'n'}` : 'nada te necesita'} · ${x.problemas.length ? `${x.problemas.length} con problemas` : 'sin problemas'}`),
@@ -1629,7 +1642,7 @@ function paintAuts() {
   if (reg && !reg.childElementCount) fill(reg, quienAproboDir());
   const xs = data.autorizaciones || [];
   const s2 = JSON.stringify(xs.map((a) => [a.id, a.estado, a.ficha, a.fallo])) + String(data.pc.online);
-  if (box.dataset.sig === s2 || document.querySelector('dialog[open]')) return;
+  if (box.dataset.sig === s2 || document.querySelector('dialog[open]:not(#mama-panel)')) return;
   box.dataset.sig = s2;
   const abiertos = new Set([...box.querySelectorAll('details[open]')].map((x) => x.dataset.k));
   fill(box, xs.length ? h('section', { class: 'decision need-goal', 'aria-label': 'Permisos por decidir' },
@@ -1831,6 +1844,7 @@ async function paintDetail(force) {
   const c = data.proyectos.find((p) => p.id === openId);
   if (!c) { openId = null; show('p-list'); return; }
   $('#d-name').textContent = c.nombre;
+  Object.assign($('#p-detail').dataset, { mamaProyecto: c.id, mamaTitulo: c.nombre }); // T-A: la pantalla dice de qué proyecto es
   if (force || !detailCache || detailCache.id !== openId || Date.now() - detailCache.at > 4000) {
     detailCache = { id: openId, at: Date.now(), d: await api.details(openId) };
   }
@@ -2281,7 +2295,7 @@ async function start() {
   mui ??= mamaUi({ api, toast, show, local: LOCAL });
   show('p-list');
   await refresh();
-  $('#b-ceo').hidden = false;
+  $('#b-ceo').hidden = false; $('#b-mama-fab').hidden = false;
   acusarAviso();
   aplicarRuta(); // enlace directo (?v= · ?proyecto= · ?objetivo= · ?ceo=)
   api.watch(() => void refresh());

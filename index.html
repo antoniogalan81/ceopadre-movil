@@ -87,7 +87,7 @@
 
 <!-- CENTRO DE DIRECCIÓN (V3.2): de un vistazo qué te necesita, qué trabaja, qué viene, qué se terminó y qué resultados hay.
      Los proyectos sin actividad van al final y plegados. Todo sale de los estados reales del motor. -->
-<section id="p-list" class="screen home" hidden>
+<section id="p-list" class="screen home" data-mama-tipo="pantalla" data-mama-id="direccion" hidden>
   <p class="pcline" id="pc-line" hidden></p>
 
   <!-- LAS CUATRO PREGUNTAS: qué necesita de mí · qué está haciendo · qué ha conseguido · qué hará después. -->
@@ -146,6 +146,8 @@
   <p class="empty" id="empty" hidden>Todavía no hay proyectos. Abre <b>Más</b> y pulsa <b>+ Nuevo proyecto</b> o <b>Vincular carpeta</b>.</p>
 </section>
 
+<!-- MAMA UNIVERSAL (T-A): su botón, siempre a mano, abre la MISMA conversación en un panel sin salir de la pantalla y con lo que tienes delante. -->
+<button class="mama-fab" id="b-mama-fab" type="button" hidden aria-haspopup="dialog" aria-controls="mama-panel" aria-label="Hablar con Mama de lo que tienes delante" title="Hablar con Mama de lo que tienes delante"><img src="mama-avatar-64.png" srcset="mama-avatar-64.png 1x, mama-avatar-128.png 2x" alt="" width="44" height="44"></button>
 <button class="ceo-fab" id="b-ceo" type="button" hidden aria-label="Hablar con el CEO" title="Hablar con el CEO"><span aria-hidden="true">💬</span><span class="ceo-fab-t">Hablar con el CEO</span></button>
 <!-- Navegación principal: en el PC fija arriba en TODAS las pantallas; en el móvil, abajo (al alcance del pulgar). -->
 <nav class="tabbar" id="tabbar" aria-label="Secciones" hidden>
@@ -157,7 +159,7 @@
   <button type="button" data-go="proyectos"><span aria-hidden="true">▦</span>Proyectos</button>
 </nav>
 
-<section id="p-detail" class="screen" hidden>
+<section id="p-detail" class="screen" data-mama-tipo="pantalla" data-mama-id="proyecto" hidden>
   <header class="top">
     <button class="btn ghost" id="d-back" aria-label="Volver">‹ Volver</button>
     <h1 class="detail-name" id="d-name"></h1>
@@ -170,7 +172,7 @@
 </section>
 
 <!-- MANDO REMOTO de un proyecto: su lista (filtrable por canal) y la ficha de cada contenido con sus acciones. -->
-<section id="p-remote" class="screen" hidden>
+<section id="p-remote" class="screen" data-mama-tipo="pantalla" data-mama-id="remoto" hidden>
   <header class="top">
     <button class="btn ghost" id="r-back" aria-label="Volver">‹ Volver</button>
     <div class="r-title"><h1 class="detail-name" id="r-name"></h1><p class="muted small" id="r-sub"></p></div>
@@ -179,7 +181,7 @@
 </section>
 
 <!-- AUTOMATIZACIONES: botones de cada proyecto, editor (sin programar), historial de ejecuciones. -->
-<section id="p-autos" class="screen" hidden>
+<section id="p-autos" class="screen" data-mama-tipo="pantalla" data-mama-id="agentes" hidden>
   <header class="top">
     <button class="btn ghost" id="a-back" aria-label="Volver">‹ Volver</button>
     <div class="r-title"><h1 class="detail-name" id="a-title">Automatizaciones</h1><p class="muted small" id="a-sub"></p></div>
@@ -197,7 +199,7 @@
   <main id="m-body" class="detail"></main>
 </section>
 
-<section id="p-negocio" class="screen" hidden>
+<section id="p-negocio" class="screen" data-mama-tipo="pantalla" data-mama-id="objetivos" hidden>
   <header class="top">
     <button class="btn ghost" id="n-back" aria-label="Volver">‹ Volver</button>
     <div class="r-title"><h1 class="detail-name" id="n-title">Objetivos de negocio</h1><p class="muted small" id="n-sub"></p></div>
@@ -206,7 +208,7 @@
 </section>
 
 <!-- BANDEJA DE APROBACIÓN: respuestas preparadas; editar, seleccionar, aprobar y enviar o rechazar. -->
-<section id="p-bandeja" class="screen" hidden>
+<section id="p-bandeja" class="screen" data-mama-tipo="pantalla" data-mama-id="mensajes" hidden>
   <header class="top">
     <button class="btn ghost" id="bi-back" aria-label="Volver">‹ Volver</button>
     <div class="r-title"><h1 class="detail-name" id="bi-title">Mensajes</h1><p class="muted small" id="bi-sub"></p></div>
@@ -285,6 +287,16 @@
       <button class="btn primary" type="submit" id="ceo-send">Enviar</button>
     </form>
     <p class="muted small ceo-nota">Preguntar no aprueba nada. Una decisión se toma con sus botones; una orden clara (pausar, reanudar, una instrucción) se aplica y se avisa.</p>
+  </div>
+</dialog>
+
+<dialog id="mama-panel" class="sheet ceo-chat mama-panel" aria-labelledby="mp-title">
+  <div class="ceo-body">
+    <header class="ceo-head">
+      <div class="ceo-head-t mama-cab"><img class="mama-av-cab" src="mama-avatar-64.png" srcset="mama-avatar-64.png 1x, mama-avatar-128.png 2x" alt="" width="36" height="36"><div><h2 id="mp-title">Mama</h2><p class="muted small" id="mp-ctx" aria-live="polite"></p></div></div>
+      <span class="head-act"><button class="btn ghost small" type="button" id="mp-sin" hidden title="Hablar en general, sin lo que tienes delante">Sin contexto</button><button class="btn ghost small" type="button" id="mp-todo" title="Abrir la sección Mama completa (tareas, plan, memoria)">Ver todo</button><button class="btn ghost small" type="button" id="mp-cerrar">Cerrar</button></span>
+    </header>
+    <div id="mp-host" class="mp-host"></div>
   </div>
 </dialog>
 

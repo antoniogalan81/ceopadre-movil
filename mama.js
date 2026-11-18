@@ -6,6 +6,7 @@ import { h } from './dom.js';
 import { planDia } from './mama-plan.js';
 import { mamaMovil } from './mama-movil.js';
 import { tareasUi } from './mama-tareas.js';
+import { describir, leer } from './mama-contexto.js';
 
 const fecha = (iso) => (iso ? new Date(iso).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '');
 const ESTADO = { HECHA: ['Hecha', 'ok'], DENEGADA: ['Denegada', 'bad'], TOPE: ['Tope diario', 'ask'], ERROR: ['Falló', 'bad'], PROPUESTA: ['Propuesta', 'ask'] };
@@ -18,7 +19,7 @@ export const ADJ_MAX = 5 * 1024 * 1024;
 const kb = (b) => (b < 1024 * 1024 ? `${Math.max(1, Math.round(b / 1024))} KB` : `${(b / 1024 / 1024).toFixed(1).replace('.', ',')} MB`); // T36: «1 KB» no se parte
 const chip = (label, tone) => h('span', { class: `a-chip t-${tone}` }, label);
 // T20: qué hizo MAMA con el mensaje o la nota (src/mama.js salidasDe). «Sólo conversación» = no creó nada.
-const SALIDA = { MEMORIA: ['Memoria', 'ok'], FICHA: ['Ficha de proyecto', 'ok'], TAREA: ['Tarea propuesta', 'ask'], SEGUIMIENTO: ['Seguimiento', 'work'], DELEGAR: ['Delegación', 'work'], CONVERSACION: ['Sólo conversación', 'idle'], ERROR: ['No interpretada', 'bad'] };
+const SALIDA = { MEMORIA: ['Memoria', 'ok'], FICHA: ['Ficha de proyecto', 'ok'], TAREA: ['Tarea propuesta', 'ask'], SEGUIMIENTO: ['Seguimiento', 'work'], DELEGAR: ['Delegación', 'work'], ACCION: ['Acción sobre lo que tienes delante', 'work'], GYM: ['GYM', 'work'], ENTRENADOR: ['Especialista consultado', 'ok'], CONVERSACION: ['Sólo conversación', 'idle'], ERROR: ['No interpretada', 'bad'] };
 // MEMORIA/FICHA cuentan DATOS anotados (salidasDe cuenta propuestas de memoria), no fichas: «Ficha de proyecto ×2» con dos datos en
 // UNA ficha parecía una ficha duplicada (T38 r11, conv. real #124). El resto cuenta elementos (×n).
 export const etiquetaSalida = (s) => {
@@ -36,6 +37,7 @@ const interpretacion = (m) => {
 
 export function mamaUi({ api, toast, show, local }) {
   let abierta = false, timer = null, sig = '', v = null, enviando = false, canal = null, simulacion = null, ocupado = '';
+  let enPanel = false, ctxActual = null; // T-A: panel contextual (misma conversación) y el elemento del que se habla
   let enCurso = null; // T36: el mensaje que se está enviando (se ve ya y sobrevive a un repintado del sondeo)
   // T38: memoria privada (sólo en el PC). Se relee cuando cambia la conversación, no en cada sondeo.
   let mem = null, memDe = null;
@@ -70,8 +72,36 @@ export function mamaUi({ api, toast, show, local }) {
     memFichas.set(id, r.data); sig = ''; paint();
   }
   function programar() { clearTimeout(timer); if (abierta) timer = setTimeout(async () => { if (!document.hidden) await load(); programar(); }, v?.pensando ? 1500 : 8000); }
-  function open() { abierta = true; sig = ''; show('p-mama'); window.scrollTo(0, 0); void load().then(programar); }
+  function open() { if (enPanel) cerrarPanel(); abierta = true; sig = ''; show('p-mama'); window.scrollTo(0, 0); void load().then(programar); }
   function back() { abierta = false; clearTimeout(timer); movil?.parar(); movilVivo = false; show('p-list'); }
+
+  // T-A · PANEL CONTEXTUAL: la MISMA conversación (el mismo #m-body, que se traslada) en un panel encima de la pantalla actual,
+  // con el elemento que Antonio tenía delante (contrato de web/mama-contexto.js). Cerrar = volver exactamente donde estaba.
+  const dlg = () => document.getElementById('mama-panel');
+  function pintarCtx() {
+    const t = document.getElementById('mp-ctx');
+    if (t) t.textContent = ctxActual ? `Sobre: ${describir(ctxActual)}` : 'Conversación general';
+    const sin = document.getElementById('mp-sin'); if (sin) sin.hidden = !ctxActual;
+    if (dlg()) { if (ctxActual) Object.assign(dlg().dataset, { ctxTipo: ctxActual.tipo, ctxId: ctxActual.id || '' }); else { delete dlg().dataset.ctxTipo; delete dlg().dataset.ctxId; } }
+  }
+  function panel(ctx = null) {
+    const d = dlg(), b = body();
+    if (!d || !b) return;
+    if (!document.getElementById('p-mama').hidden) { open(); return; } // ya está en Mama: nada que superponer
+    ctxActual = ctx;
+    pintarCtx();
+    if (!enPanel) { document.getElementById('mp-host').append(b); enPanel = true; sig = ''; movilVivo = false; }
+    if (!d.open) d.showModal();
+    abierta = true;
+    void load().then(programar).then(() => document.getElementById('m-text')?.focus() || document.getElementById('mm-text')?.focus());
+  }
+  function cerrarPanel() {
+    const d = dlg();
+    if (d?.open) d.close();
+    if (!enPanel) return;
+    enPanel = false; ctxActual = null; abierta = false; clearTimeout(timer); movil?.parar(); movilVivo = false; sig = '';
+    document.getElementById('p-mama').append(body());
+  }
 
   // T31: abrir un adjunto = vale de un solo uso (mama.adjunto.enlace). La pestaña se abre YA (gesto del usuario) y luego se dirige.
   async function abrirAdjunto(a) {
@@ -89,7 +119,8 @@ export function mamaUi({ api, toast, show, local }) {
     : null);
   const burbuja = (m, abrir) => {
     if (m.rol === 'antonio' && m.adjunto?.id) return h('div', { class: 'msg yo' }, adjunto(m, abrir), h('p', { class: 'msg-who m-at' }, `${fecha(m.at)}${m.via === 'movil' ? ' · desde el móvil' : ''}`));
-    if (m.rol === 'antonio') return h('div', { class: 'msg yo' }, h('p', {}, m.texto), h('p', { class: 'msg-who m-at' }, `${fecha(m.at)}${m.via === 'movil' ? ' · desde el móvil' : ''}`));
+    if (m.rol === 'antonio') return h('div', { class: 'msg yo' }, h('p', {}, m.texto), h('p', { class: 'msg-who m-at' }, `${fecha(m.at)}${m.via === 'movil' ? ' · desde el móvil' : ''}`),
+      m.contexto ? h('p', { class: 'msg-who m-ctx', 'data-ctx-tipo': m.contexto.tipo }, `Sobre: ${describir(m.contexto)}`) : null);
     if (m.rol === 'sistema') return h('div', { class: 'msg sis' }, h('p', {}, m.texto));
     // Su cara identifica a MAMA (12-11): no se repite «MAMA» en cada respuesta; el nombre queda para los lectores de pantalla.
     return h('div', { class: 'msg ceo msg-mama' }, h('img', { class: 'mama-av', src: 'mama-avatar-64.png', srcset: 'mama-avatar-64.png 1x, mama-avatar-128.png 2x', alt: '', width: 32, height: 32 }),
@@ -105,14 +136,14 @@ export function mamaUi({ api, toast, show, local }) {
     if (!texto || enviando) return;
     // T36: lo enviado se ve YA en la conversación («enviando…») y la caja queda libre; si falla, se quita y el texto vuelve.
     enCurso = { texto, at: new Date().toISOString() };
-    const l = document.querySelector('#p-mama .mama-msgs');
+    const l = body()?.querySelector('.mama-msgs');
     l?.querySelector('.ceo-vacio')?.remove(); l?.append(enviandoBurbuja()); if (l) l.scrollTop = l.scrollHeight;
     ta.value = '';
     enviando = true;
-    const r = await api.cmd('mama.enviar', { texto });
+    const r = await api.cmd('mama.enviar', { texto, ...(enPanel && ctxActual ? { contexto: ctxActual } : {}) });
     enviando = false; enCurso = null;
     if (!r?.ok) {
-      document.querySelectorAll('#p-mama .m-pend').forEach((x) => x.remove());
+      body()?.querySelectorAll('.m-pend').forEach((x) => x.remove());
       const t2 = document.getElementById('m-text'); if (t2 && !t2.value) t2.value = texto;
       toast(r?.error || 'No se pudo enviar', 'bad'); return;
     }
@@ -146,7 +177,7 @@ export function mamaUi({ api, toast, show, local }) {
       if (movilVivo) return;
       movilVivo = true;
       // T31: los archivos de la conversación se adjuntan, reciben y abren también aquí (web/mama-movil.js, misma burbuja).
-      movil ??= mamaMovil({ toast, burbuja, ADJ_MAX });
+      movil ??= mamaMovil({ toast, burbuja, ADJ_MAX, contexto: () => (enPanel ? ctxActual : null) });
       void movil.iniciar(b);
       return;
     }
@@ -375,6 +406,45 @@ export function mamaUi({ api, toast, show, local }) {
   }
 
   document.getElementById('m-back')?.addEventListener('click', back);
+  document.getElementById('mp-cerrar')?.addEventListener('click', cerrarPanel);
+  document.getElementById('mp-todo')?.addEventListener('click', () => { cerrarPanel(); document.getElementById('b-mama')?.click(); });
+  document.getElementById('mp-sin')?.addEventListener('click', () => { ctxActual = null; pintarCtx(); document.getElementById('m-text')?.focus(); });
+  dlg()?.addEventListener('cancel', (e) => { e.preventDefault(); cerrarPanel(); });
+  dlg()?.addEventListener('click', (e) => { if (e.target === dlg()) cerrarPanel(); }); // clic fuera = cerrar (como el resto de paneles)
+  // El ELEMENTO con el que Antonio estaba: el último marcado que tocó o enfocó (en la pantalla visible y hace < 10 min).
+  let ultimo = null, ultimoAt = 0;
+  const anotar = (e) => { if (e.target.closest?.('#mama-panel, #b-mama-fab')) return; const n = e.target.closest?.('[data-mama-tipo]'); if (n) { ultimo = n; ultimoAt = Date.now(); } };
+  document.addEventListener('pointerdown', anotar, true);
+  document.addEventListener('focusin', anotar, true);
+  // Un panel modal abierto (Alquileres, una ficha, un editor) deja inerte el resto de la página: el botón se muda DENTRO del de más
+  // arriba mientras esté abierto, para que MAMA siga a mano también ahí, y vuelve al cuerpo al cerrarse.
+  // El de ARRIBA es el último ABIERTO, no el último del documento (18-11 en vivo: el editor #dlg abierto sobre la ficha de
+  // Alquileres va antes en el DOM; el botón se metía en la ficha, quedaba tapado por el editor y MAMA no se podía abrir).
+  const abiertoEn = new WeakMap(); let orden = 0;
+  const modal = () => {
+    const ds = [...document.querySelectorAll('dialog[open]')].filter((d) => d.id !== 'mama-panel' && d.matches(':modal'));
+    for (const d of ds) if (!abiertoEn.has(d)) abiertoEn.set(d, ++orden);
+    return ds.sort((a, b) => abiertoEn.get(a) - abiertoEn.get(b)).at(-1) || null;
+  };
+  /** Contexto actual: dentro de un panel modal, lo tocado en él, el propio panel o lo que lo abrió; si no, lo último tocado a la vista
+   *  y, si nada, la pantalla visible. */
+  function contextoActual() {
+    const pant = [...document.querySelectorAll('.screen')].find((x) => !x.hidden);
+    // Repintado entre el toque y el botón (18-11 en vivo, al cerrar un editor): el nodo es otro, el elemento es el mismo.
+    if (ultimo && !ultimo.isConnected && ultimo.dataset.mamaTipo) ultimo = document.querySelector(`[data-mama-tipo="${CSS.escape(ultimo.dataset.mamaTipo)}"][data-mama-id="${CSS.escape(ultimo.dataset.mamaId || '')}"]`) || ultimo;
+    const reciente = ultimo?.isConnected && Date.now() - ultimoAt < 600_000;
+    const m = modal();
+    if (m) return (reciente && m.contains(ultimo) ? leer(ultimo) : null) || leer(m) || (reciente ? leer(ultimo) : null) || (pant ? leer(pant) : null);
+    if (reciente && pant?.contains(ultimo)) return leer(ultimo);
+    return pant ? leer(pant) : null;
+  }
+  const fab = document.getElementById('b-mama-fab');
+  fab?.addEventListener('click', () => panel(contextoActual()));
+  if (fab) {
+    const recolocar = () => { const destino = modal() || document.body; if (fab.parentNode !== destino) destino.append(fab); };
+    new MutationObserver(recolocar).observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['open'] }); // childList: un panel quitado abierto
+    document.addEventListener('close', (e) => { abiertoEn.delete(e.target); recolocar(); }, true); // un dialog cerrado y quitado del DOM no deja mutación de «open» que ver
+  }
   document.getElementById('b-mama')?.addEventListener('click', open);
   // T38: acceso directo a «Memoria → Copia de seguridad» (sólo en el PC: la frase nunca viaja por el canal remoto).
   async function abrirCopia() {
@@ -387,5 +457,5 @@ export function mamaUi({ api, toast, show, local }) {
   }
   const bc = document.getElementById('b-mama-copia');
   if (bc) { bc.hidden = !local; bc.addEventListener('click', () => void abrirCopia()); }
-  return { open, abierta: () => abierta };
+  return { open, panel, cerrarPanel, contextoActual, abierta: () => abierta };
 }

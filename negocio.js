@@ -5,6 +5,7 @@
 // Un objetivo abierto enseña primero lo esencial (hecho · ahora · después · te necesito) y la HOJA DE RUTA VIVA, que se
 // edita aquí mismo (añadir, modificar, quitar, reordenar tareas y fases) sin rehacer el objetivo.
 import { claro, h } from './dom.js';
+import { marca } from './mama-contexto.js'; // T-A: contrato único de contexto para MAMA
 import { EFECTOS_NEC, proyectosEn } from './zones.js';
 import { advice, comunes, decideRow, explica } from './map.js';
 import { miniTarjeta } from './tarjeta.js';
@@ -150,7 +151,7 @@ export function negocioUi({ api, ask, toast, show, data, run, viewText, onChange
     const val = !k.disponible ? 'no medible todavía' : k.error ? `sin medir · ${k.error}` : k.valor == null ? 'aún sin medir' : `${k.valor}${k.unidad ? ` ${k.unidad}` : ''}`;
     const tone = !k.disponible || k.error || k.valor == null ? 'idle' : k.cumple ? 'ok' : 'warn';
     return h('li', { class: `kpi t-${tone}` }, h('b', {}, k.nombre), ` · ${val}`, h('small', { class: 'muted' },
-      ` · objetivo ${k.sentido} ${k.objetivo}${k.anterior != null && k.valor != null ? ` · antes ${k.anterior}` : ''}${k.medido_at ? ` · medido ${fecha(k.medido_at)}` : ''}${!k.disponible && k.nota ? ` · ${k.nota}` : ''}`),
+      ` · ${k.tipo === 'intermedio' ? 'umbral sugerido' : 'objetivo'} ${k.sentido} ${k.objetivo}${k.anterior != null && k.valor != null ? ` · antes ${k.anterior}` : ''}${k.tipo === 'intermedio' ? ` · ${k.datos_at ? `datos del ${fecha(k.datos_at)}` : 'fecha de los datos: no consta'}` : ''}${k.medido_at ? ` · medido ${fecha(k.medido_at)}` : ''}${!k.disponible && k.nota ? ` · ${k.nota}` : ''}`),
       // Intermedio (c2a957fa #5.2): se ve que NO acredita ni es ahorro, y sus limitaciones quedan plegadas debajo.
       k.tipo === 'intermedio' ? h('small', { class: 'muted' }, ' · INTERMEDIO: no acredita el objetivo ni es ahorro demostrado') : null,
       k.tipo === 'intermedio' && k.disponible && k.nota ? h('details', { class: 'prop-more', 'data-k': `kpi-nota-${k.id}` }, h('summary', {}, 'Limitaciones y fecha de los datos'), h('p', { class: 'small muted' }, k.nota)) : null);
@@ -256,7 +257,7 @@ export function negocioUi({ api, ask, toast, show, data, run, viewText, onChange
     // riesgos plegados en la misma tarjeta (sin salir de Dirección).
     const porque = n.motivo_nivel || n.por_que;
     const recom = k?.veredicto ? advice(k) : n.recomendacion ? h('p', { class: 'advice v-ans' }, h('b', {}, 'EL CEO RECOMIENDA'), ` · ${n.recomendacion}`) : null;
-    return h('article', { class: `need-card${compacto ? ' compacta' : ''}`, 'data-ref': n.ref },
+    return h('article', { class: `need-card${compacto ? ' compacta' : ''}`, 'data-ref': n.ref, ...marca({ tipo: 'decision', id: n.ref, proyecto: n.proyecto, objetivo: n.objetivo, version: n.version, titulo: n.que, acciones: ['decision.resolver'] }) },
       h('p', { class: 'need-t' }, h('b', {}, TIPO_NEC[n.tipo] || 'Necesito'), ` — ${n.que}`),
       n.tipo === 'MENSAJES' ? listaMensajes(n) : null,
       compacto ? [
@@ -359,7 +360,7 @@ export function negocioUi({ api, ask, toast, show, data, run, viewText, onChange
     const ahora = o.vista?.ahora?.[0];
     const necesita = o.te_necesita;
     const abrir = () => openOne(o.id);
-    return miniTarjeta({ id: `meta-${o.id}`, titulo: o.titulo, clase: 'obj-mini', abrir,
+    return miniTarjeta({ id: `meta-${o.id}`, ctx: { tipo: 'objetivo', id: o.id, titulo: o.titulo, acciones: ['negocio.instruccion'] }, titulo: o.titulo, clase: 'obj-mini', abrir,
       estado: [necesita && !['ESPERANDO_ANTONIO', 'BLOQUEADA', 'ESPERANDO_APROBACION'].includes(o.estado) ? 'Te necesita' : o.estado_texto, necesita ? 'ask' : TONE[o.estado] || 'idle'],
       sub: o.proyectos.map((p) => p.nombre).join(' · ') || (o.seleccion?.modo === 'AUTO' ? 'El CEO elige los proyectos' : ''),
       desc: ahora ? `Ahora · ${ahora.proyecto}: ${corto(ahora.ahora && ahora.ahora !== 'Aún no se ha hecho nada' ? ahora.ahora : ahora.objetivo, 120)}` : o.evaluacion || corto(o.texto, 160),
@@ -564,11 +565,12 @@ Elige qué hacer:`,
     if (!mode) return;
     const s = JSON.stringify([mode, list, viewing]) + online();
     // No se repinta con una ventana o un menú abiertos (se perdería lo que escribes o miras).
-    if (!force && (s === sig || document.querySelector('dialog[open], #p-negocio details.a-more[open]'))) return;
+    if (!force && (s === sig || document.querySelector('dialog[open]:not(#mama-panel), #p-negocio details.a-more[open]'))) return;
     sig = s;
     // Conserva qué desplegables estaban abiertos al repintar.
     const abiertos = new Set([...document.querySelectorAll('#n-body details[open] > summary')].map((x) => x.textContent));
     document.getElementById('n-title').textContent = mode === 'one' ? viewing.titulo : 'Objetivos';
+    { const ds = document.getElementById('p-negocio').dataset; if (mode === 'one') Object.assign(ds, { mamaObjetivo: viewing.id, mamaTitulo: viewing.titulo }); else { delete ds.mamaObjetivo; delete ds.mamaTitulo; } } // T-A
     document.getElementById('n-sub').textContent = mode === 'list' ? `${list.filter((o) => !CLOSED.includes(o.estado)).length} abiertos · ${online() ? 'PC conectado' : 'PC desconectado'}` : '';
     const abiertosL = list.filter((o) => !CLOSED.includes(o.estado)), cerradosL = list.filter((o) => CLOSED.includes(o.estado));
     document.getElementById('n-body').replaceChildren(...(mode === 'one' ? one() : [

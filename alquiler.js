@@ -1,6 +1,7 @@
 // GESTIÓN · ALQUILERES: la tarjeta de cada inquilino dentro de GESTIONES (PC y móvil). Sólo pinta y da órdenes de la lista
 // cerrada (alquiler.*); todo lo decide el PC (src/alquiler.js). Uso normal: un clic en «Me ha pagado».
 import { h } from './dom.js';
+import { marca } from './mama-contexto.js'; // T-A: contrato único de contexto para MAMA
 import { miniTarjeta } from './tarjeta.js';
 
 const eur = (c) => `${(c / 100).toLocaleString('es-ES', { minimumFractionDigits: 2, maximumFractionDigits: 2, useGrouping: 'always' })} €`;
@@ -277,7 +278,7 @@ export function alquileresUi({ run, ask, cmd, toast, LOCAL }) {
     const metodo = a.metodos.find((m) => m.valor === a.metodo)?.nombre || a.metodo;
     const r = ultimo?.recibo;
     const wa = r ? (WA[r.wa_estado] || [r.wa_estado, 'idle']) : null;
-    return h('article', { class: `alq-card${pend.length ? ' need' : ''}`, 'data-id': `alq:${a.id}`, 'aria-label': `Alquiler de ${a.inquilino}` },
+    return h('article', { class: `alq-card${pend.length ? ' need' : ''}`, 'data-id': `alq:${a.id}`, 'aria-label': `Alquiler de ${a.inquilino}`, ...marca({ tipo: 'alquiler', id: `alq:${a.id}`, titulo: `Alquiler de ${a.inquilino}` }) },
       h('header', { class: 'alq-head' },
         h('div', {}, h('h3', {}, a.inquilino), h('small', { class: 'muted' }, `Alquiler · ${eur(a.importe)} al mes · ${metodo}`)),
         h('div', { class: 'row' }, ojo(a, pend.length ? null : r?.id ?? null, pend.length ? 'Ver documento (borrador, no emitido)' : 'Ver documento'),
@@ -309,7 +310,7 @@ export function alquileresUi({ run, ask, cmd, toast, LOCAL }) {
   function abrirFicha(a) {
     if (abierta?.dlg.open) abierta.dlg.close();
     const cuerpo = h('div', { class: 'alq-ficha-body' }, detalle(a));
-    const dlg = h('dialog', { class: 'sheet alq-ficha', 'aria-label': `Alquiler de ${a.inquilino}` },
+    const dlg = h('dialog', { class: 'sheet alq-ficha', 'aria-label': `Alquiler de ${a.inquilino}`, ...marca({ tipo: 'alquiler', id: `alq:${a.id}`, titulo: `Alquiler de ${a.inquilino}` }) },
       h('header', { class: 'cmp-head' }, h('h2', {}, `Alquiler · ${a.inquilino}`), h('button', { class: 'btn ghost small', type: 'button', onclick: () => dlg.close() }, 'Cerrar')), cuerpo);
     dlg.addEventListener('close', () => { dlg.remove(); if (abierta?.dlg === dlg) abierta = null; });
     document.body.append(dlg);
@@ -521,7 +522,7 @@ export function alquileresUi({ run, ask, cmd, toast, LOCAL }) {
   function abrirFactura(f) {
     if (detFactura?.dlg.open) detFactura.dlg.close();
     const cuerpo = h('div', { class: 'alq-ficha-body' }, cuerpoFactura(f));
-    const dlg = h('dialog', { class: 'sheet alq-ficha', 'aria-label': `Factura ${f.proveedor} ${fecha(f.fecha)}` },
+    const dlg = h('dialog', { class: 'sheet alq-ficha', 'aria-label': `Factura ${f.proveedor} ${fecha(f.fecha)}`, ...marca({ tipo: 'factura', id: `factura:${f.id}`, titulo: `Factura ${f.proveedor} ${fecha(f.fecha)}` }) },
       h('header', { class: 'cmp-head' }, h('h2', {}, `${f.tipo === 'AGUA' ? 'Agua' : f.tipo} · ${fecha(f.fecha)} · ${f.importe_txt}`), h('button', { class: 'btn ghost small', type: 'button', onclick: () => dlg.close() }, 'Cerrar')), cuerpo);
     dlg.addEventListener('close', () => { dlg.remove(); if (detFactura?.dlg === dlg) detFactura = null; });
     document.body.append(dlg);
@@ -571,7 +572,7 @@ export function alquileresUi({ run, ask, cmd, toast, LOCAL }) {
   };
   const tarjetaAlquiler = (a) => {
     const pend = a.pendientes;
-    return h('article', { class: `alq-mini-ficha${a.pendiente_cent ? ' need' : ''}`, tabindex: '0', role: 'button', 'aria-label': `Ficha del alquiler de ${a.inquilino}`,
+    return h('article', { class: `alq-mini-ficha${a.pendiente_cent ? ' need' : ''}`, tabindex: '0', role: 'button', 'aria-label': `Ficha del alquiler de ${a.inquilino}`, ...marca({ tipo: 'alquiler', id: `alq:${a.id}`, titulo: `Alquiler de ${a.inquilino}` }),
       onclick: (e) => { if (!e.target.closest('button')) abrirFicha(a); }, onkeydown: (e) => { if (e.key === 'Enter' && e.target === e.currentTarget) abrirFicha(a); } },
     h('small', { class: 'muted' }, `${a.inmueble || 'Inmueble sin indicar'}${a.unidad ? ` · ${a.unidad}` : ''}`),
     h('h3', {}, a.inquilino), a.contacto ? h('small', { class: 'muted' }, `vía ${a.contacto}`) : null,
@@ -709,6 +710,7 @@ export function alquileresUi({ run, ask, cmd, toast, LOCAL }) {
     const o = (op, params, okMsg) => (e) => waOrden(op, { id: m.id, ...params }, okMsg, e.currentTarget, pid, repintar);
     const editar = async (btn) => {
       const r = await ask({ title: `Mensaje para ${m.destinatario}`, ok: 'Guardar borrador', help: m.estado === 'TEXTO_APROBADO' || m.estado === 'ENVIO_FALLIDO' ? 'Cambiar el texto anula su aprobación.' : 'Se guarda como borrador: no se envía nada.',
+        ctx: { tipo: 'borrador', id: `alqmsg-${m.id}`, version: m.huella_texto, titulo: `Para ${m.destinatario}`, acciones: ['alquiler.msg.guardar'] },
         fields: [{ name: 'texto', label: 'Texto completo', type: 'textarea', value: m.texto }] });
       if (r) await waOrden('alquiler.msg.guardar', { id: m.id, texto: r.texto, base: m.huella_texto }, 'Guardado', btn, pid, repintar); // T35: no pisa un cambio hecho en Dirección u otro dispositivo
     };
@@ -745,7 +747,7 @@ export function alquileresUi({ run, ask, cmd, toast, LOCAL }) {
       ENVIO_FALLIDO: [b('Reintentar envío…', enviar, 'primary'), b('Editar (anula la aprobación)', editar), b('Descartar', descartar, 'ghost-danger')],
     }[m.estado] || [];
     const abierto = wa.abierto.has(m.id);
-    return h('article', { class: `a-msg t-${WA_TONO[m.estado] || 'idle'}`, 'data-id': `alqmsg-${m.id}` },
+    return h('article', { class: `a-msg t-${WA_TONO[m.estado] || 'idle'}`, 'data-id': `alqmsg-${m.id}`, ...marca({ tipo: 'borrador', id: `alqmsg-${m.id}`, version: m.huella_texto, titulo: `Para ${m.destinatario}`, acciones: ['alquiler.msg.guardar'] }) },
       h('header', { class: 'alq-parte-top' }, h('strong', {}, `Para ${m.destinatario}`), ' ', chip(m.estado_txt, WA_TONO[m.estado] || 'idle'),
         m.telefono ? h('small', { class: 'muted' }, ` · WhatsApp ${m.telefono}`) : h('small', { class: 't-warn' }, ' · sin teléfono confirmado')),
       h('p', { class: 'small muted' }, [m.titulo, m.fuente ? `fuente: ${m.fuente}` : null, m.editado ? 'editado' : null].filter(Boolean).join(' · ')),
@@ -827,7 +829,7 @@ export function alquileresUi({ run, ask, cmd, toast, LOCAL }) {
     if (panel?.dlg.open) panel.dlg.close();
     const cuerpo = h('div', { class: 'alq-ficha-body' });
     const repintar = () => { if (panel) cuerpo.replaceChildren(cuerpoPanel(panel.gestiones, repintar)); };
-    const dlg = h('dialog', { class: 'sheet alq-ficha alq-panel-dlg', 'aria-label': 'Agente Alquileres' },
+    const dlg = h('dialog', { class: 'sheet alq-ficha alq-panel-dlg', 'aria-label': 'Agente Alquileres', ...marca({ tipo: 'agente', id: 'alquileres', titulo: 'Agente Alquileres' }) },
       h('header', { class: 'cmp-head' }, h('h2', {}, 'Alquileres'), h('button', { class: 'btn ghost small', type: 'button', onclick: () => dlg.close() }, 'Cerrar')), cuerpo);
     dlg.addEventListener('close', () => { dlg.remove(); if (panel?.dlg === dlg) panel = null; });
     document.body.append(dlg);
@@ -848,7 +850,7 @@ export function alquileresUi({ run, ask, cmd, toast, LOCAL }) {
     const renta = lst.reduce((s, a) => s + (a.renta_pendiente_cent || 0), 0), sum = facturasDe(lst).reduce((s, f) => s + (f.pendiente || 0), 0);
     const estado = renta || sum ? [`Por cobrar ${eur(renta + sum)}`, 'wait'] : ['Todo cobrado', 'ok'];
     const abrir = () => abrirPanel(gestiones);
-    const el = miniTarjeta({ id: 'alq:panel', titulo: 'Alquileres', sub: `Agente · ${lst.length} ${lst.length === 1 ? 'alquiler' : 'alquileres'}`, clase: 'alq-mini',
+    const el = miniTarjeta({ id: 'alq:panel', ctx: { tipo: 'agente', id: 'alquileres', titulo: 'Agente Alquileres' }, titulo: 'Alquileres', sub: `Agente · ${lst.length} ${lst.length === 1 ? 'alquiler' : 'alquileres'}`, clase: 'alq-mini',
       desc: `Rentas ${eur(renta)} · suministros ${eur(sum)} pendientes. Fichas, recibos, agua, WhatsApp / Comunicaciones e historial.`, estado, accion: { txt: 'Abrir', on: abrir, cls: 'primary' }, abrir });
     return { tono: estado[1] === 'wait' ? 'ask' : estado[1], texto: `alquileres alquiler agua suministros inquilinos recibos ${lst.map((a) => a.inquilino).join(' ')}`, el };
   }

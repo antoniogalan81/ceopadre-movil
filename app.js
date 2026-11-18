@@ -653,7 +653,7 @@ function botones(c) {
   const info = I('info', `Detalles de ${c.nombre}`, 'details');
   const instr = I('message', 'Mensaje para la próxima ronda o prompt directo', 'instruct');
   // Las cotidianas, visibles: enviar una orden ya, consultar al CEO y (si tiene hoja de ruta) añadir una tarea.
-  const add = [I('send', 'Enviar instrucción ahora', 'add', 'accent'), I('ask', 'Consultar al CEO', 'ceo'), c.meta_id ? I('task', 'Añadir tarea al objetivo', 'tarea') : null];
+  const add = [I('send', 'Enviar instrucción ahora', 'add', 'accent'), I('ask', 'Consultar', 'ceo'), c.meta_id ? I('task', 'Añadir tarea al objetivo', 'tarea') : null];
   const stop = I('stop', 'Cancelar objetivo', 'cancel', 'danger');
   // LISTO: Claude entregó y espera. CONTINUAR = primer pendiente o (AUTO) que el CEO retome; en MANUAL sin nada, escribir.
   if (e === 'LISTO') return [c.modo !== 'MANUAL' || c.pendientes || c.anadidos ? T(c.modo === 'MANUAL' ? 'ENVIAR SIGUIENTE' : 'CONTINUAR', 'resume') : null,
@@ -803,7 +803,7 @@ function tuyaCard(x) {
     line('TE NECESITA', hum.que ? hum.que.charAt(0).toUpperCase() + hum.que.slice(1) : x.condicion),
     h('p', { class: 'ln muted' }, 'Cuando lo hagas, CEOPadre lo comprueba solo y sigue. Si ya lo has hecho, pulsa el botón.'),
     h('div', { class: 'row' }, h('button', { class: 'btn primary small', type: 'button', onclick: (e) => run('espera.hecho', { trabajo: x.trabajo }, 'Registrado', e.currentTarget) }, 'Ya lo he hecho'),
-      h('button', { class: 'btn ghost small', type: 'button', onclick: () => openCeo(`trabajo:${x.trabajo}`, { pregunta: '¿Qué necesitas exactamente de mí, para qué, y hay alguna alternativa que no me necesite?' }) }, '💬 Consultar al CEO'),
+      h('button', { class: 'btn ghost small', type: 'button', onclick: () => openCeo(`trabajo:${x.trabajo}`, { pregunta: '¿Qué necesitas exactamente de mí, para qué, y hay alguna alternativa que no me necesite?' }) }, '💬 Consultar'),
       h('button', { class: 'btn ghost small', type: 'button', onclick: () => actions.details(x.c) }, 'Ver detalles')),
     // Otra instrucción: la de siempre del trabajo; no se pospone (CEOPadre ya lo comprueba solo, sin avisar de más).
     comunes({ copy: (b) => copiarConsulta(`trabajo:${x.trabajo}`, b), instruir: (b) => actions.instruct({ ...x.c, trabajo: x.trabajo }, b) }));
@@ -835,7 +835,7 @@ function waitCard(x) {
     x.trabajo === c.trabajo && c.anadidos ? ordenLinea(c) : null,
     h('div', { class: 'row' },
       h('button', { class: 'btn primary small', type: 'button', onclick: (ev) => actions.add(cj, ev.currentTarget) }, 'Enviar instrucción ahora'),
-      h('button', { class: 'btn ghost small', type: 'button', onclick: () => openCeo(e?.id ? `espera:${e.id}` : `trabajo:${x.trabajo}`, { pregunta: '¿Por qué está esperando exactamente, qué hará después y qué pasaría si lo reactivo?' }) }, 'Consultar al CEO'),
+      h('button', { class: 'btn ghost small', type: 'button', onclick: () => openCeo(e?.id ? `espera:${e.id}` : `trabajo:${x.trabajo}`, { pregunta: '¿Por qué está esperando exactamente, qué hará después y qué pasaría si lo reactivo?' }) }, 'Consultar'),
       e?.id ? h('button', { class: 'btn ghost small', type: 'button', title: 'Repite ya su comprobación; si se cumple, el trabajo continúa solo', onclick: (ev) => run('espera.comprobar', { id: e.id }, 'Comprobado', ev.currentTarget) }, 'Comprobar ahora') : null,
       c.meta_id && x.trabajo === c.trabajo ? h('button', { class: 'btn ghost small', type: 'button', onclick: (ev) => actions.tarea(c, ev.currentTarget) }, 'Añadir tarea') : null,
       h('button', { class: 'link', type: 'button', onclick: () => actions.details(c) }, 'Ver detalles'))), () => actions.details(c), c.nombre);
@@ -1694,7 +1694,7 @@ function autCard(a, despues = () => {}) {
       h('p', { class: 'muted small' }, h('b', {}, 'Pruebas')), h('ul', { class: 'mlist' }, (f.pruebas || []).map((t) => h('li', {}, t)))) : null,
     h('div', { class: 'row a-acts' }, ...acts.filter(Boolean),
       h('button', { class: 'link', type: 'button', onclick: () => openConexiones('autorizaciones') }, 'Ver historial'),
-      h('button', { class: 'link', type: 'button', onclick: () => void openCeo('general', { pregunta: `Sobre el permiso #${a.id} («${f?.que || a.accion_texto}»): ¿qué recomiendas y qué riesgo real tiene?` }) }, 'Consultar al CEO')));
+      h('button', { class: 'link', type: 'button', onclick: () => void openCeo('general', { pregunta: `Sobre el permiso #${a.id} («${f?.que || a.accion_texto}»): ¿qué recomiendas y qué riesgo real tiene?` }) }, 'Consultar')));
 }
 // T41 (RI1311 §6): REGISTRO de quién aprueba, rechaza o usa cada permiso, en palabras (sin huellas ni identificadores). El mismo
 // en Conexiones y en Dirección. Si la cadena de huellas no cuadra, se dice arriba y en rojo.
@@ -1993,7 +1993,7 @@ function summaryPanel(c, d) {
     h('div', { class: 'sum-head' }, h('span', { class: `pill tone-${needsDecision(c) ? 'ask' : tone}` }, needsDecision(c) ? decisionLabel(c) : label),
       c.pendientes ? h('span', { class: 'chip' }, `Pendientes ${c.pendientes}`) : null,
       c.anadidos ? h('span', { class: 'chip' }, `Instrucciones sin incorporar ${c.anadidos}`) : null,
-      hasJob && c.trabajo ? h('button', { class: 'btn ghost small', type: 'button', onclick: () => openCeo(`trabajo:${c.trabajo}`, ['ERROR', 'BLOQUEADO'].includes(c.estado) ? { pregunta: '¿Qué ha fallado y qué recomiendas?' } : {}) }, '💬 Consultar al CEO') : null),
+      hasJob && c.trabajo ? h('button', { class: 'btn ghost small', type: 'button', onclick: () => openCeo(`trabajo:${c.trabajo}`, ['ERROR', 'BLOQUEADO'].includes(c.estado) ? { pregunta: '¿Qué ha fallado y qué recomiendas?' } : {}) }, '💬 Consultar') : null),
     hasJob && c.estado !== 'CANCELADO' ? h('div', { class: 'sum-ceo' },
       seg(`modo-${c.trabajo}`, 'CEO', [['AUTO', 'AUTO', MODO_HELP.AUTO], ['MANUAL', 'MANUAL', MODO_HELP.MANUAL]], modo,
         (v) => run('trabajo.modo', { trabajo: c.trabajo, modo: v }, v)),
@@ -2096,7 +2096,7 @@ function direccionPanel(c, d) {
         } }, '⏸ Pausar el proyecto'),
       c.conciliacion?.etapa === 'DETECTADO' ? h('button', { class: 'btn ghost small', type: 'button', onclick: (e2) => run('proyecto.conciliar', { proyecto: c.id }, 'Conciliando', e2.currentTarget) }, 'Conciliar ahora') : null,
       vivo ? h('button', { class: 'btn ghost small', type: 'button', onclick: (e2) => actions.instruct(c, e2.currentTarget) }, 'Dar una instrucción') : null,
-      h('button', { class: 'btn ghost small', type: 'button', onclick: () => openCeo(`proyecto:${c.id}`) }, '💬 Consultar al CEO'),
+      h('button', { class: 'btn ghost small', type: 'button', onclick: () => openCeo(`proyecto:${c.id}`) }, '💬 Consultar'),
       m ? h('button', { class: 'btn ghost small', type: 'button', onclick: () => { $('#map-title').textContent = `Mapa · ${c.nombre}`; paintMap(d.mapa, (id, que, b) => run(`canon.${que}`, { proyecto: c.id, id }, 'Hecho', b), (ref, b) => actions.consult(c, ref, b)); $('#map').showModal(); } }, 'Ver mapa completo') : null));
 }
 
@@ -2234,7 +2234,7 @@ function techPanel(c, d) {
       h('ul', { class: 'notes' }, d.notas.map((n) => h('li', {}, h('b', {}, n.kind === 'instruccion' ? `${TIPO[n.tipo] || n.tipo} · CONSUMIDA` : n.kind), ' ',
         n.text, n.chars > n.text.length ? '…' : '')))) : null,
     d.trabajos?.length > 1 ? fold('objetivos', `Objetivos de este proyecto (${d.trabajos.length})`,
-      h('ul', { class: 'notes' }, d.trabajos.map((t) => h('li', {}, h('b', {}, (STATES[t.estado] || [])[1] || t.estado), ' · ', t.objetivo, ' ', h('button', { class: 'link', type: 'button', onclick: () => openCeo(`trabajo:${t.id}`) }, 'Consultar al CEO'))))) : null,
+      h('ul', { class: 'notes' }, d.trabajos.map((t) => h('li', {}, h('b', {}, (STATES[t.estado] || [])[1] || t.estado), ' · ', t.objetivo, ' ', h('button', { class: 'link', type: 'button', onclick: () => openCeo(`trabajo:${t.id}`) }, 'Consultar'))))) : null,
     fold('proyecto', c.tipo === 'GESTION' ? 'Gestión' : 'Proyecto',
       h('p', { class: 'mono' }, d.proyecto?.ruta || c.ruta),
       c.componentes?.length ? h('p', { class: 'ln' }, h('b', {}, 'COMPONENTES'), ' ', c.componentes.join(' · ')) : null,

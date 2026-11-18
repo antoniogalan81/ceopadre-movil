@@ -523,7 +523,8 @@ export function alquileresUi({ run, ask, cmd, toast, LOCAL }) {
     if (detFactura?.dlg.open) detFactura.dlg.close();
     const cuerpo = h('div', { class: 'alq-ficha-body' }, cuerpoFactura(f));
     const dlg = h('dialog', { class: 'sheet alq-ficha', 'aria-label': `Factura ${f.proveedor} ${fecha(f.fecha)}`, ...marca({ tipo: 'factura', id: `factura:${f.id}`, titulo: `Factura ${f.proveedor} ${fecha(f.fecha)}` }) },
-      h('header', { class: 'cmp-head' }, h('h2', {}, `${f.tipo === 'AGUA' ? 'Agua' : f.tipo} · ${fecha(f.fecha)} · ${f.importe_txt}`), h('button', { class: 'btn ghost small', type: 'button', onclick: () => dlg.close() }, 'Cerrar')), cuerpo);
+      h('header', { class: 'cmp-head' }, h('h2', {}, `${f.tipo === 'AGUA' ? 'Agua' : f.tipo} · ${fecha(f.fecha)} · ${f.importe_txt}`), h('button', { class: 'btn ghost small', type: 'button', onclick: () => window.dispatchEvent(new CustomEvent('ceo:abrir', { detail: { ref: `factura:${f.id}` } })) }, 'Consultar'),
+        h('button', { class: 'btn ghost small', type: 'button', onclick: () => dlg.close() }, 'Cerrar')), cuerpo);
     dlg.addEventListener('close', () => { dlg.remove(); if (detFactura?.dlg === dlg) detFactura = null; });
     document.body.append(dlg);
     detFactura = { id: f.id, dlg, cuerpo, sig: JSON.stringify(f) };
@@ -759,7 +760,8 @@ export function alquileresUi({ run, ask, cmd, toast, LOCAL }) {
         estChip(f.estado), ` · proveedor: ${PAGO_PROV[f.pago_proveedor] || f.pago_proveedor}`, f.partes.length ? ` · ${f.partes.map((x) => `${x.obligado} ${x.importe_txt}`).join(' · ')}` : f.propuesta ? ` · propuesta sin confirmar: ${f.propuesta}` : ''))) : null,
       m.motivo ? h('p', { class: 'note' }, m.motivo) : null,
       h('div', { class: 'alq-acciones' }, acts, h('button', { class: 'link', type: 'button', 'aria-expanded': String(abierto),
-        onclick: () => { if (abierto) wa.abierto.delete(m.id); else wa.abierto.add(m.id); repintar(); } }, `${abierto ? 'Ocultar' : 'Ver'} historial (${m.eventos.length})`)),
+        onclick: () => { if (abierto) wa.abierto.delete(m.id); else wa.abierto.add(m.id); repintar(); } }, `${abierto ? 'Ocultar' : 'Ver'} historial (${m.eventos.length})`),
+        h('button', { class: 'link', type: 'button', onclick: () => window.dispatchEvent(new CustomEvent('ceo:abrir', { detail: { ref: `borrador:alqmsg-${m.id}` } })) }, 'Consultar')),
       abierto ? h('ul', { class: 'alq-partes small' }, m.eventos.map((e) => h('li', {}, `${fecha(e.at.slice(0, 10))} ${e.at.slice(11, 16)} · ${WA_EV[e.tipo] || e.tipo} · ${e.origen || ''}${e.quien ? ` · ${e.quien}` : ''}`))) : null,
       a ? h('button', { class: 'link small', type: 'button', onclick: () => abrirFicha(a) }, `Ficha de ${a.inquilino}`) : null);
   }

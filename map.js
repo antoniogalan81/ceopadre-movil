@@ -25,7 +25,7 @@ const dbtn = (glyph, label, onclick, cls) => h('button', { class: `dbtn ${cls}`,
 /**
  * ✓ ✕ ↺ ? de una decisión. V3.7: cada botón dice la ACCIÓN REAL que autoriza (texto del CEO para esta versión de la
  * decisión, o «Aprobar la propuesta» si aún no habló); ↺ = la alternativa del CEO; el recomendado se marca. `ask`
- * (Consultar al CEO) es consultivo: nunca aprueba ni rechaza.
+ * (Consultar) es consultivo: nunca aprueba ni rechaza.
  */
 export function decideRow({ yes, no, ask, alt = null, altLabel = '', rec = null, yesLabel = 'Aprobar la propuesta', noLabel = 'Rechazar la propuesta' }) {
   const b = (g, l, fn, cls, k) => {
@@ -35,7 +35,7 @@ export function decideRow({ yes, no, ask, alt = null, altLabel = '', rec = null,
   };
   return h('div', { class: 'dec-btns', role: 'group', 'aria-label': 'Decidir' },
     yes ? b('✓', yesLabel, yes, 'yes', 'APROBAR') : null, no ? b('✕', noLabel, no, 'no', 'RECHAZAR') : null,
-    alt ? b('↺', altLabel || 'Hacer la alternativa del CEO', alt, 'alt', 'ALTERNATIVA') : null, ask ? dbtn('?', 'Consultar al CEO', ask, 'ask') : null);
+    alt ? b('↺', altLabel || 'Hacer la alternativa del CEO', alt, 'alt', 'ALTERNATIVA') : null, ask ? dbtn('?', 'Consultar', ask, 'ask') : null);
 }
 
 /**
@@ -102,7 +102,7 @@ export function advice(c) {
 
 /**
  * CAMBIOS PROPUESTOS a lo protegido. Primero QUÉ CAMBIA (y el impacto si lo hay) y ✓ ✕ ?; el antes/después completo y el
- * motivo, plegados en «Detalles» (se entiende desde el móvil en segundos). `consult(ref, btn)` = Consultar al CEO (abre la conversación).
+ * motivo, plegados en «Detalles» (se entiende desde el móvil en segundos). `consult(ref, btn)` = Consultar (abre la conversación).
  */
 export function proposals(m, decide, consult = null, copy = null) {
   if (!m.propuestas?.length) return null;
@@ -138,7 +138,7 @@ export function pendingDecisions(list, { answer, postpone, consult = null, alter
       h('div', { class: 'dec-btns', role: 'group', 'aria-label': 'Decidir' },
         dbtn('✎', 'Responder', (e) => answer(d, e.currentTarget), 'yes'),
         alternativa && d.consejo?.alternativa && d.version ? dbtn('↺', `Responder: ${d.consejo.alternativa.etiqueta}`, (e) => alternativa(d, e.currentTarget), 'alt rec') : null,
-        consult && d.ref ? dbtn('?', 'Consultar al CEO', (e) => consult(d.ref, e.currentTarget), 'ask') : null),
+        consult && d.ref ? dbtn('?', 'Consultar', (e) => consult(d.ref, e.currentTarget), 'ask') : null),
       // Una pregunta abierta: «otra instrucción» ES responder (✎), así que aquí sólo copiar y posponer.
       comunes({ copy: copy && d.ref ? (b) => copy(d.ref, b) : null, posponer: (b) => postpone(d, b) })))));
 }

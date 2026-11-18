@@ -261,7 +261,7 @@ export function negocioUi({ api, ask, toast, show, data, run, viewText, onChange
       h('p', { class: 'need-t' }, h('b', {}, TIPO_NEC[n.tipo] || 'Necesito'), ` — ${n.que}`),
       n.tipo === 'MENSAJES' ? listaMensajes(n) : null,
       compacto ? [
-        h('p', { class: 'need-nivel' }, porque ? `Por qué: ${corto(porque, 220)}` : 'Por qué: no consta (pulsa «Consultar al CEO»).', h('small', { class: 'muted' }, ` · objetivo «${corto(o.titulo, 60)}»${n.origen ? ` · lo pide: ${n.origen}` : ''}`)),
+        h('p', { class: 'need-nivel' }, porque ? `Por qué: ${corto(porque, 220)}` : 'Por qué: no consta (pulsa «Consultar»).', h('small', { class: 'muted' }, ` · objetivo «${corto(o.titulo, 60)}»${n.origen ? ` · lo pide: ${n.origen}` : ''}`)),
         recom,
         h('details', { class: 'prop-more need-ctx', 'data-k': `ctx-${n.ref}` }, h('summary', {}, 'Contexto, consecuencias y riesgos'), contexto, ex ? null : advice(k)),
       ] : [n.motivo_nivel ? h('p', { class: 'need-nivel' }, `Por qué te lo pregunto: ${n.motivo_nivel}${n.origen ? ` · lo pide: ${n.origen}` : ''}`) : null, contexto, ex ? null : advice(k)],
@@ -282,7 +282,7 @@ export function negocioUi({ api, ask, toast, show, data, run, viewText, onChange
     const ef = EFECTOS_NEC[n.tipo] || {};
     const e = k?.explicacion || {};
     const d = n.detalle || {};
-    const rec = k?.veredicto ? `${{ APROBAR: k.aprobar || ef.boton || 'Aprobar', RECHAZAR: k.rechazar || 'No hacerlo', ALTERNATIVA: k.alternativa?.etiqueta, RESPONDER: k.respuesta, POSPONER: 'Esperar', INVESTIGAR: 'Comprobar antes un dato' }[k.veredicto] || k.veredicto}${k.motivo ? ` — ${k.motivo}` : ''}` : 'Aún sin recomendación: pulsa «Consultar al CEO».';
+    const rec = k?.veredicto ? `${{ APROBAR: k.aprobar || ef.boton || 'Aprobar', RECHAZAR: k.rechazar || 'No hacerlo', ALTERNATIVA: k.alternativa?.etiqueta, RESPONDER: k.respuesta, POSPONER: 'Esperar', INVESTIGAR: 'Comprobar antes un dato' }[k.veredicto] || k.veredicto}${k.motivo ? ` — ${k.motivo}` : ''}` : 'Aún sin recomendación: pulsa «Consultar».';
     const filas = [['OBJETIVO', o.titulo], ['QUÉ SE PIDE', n.que], ['QUÉ PASA', e.que_pasa], ['POR QUÉ (justificación)', n.por_que], ['QUÉ QUEDA EN ESPERA', n.bloquea], ['MIENTRAS, EL OBJETIVO SIGUE CON', n.mientras],
       ['CÓMO / DATOS', n.como], ['FUENTE', d.fuente], ['LICENCIA', d.licencia], ['INSTALACIÓN (por proyecto y con tu autorización)', d.instalacion],
       ['ALTERNATIVAS', [d.alternativas, k?.alternativa ? `Del CEO — ${k.alternativa.etiqueta}: ${k.alternativa.texto || ''}` : ''].filter(Boolean).join('\n')],
@@ -329,7 +329,7 @@ export function negocioUi({ api, ask, toast, show, data, run, viewText, onChange
       h('div', { class: 'row' }, o.estado === 'ESPERANDO_ANTONIO' ? B('RESPONDER', (b) => responder(o, b), 'primary') : null,
         o.categoria === 'CIERRE' ? B('Sí, darlo por alcanzado', (b) => cerrar(o, b)) : null,
         B('REANUDAR', (b) => after(cmd('negocio.reanudar', { id: o.id }, 'Reanudado', b))),
-        B('💬 Consultar al CEO', () => ceoAbrir(`meta:${o.id}`, `${o.estado === 'BLOQUEADA' ? 'Está bloqueado' : 'Me preguntas'}: «${corto(o.pregunta || o.evaluacion || '', 300)}». ¿Qué recomiendas, por qué, qué alternativas hay y qué pasa con cada una?`))),
+        B('💬 Consultar', () => ceoAbrir(`meta:${o.id}`, `${o.estado === 'BLOQUEADA' ? 'Está bloqueado' : 'Me preguntas'}: «${corto(o.pregunta || o.evaluacion || '', 300)}». ¿Qué recomiendas, por qué, qué alternativas hay y qué pasa con cada una?`))),
       // RESPONDER ya es «dar otra instrucción»; posponer no tiene sentido: el objetivo entero está esperando esto.
       comunes({ copy: (b) => copiarRef(`meta:${o.id}`, b) }));
     return null;
@@ -340,14 +340,14 @@ export function negocioUi({ api, ask, toast, show, data, run, viewText, onChange
     // EXTERNO: lo ejecuta otra sesión; aquí no hay director que reciba instrucciones ni pausas (no se ofrece lo que no actúa).
     if (o.seleccion?.modo === 'EXTERNO') return h('div', { class: 'a-acts obj-acts' },
       !closed ? B('✓ Dar por cumplido y cerrar', (b) => aceptarRes(o, b), 'ghost', { title: 'Das el objetivo por cumplido: se cierra y no vuelve a pedirte nada' }) : null,
-      B('💬 Consultar al CEO', () => window.dispatchEvent(new CustomEvent('ceo:abrir', { detail: { ref: `meta:${o.id}` } }))));
+      B('💬 Consultar', () => window.dispatchEvent(new CustomEvent('ceo:abrir', { detail: { ref: `meta:${o.id}` } }))));
     return h('div', { class: 'a-acts obj-acts' },
       // Visible (no escondido en «Más»): cerrar un objetivo cumplido es una decisión habitual de Antonio.
       ['EN_SEGUIMIENTO', 'ACTIVA', 'ESPERANDO_ANTONIO', 'PAUSADA', 'BLOQUEADA'].includes(o.estado) && !o.trabajos?.en_curso ? B('✓ Dar por cumplido y cerrar', (b) => aceptarRes(o, b), o.estado === 'EN_SEGUIMIENTO' ? 'primary' : 'ghost', { title: 'Das el objetivo por cumplido: se cierra, deja de trabajar y no vuelve a pedirte nada' }) : null,
       !closed ? B('Nueva instrucción', (b) => instruir(o, b), o.estado === 'EN_SEGUIMIENTO' ? 'ghost' : 'primary') : null,
       o.estado === 'PAUSADA' ? B('▶ Continuar', (b) => after(cmd('negocio.reanudar', { id: o.id }, 'Continúa', b)), 'primary')
         : !closed && o.estado !== 'BLOQUEADA' ? B('⏸ Pausar', (b) => after(cmd('negocio.pausar', { id: o.id }, 'Objetivo en pausa', b)), 'ghost', { title: 'Pausa TODO el objetivo: no empieza nada nuevo y lo que está en marcha se detiene sin perder lo hecho' }) : null,
-      B('💬 Consultar al CEO', () => window.dispatchEvent(new CustomEvent('ceo:abrir', { detail: { ref: `meta:${o.id}` } }))),
+      B('💬 Consultar', () => window.dispatchEvent(new CustomEvent('ceo:abrir', { detail: { ref: `meta:${o.id}` } }))),
       h('details', { class: 'a-more' }, h('summary', { class: 'btn ghost small' }, 'Más'), h('div', { class: 'a-menu' },
         !closed ? B('Modificar el objetivo o los proyectos', (b) => editarObjetivo(o, b)) : null,
         ['ACTIVA', 'ESPERANDO_ANTONIO', 'PAUSADA', 'EN_SEGUIMIENTO'].includes(o.estado) ? B('Medir ahora', (b) => after(cmd('negocio.medir', { id: o.id }, 'Medido', b))) : null,
@@ -428,7 +428,7 @@ Elige qué hacer:`,
       fields: [{ name: 'accion', label: 'Qué haces', type: 'choice', value: t.espera ? '' : 'instruccion', options: [
         ...(t.espera ? [{ value: 'hecho', label: 'Ya lo he hecho: que siga' }] : []),
         { value: 'instruccion', label: 'Darle otra instrucción (sustituye lo que pedía)' },
-        { value: 'consultar', label: 'Consultar al CEO antes de decidir' }] },
+        { value: 'consultar', label: 'Consultar antes de decidir' }] },
       { name: 'texto', label: 'Instrucción o comentario (obligatorio si das otra instrucción)', type: 'textarea', required: false }] });
     if (!r) return;
     if (r.accion === 'consultar') { window.dispatchEvent(new CustomEvent('ceo:abrir', { detail: { ref: `trabajo:${t.trabajo}` } })); return; }

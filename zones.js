@@ -72,10 +72,11 @@ export function netStatus({ local, browserOnline, reachable, pcOnline, motor }) 
 }
 
 /** Con el servidor respondiendo, el MOTOR (18-11): sin CEO no hay decisiones; los fallos técnicos se ven (se reintentan solos). */
-export function motorStatus({ ceo, trabajando = 0, bloqueos_tecnicos: b = 0 }) {
-  if (/ninguno/i.test(ceo || '')) return ['need', 'Sin CEO disponible: los trabajos esperan'];
-  const t = `CEO ${ceo} · ${trabajando} trabajando${b ? ` · ${b} con fallo técnico (se reintenta solo)` : ''}`;
-  return [b ? 'need' : 'ok', t];
+// 18-11: con la ESTRATEGIA DE IA, `ia` = «Cerebro: Codex · Trabajador: Claude» (o con el relevo y su motivo).
+export function motorStatus({ ceo, trabajando = 0, bloqueos_tecnicos: b = 0, ia, sin_cerebro, sin_trabajador }) {
+  if (sin_cerebro || (!ia && /ninguno/i.test(ceo || ''))) return ['need', ia ? `${ia}: los trabajos esperan` : 'Sin CEO disponible: los trabajos esperan'];
+  const t = `${ia || `CEO ${ceo}`} · ${trabajando} trabajando${b ? ` · ${b} con fallo técnico (se reintenta solo)` : ''}`;
+  return [b || sin_trabajador ? 'need' : 'ok', t];
 }
 
 // Reinicio en hora local: «15:36» si es hoy, «jue 12:27» si no. Sin dato → '—'.

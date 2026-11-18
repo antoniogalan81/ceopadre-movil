@@ -150,7 +150,10 @@ export function negocioUi({ api, ask, toast, show, data, run, viewText, onChange
     const val = !k.disponible ? 'no medible todavía' : k.error ? `sin medir · ${k.error}` : k.valor == null ? 'aún sin medir' : `${k.valor}${k.unidad ? ` ${k.unidad}` : ''}`;
     const tone = !k.disponible || k.error || k.valor == null ? 'idle' : k.cumple ? 'ok' : 'warn';
     return h('li', { class: `kpi t-${tone}` }, h('b', {}, k.nombre), ` · ${val}`, h('small', { class: 'muted' },
-      ` · objetivo ${k.sentido} ${k.objetivo}${k.anterior != null && k.valor != null ? ` · antes ${k.anterior}` : ''}${k.medido_at ? ` · medido ${fecha(k.medido_at)}` : ''}${!k.disponible && k.nota ? ` · ${k.nota}` : ''}`));
+      ` · objetivo ${k.sentido} ${k.objetivo}${k.anterior != null && k.valor != null ? ` · antes ${k.anterior}` : ''}${k.medido_at ? ` · medido ${fecha(k.medido_at)}` : ''}${!k.disponible && k.nota ? ` · ${k.nota}` : ''}`),
+      // Intermedio (c2a957fa #5.2): se ve que NO acredita ni es ahorro, y sus limitaciones quedan plegadas debajo.
+      k.tipo === 'intermedio' ? h('small', { class: 'muted' }, ' · INTERMEDIO: no acredita el objetivo ni es ahorro demostrado') : null,
+      k.tipo === 'intermedio' && k.disponible && k.nota ? h('details', { class: 'prop-more', 'data-k': `kpi-nota-${k.id}` }, h('summary', {}, 'Limitaciones y fecha de los datos'), h('p', { class: 'small muted' }, k.nota)) : null);
   }
   const resultados = (o) => h('section', { class: 'panel' }, h('h4', {}, 'Resultados'),
     h('p', { class: 'muted small' }, 'Medidos por CEOPadre sin IA. Un trabajo terminado no es un resultado conseguido.'),
@@ -282,7 +285,7 @@ export function negocioUi({ api, ask, toast, show, data, run, viewText, onChange
     const filas = [['OBJETIVO', o.titulo], ['QUÉ SE PIDE', n.que], ['QUÉ PASA', e.que_pasa], ['POR QUÉ (justificación)', n.por_que], ['QUÉ QUEDA EN ESPERA', n.bloquea], ['MIENTRAS, EL OBJETIVO SIGUE CON', n.mientras],
       ['CÓMO / DATOS', n.como], ['FUENTE', d.fuente], ['LICENCIA', d.licencia], ['INSTALACIÓN (por proyecto y con tu autorización)', d.instalacion],
       ['ALTERNATIVAS', [d.alternativas, k?.alternativa ? `Del CEO — ${k.alternativa.etiqueta}: ${k.alternativa.texto || ''}` : ''].filter(Boolean).join('\n')],
-      ['EL CEO RECOMIENDA', rec], [`SI ELIGES «${k?.aprobar || ef.boton || 'Aprobar'}»`, e.si_apruebo || ef.si_apruebo], [`SI ELIGES «${k?.rechazar || 'No lo voy a hacer'}»`, e.si_rechazo || ef.si_rechazo],
+      ['EL CEO RECOMIENDA', rec], [`SI ELIGES «${k?.aprobar || ef.boton || 'Aprobar'}»`, e.si_apruebo || n.si_aceptas || ef.si_apruebo], [`SI ELIGES «${k?.rechazar || 'No lo voy a hacer'}»`, e.si_rechazo || n.si_rechazas || ef.si_rechazo],
       ['SI DAS OTRA INSTRUCCIÓN', 'No se hace lo propuesto: el director sigue con lo que tú digas.'], ['SI LA POSPONES', 'Sigue pendiente 7 días sin avisos; el resto del objetivo sigue trabajando.'],
       ['RIESGO', [k?.riesgo, d.seguridad].filter(Boolean).join('\n')], ['PEDIDA', fecha(n.created_at)]];
     viewText(`Detalles · ${TIPO_NEC[n.tipo] || 'petición'}`, filas.filter(([, v]) => v && String(v).trim()).map(([t, v]) => `${t}\n${v}`).join('\n\n'));
@@ -296,7 +299,7 @@ export function negocioUi({ api, ask, toast, show, data, run, viewText, onChange
     if (r) await after(cmd('negocio.necesidad', { id: n.id, respuesta: r.respuesta || 'Hecho' }, 'Recibido: el CEO continúa', btn));
   }
   // T28 · inclusión en bloque en Mensajes: cada contacto con su motivo y fuente a la vista; al aprobar se puede desmarcar cualquiera.
-  const etiquetaMsg = (c) => `${c.nombre || c.id} · ${c.id.split(':')[0]} — ${c.motivo} (fuente: ${c.fuente})`;
+  const etiquetaMsg = (c) => `[${c.nivel === 'BORRADORES' ? 'BORRADORES' : 'SÓLO LECTURA'}] ${c.nombre || c.id} · ${c.id.split(':')[0]} — ${c.motivo} (fuente: ${c.fuente})`;
   function listaMensajes(n) {
     const d = n.detalle || {};
     return h('div', { class: 'need-msg' }, h('ul', { class: 'small' }, (d.contactos || []).map((c) => h('li', {}, etiquetaMsg(c)))),

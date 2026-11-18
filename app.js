@@ -1,6 +1,6 @@
 // CEOPadre en el navegador. En el PC habla con la API local; en el móvil, con Supabase.
 // No ejecuta nada: pinta el estado y deja órdenes. Todo el texto se inserta como texto (nunca HTML).
-import { cleanGoal, conditionsText, decisionCount, decisionsText, direccion, esPotente, esperaHumana, gestText, mood, needsDecision, netStatus, office, passwordAt, pcOnline, priority, PROMPT_LIMIT, PROMPT_WARN, quotaView, REAUTH_MS, claude7d, actualizado, waitingConditions, zone } from './zones.js';
+import { cleanGoal, conditionsText, decisionCount, decisionsText, direccion, esPotente, esperaHumana, gestText, mood, needsDecision, netStatus, office, passwordAt, pcOnline, priority, PROMPT_LIMIT, PROMPT_WARN, quotaView, REAUTH_MS, claude7d, actualizado, resetText, waitingConditions, zone } from './zones.js';
 import { claro, h } from './dom.js';
 import { advice, comunes, decideRow, EFECTO, explica, mapBody, mapPanel, pendingDecisions, proposals } from './map.js';
 import { remoteUi } from './remoto.js';
@@ -754,7 +754,10 @@ function pulsable(el, abrir, nombre) {
   el.classList.add('pulsable');
   el.setAttribute('aria-label', `${nombre}: abrir detalles`);
   el.addEventListener('click', (e) => {
-    if (e.target.closest('button, a, input, select, textarea, summary, details, label, [role=button]') || String(window.getSelection?.() || '')) return;
+    // Sólo los controles DE DENTRO de la tarjeta conservan su acción: un <details> que CONTIENE la tarjeta (cajón «Todos los
+    // proyectos») no cuenta (18-11: sus azulejos no abrían nada).
+    const ctl = e.target.closest('button, a, input, select, textarea, summary, details, label, [role=button]');
+    if ((ctl && ctl !== el && el.contains(ctl)) || String(window.getSelection?.() || '')) return;
     abrir();
   });
   el.addEventListener('keydown', (e) => { if ((e.key === 'Enter' || e.key === ' ') && e.target === el) { e.preventDefault(); abrir(); } });
@@ -2430,22 +2433,40 @@ function ajustesUi() {
   $('#b-informe').addEventListener('click', () => openInforme(24));
   $('#b-conex').addEventListener('click', () => listo().then(() => openConexiones()));
   if (new URLSearchParams(location.search).has('informe')) listo().then(() => openInforme(24)); // desde el aviso diario
-  // AJUSTE «reanudar tras la cuota» (PC y móvil: es una orden más).
+  // ESTRATEGIA DE IA (18-11; sustituye a «Reanudar tras cuota»): quién PIENSA (cerebro) y quién TRABAJA, si cada función admite
+  // sustituto y si lo parado por cuota se reanuda solo. PC y móvil: es una orden más (ajustes.guardar).
   {
     const b = $('#b-cuota');
-    const pintar = (on) => { b.textContent = on ? '🔁 Reanudar tras cuota: SÍ' : '🔁 Reanudar tras cuota: NO'; };
-    listo().then(() => api.cmd('ajustes.ver', {})).then((x) => { if (x?.ok) pintar(x.data.reanudar_cuota); }).catch(() => {});
+    const pintar = (ia) => { if (ia) b.textContent = `🧠 IA · ${ia.resumen}`; };
+    listo().then(() => api.cmd('ajustes.ver', {})).then((x) => { if (x?.ok) pintar(x.data.ia); }).catch(() => {});
+    const EST = { DISPONIBLE: 'disponible', POR_COMPROBAR: 'por comprobar (pasó su hora; se confirma con la próxima llamada)', SIN_SERVICIO: 'sin servicio' };
+    const prov = (n, e) => `${n}: ${EST[e.estado] || e.estado}${e.motivo && e.estado !== 'DISPONIBLE' ? ` (${e.motivo})` : ''}${e.hasta ? `, se vuelve a probar ${resetText(e.hasta)}` : ''}`;
+    const OPC = (pref) => [{ value: 'AUTO', label: `Automático (${pref})` }, { value: 'CODEX', label: 'Codex' }, { value: 'CLAUDE', label: 'Claude' }];
     b.addEventListener('click', async () => {
       const x = await api.cmd('ajustes.ver', {});
       if (!x?.ok) { toast(x?.error || 'El PC no responde', 'bad'); return; }
-      const on = x.data.reanudar_cuota;
+      const { ia, reanudar_cuota: reanudar } = x.data;
+      const p = ia.politica;
       const parados = x.data.en_espera.map((e) => `${e.proyecto}${e.no_reanuda ? ` (${e.no_reanuda})` : ''}`).join(' · ');
-      const r = await ask({ title: 'Cuando se agota la cuota de Claude o Codex',
-        help: `${on ? 'Ahora: lo que estaba trabajando se reanuda solo cuando vuelve la cuota (un intento cada vez que el proveedor dice que hay cuota; nunca reintentos seguidos). Lo pausado, lo terminado y lo que espera tu decisión no se toca.' : 'Ahora: lo que se para por cuota espera a que pulses CONTINUAR.'}${parados ? ` En espera de cuota: ${parados}.` : ''}`,
-        ok: on ? 'Esperar a que yo pulse CONTINUAR' : 'Reanudar solo cuando vuelva' });
+      const r = await ask({ title: 'Estrategia de IA',
+        help: `Ahora: ${ia.resumen}. ${prov('Codex', ia.proveedores.Codex)} · ${prov('Claude', ia.proveedores.Claude)}.${parados ? ` Esperando cuota: ${parados}.` : ''}
+Automática: Codex dirige y decide (cerebro) y Claude ejecuta los trabajos (trabajador). Si uno se queda sin cuota, el otro asume también su función y se la devuelve en cuanto vuelve, siempre entre rondas (nada en curso se corta). En Personalizada eliges cada función y si admite sustituto: sin sustituto, esa función espera a su proveedor.`,
+        fields: [
+          { name: 'modo', type: 'choice', label: 'Modo', value: p.modo, options: [{ value: 'AUTO', label: 'Automática (recomendada)' }, { value: 'PERSONALIZADA', label: 'Personalizada' }] },
+          { name: 'cerebro', type: 'choice', label: 'Cerebro (dirige, decide, revisa)', value: p.cerebro, options: OPC('Codex') },
+          { name: 'sustituir_cerebro', type: 'checkbox', label: 'Si el cerebro se queda sin cuota, el otro puede sustituirlo', value: p.sustituir_cerebro },
+          { name: 'trabajador', type: 'choice', label: 'Trabajador (ejecuta los trabajos)', value: p.trabajador, options: OPC('Claude') },
+          { name: 'sustituir_trabajador', type: 'checkbox', label: 'Si el trabajador se queda sin cuota, el otro puede sustituirlo', value: p.sustituir_trabajador },
+          { name: 'reanudar', type: 'checkbox', label: 'Reanudar solo cuando vuelva la cuota (sin pulsar CONTINUAR)', value: reanudar },
+        ], ok: 'Guardar' });
       if (!r) return;
-      const g = await api.cmd('ajustes.guardar', { reanudar_cuota: !on });
-      if (g?.ok) pintar(g.data.reanudar_cuota);
+      const g = await api.cmd('ajustes.guardar', { ia_politica: { modo: r.modo, cerebro: r.cerebro, trabajador: r.trabajador,
+        sustituir_cerebro: r.sustituir_cerebro, sustituir_trabajador: r.sustituir_trabajador } });
+      if (g?.ok && r.reanudar !== reanudar) {
+        const g2 = await api.cmd('ajustes.guardar', { reanudar_cuota: r.reanudar });
+        if (!g2?.ok) toast(g2?.error || 'No se pudo guardar la reanudación', 'bad');
+      }
+      if (g?.ok) pintar(g.data.ia);
       toast(g?.ok ? g.data.mensaje : g?.error || 'No se pudo', g?.ok ? 'ok' : 'bad');
     });
   }

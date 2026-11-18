@@ -839,6 +839,70 @@ function waitCard(x) {
       h('button', { class: 'link', type: 'button', onclick: () => actions.details(c) }, 'Ver detalles'))), () => actions.details(c), c.nombre);
 }
 
+/**
+ * T37 · VARIOS TRABAJOS, UNA ACCIÓN: una sola fila (la tarjeta compacta de las necesidades, con decideRow y comunes) en vez de
+ * una tarjeta por trabajo. Si es tuya, «Ya lo he hecho» la confirma para todos (espera.hecho por cada espera del grupo que el
+ * PC no haya cubierto ya por citarse entre sí) y se comprueba al momento sin IA; si no, «Comprobar ahora» las repite todas.
+ */
+function grupoCard(f) {
+  const x0 = f.items[0], todas = f.items.flatMap((x) => x.esperas || []);
+  // La espera raíz (la que citan las demás) dice la acción con sus palabras; si no está a la vista, la primera tuya.
+  const raiz = Number(String(f.key).split(':')[1]);
+  const e0 = todas.find((e) => e.id === raiz) || todas.find((e) => f.esperas.includes(e.id)) || todas[0];
+  const hum = esperaHumana(e0?.descripcion || x0.condicion || '');
+  const n = f.items.length;
+  const clase = e0?.clase || 'CONDICION';
+  const que = hum.que ? hum.que.charAt(0).toUpperCase() + hum.que.slice(1) : (e0?.depende || 'No consta: pendiente de diagnóstico.');
+  const nombres = [...new Set(f.items.map((x) => x.c.nombre))].join(', ');
+  const ref = `grupo:${f.key}`;
+  const ask = () => openCeo(e0?.id ? `espera:${e0.id}` : `trabajo:${x0.trabajo}`, { pregunta: f.peticion ? `¿Qué necesitas exactamente de mí? Desbloquea ${n} trabajos: ¿hay alguna alternativa que no me necesite?` : '¿Por qué esperan exactamente, qué harán después y qué pasaría si los reactivo?' });
+  const ids = todas.filter((e) => e.id).map((e) => e.id);
+  return h('article', { class: `need-card compacta wait-group${f.peticion ? ' m-need' : ''}`, 'data-id': ref, 'data-ref': ref, 'aria-label': `${n} trabajos, una acción: ${que}`,
+    ...marca({ tipo: 'espera', id: e0?.id ?? x0.trabajo, proyecto: x0.c.id, titulo: `${n} trabajos — ${que}`, acciones: [f.peticion ? 'espera.hecho' : 'espera.comprobar', 'trabajo.instruccion'] }) },
+    h('p', { class: 'need-t' }, h('b', {}, f.peticion ? 'Necesita que hagas algo' : CLASE_ESPERA[clase] || 'En espera'), ` — ${que}`),
+    h('p', { class: 'need-nivel' }, `Una sola acción para ${n} trabajos (${nombres}). `,
+      h('small', { class: 'muted' }, f.peticion ? 'Hazla una vez: cuenta para todos y CEOPadre lo comprueba solo.' : `De quién depende: ${e0?.depende || 'no consta'} · CEOPadre lo comprueba solo y continúa cuando se cumpla.`)),
+    h('details', { class: 'prop-more need-ctx', 'data-k': `grp-${f.key}` }, h('summary', {}, `Los ${n} trabajos que esperan esto`),
+      h('ul', { class: 'mlist' }, f.items.map((x) => h('li', { 'data-trabajo': x.trabajo }, h('b', {}, x.c.nombre), ` · ${cleanGoal(x.objetivo)} `,
+        h('button', { class: 'link', type: 'button', onclick: () => actions.details(x.c) }, 'Ver detalles')))),
+      h('p', { class: 'small muted' }, `Qué hará después: ${hum.luego}`)),
+    decideRow(f.peticion ? { yes: (e) => grupoHecho(f, e.currentTarget), yesLabel: 'Ya lo he hecho', ask }
+      : { yes: ids.length ? (e) => grupoComprobar(ids, e.currentTarget) : null, yesLabel: 'Comprobar ahora', ask }),
+    comunes({ copy: (b) => copiarConsulta(`trabajo:${x0.trabajo}`, b), detalles: () => view(`Detalles · ${n} trabajos, una acción`, [`QUÉ ESPERAN\n${que}`, `TRABAJOS\n${f.items.map((x) => `${x.c.nombre} · ${cleanGoal(x.objetivo)}`).join('\n')}`, `QUÉ HARÁ DESPUÉS\n${hum.luego}`].join('\n\n')),
+      instruir: (b) => actions.add({ ...x0.c, trabajo: x0.trabajo }, b) }));
+}
+// Una orden por fila a la vez (doble clic = una sola): mientras va al PC, todos los botones de la fila quedan inactivos.
+const grupoVuelo = new Set();
+async function enGrupo(b, fn) {
+  const card = b?.closest('.need-card'), k = card?.dataset.ref;
+  if (!k || grupoVuelo.has(k)) return;
+  grupoVuelo.add(k);
+  const bs = [...card.querySelectorAll('button')].filter((y) => !y.disabled);
+  for (const y of bs) y.disabled = true;
+  card.setAttribute('aria-busy', 'true');
+  try { await fn(); } finally { grupoVuelo.delete(k); for (const y of bs) y.disabled = false; card.removeAttribute('aria-busy'); }
+}
+const grupoHecho = (f, b) => enGrupo(b, async () => {
+  const hechas = new Set();
+  for (const id of f.esperas) {
+    if (hechas.has(id)) continue;
+    const r = await api.cmd('espera.hecho', { id });
+    if (!r?.ok) { toast(`${r?.error || 'No se pudo'}${hechas.size ? ` · ya registradas: ${hechas.size}` : ''}`, 'bad'); break; }
+    for (const x of r.data?.esperas || [id]) hechas.add(x);
+  }
+  if (hechas.size) toast(`Registrado: confirmado por ti para ${f.items.length} trabajos (${hechas.size} esperas de la misma acción). Verificando ahora sin IA.`, 'ok');
+  detailCache = null;
+  await refresh();
+});
+const grupoComprobar = (ids, b) => enGrupo(b, async () => {
+  const rs = [];
+  for (const id of ids) rs.push(await api.cmd('espera.comprobar', { id }));
+  const ok = rs.filter((r) => r?.ok);
+  toast(ok.length ? `Comprobadas ${ok.length}: ${ok.map((r) => r.data?.mensaje).filter(Boolean)[0] || 'hecho'}` : rs[0]?.error || 'No se pudo', ok.length ? 'ok' : 'bad');
+  detailCache = null;
+  await refresh();
+});
+
 /** Azulejo (EN ESPERA): logo, nombre, estado mínimo y las acciones de siempre (y, si espera, qué espera). */
 function tile(c) {
   return pulsable(h('article', { class: `tile m-${mood(c)}`, 'data-id': c.id, ...marca({ tipo: 'proyecto', id: c.id, titulo: c.nombre }) },
@@ -881,7 +945,10 @@ function gestUnit(o, asDesk) {
 
 function repaint(box, items) {
   const active = document.activeElement?.closest?.('[data-id]')?.dataset.id;
+  // Lo que Antonio desplegó sigue desplegado tras el repintado periódico (T37: «Los N trabajos» se cerraba solo).
+  const abiertos = new Set([...box.querySelectorAll('details[open][data-k]')].map((x) => x.dataset.k));
   box.replaceChildren(...items);
+  for (const x of box.querySelectorAll('details[data-k]')) if (abiertos.has(x.dataset.k)) x.open = true;
   if (active) box.querySelector(`[data-id="${CSS.escape(active)}"] button`)?.focus({ preventScroll: true });
 }
 
@@ -900,9 +967,10 @@ function paintList() {
   const negNeed = (data.negocio?.te_necesitan || 0) + (data.negocio?.necesidades || 0);
   // Cosas que te esperan (no tarjetas): cada pregunta, cada puesto que te pide algo, las respuestas y los objetivos de negocio.
   const autN = (data.autorizaciones || []).length;
-  const need = d.kpis.decisiones + d.necesita.filter((c) => !needsDecision(c)).length + d.tuyas.length + inboxN + negNeed + autN;
+  // T37: una petición tuya que desbloquea varios trabajos es UNA fila y cuenta UNA vez (web/zones.js porAccion).
+  const need = d.kpis.decisiones + d.necesitaSolas.filter((c) => !needsDecision(c)).length + d.peticiones.length + d.tuyasSolas.length + inboxN + negNeed + autN;
   paintAuts();
-  repaint($('#atender'), [...d.necesita.filter((c) => !needsDecision(c)).map(desk), ...d.tuyas.map(tuyaCard)]);
+  repaint($('#atender'), [...d.necesitaSolas.filter((c) => !needsDecision(c)).map(desk), ...d.peticiones.map(grupoCard), ...d.tuyasSolas.map(tuyaCard)]);
   $('#n-need').textContent = String(need);
   $('#z-need').hidden = !need;
   // Con problemas: sólo si hay.
@@ -914,9 +982,9 @@ function paintList() {
   $('#n-marcha').textContent = String(d.trabajando.length);
   $('#marcha-empty').hidden = d.trabajando.length > 0;
   // Esperando algo externo: en lenguaje normal.
-  repaint($('#esperando'), d.esperando.map(waitCard));
-  $('#n-wait').textContent = String(d.esperando.length);
-  $('#z-wait').hidden = !d.esperando.length;
+  repaint($('#esperando'), d.filasEspera.map((f) => (f.items.length > 1 ? grupoCard(f) : waitCard(f.items[0]))));
+  $('#n-wait').textContent = String(d.filasEspera.length);
+  $('#z-wait').hidden = !d.filasEspera.length;
   // Todos los proyectos: plegado al final (GESTIONES + los que tienen historia + los que están en reposo).
   repaint($('#espera'), [gestUnit(o, false), ...d.conHistoria.map(tile)].filter(Boolean));
   paintIdle(d.sinActividad);
@@ -1301,6 +1369,7 @@ async function openInforme(horas = 24) {
     sec('bad', 'Dependencias internas paradas más de 6 h', x.rendimiento?.dependencias_paradas || [], (i) => [h('b', {}, i.proyecto), ` — ${i.que}`, h('small', { class: 'muted' }, `Espera #${i.espera} · ${i.horas} h`)]),
     sec('next', 'Después', x.despues, (i) => [h('b', {}, i.cuando ? hhmm(i.cuando) : 'En cola'), ` — ${i.que} · ${i.proyecto}`]),
     x.rendimiento ? h('p', { class: 'muted' }, `Rendimiento: ${x.rendimiento.iniciados} iniciados · ${x.rendimiento.terminados} terminados · ${x.rendimiento.cancelados} cancelados${x.rendimiento.horas_hasta_terminar != null ? ` · ${x.rendimiento.horas_hasta_terminar} h de media hasta terminar` : ''} · ${x.rendimiento.abiertos} abiertos ahora`) : null,
+    x.consumo?.linea ? h('p', { class: 'muted' }, `Consumo (${x.horas} h): ${x.consumo.linea}`) : null,
     x.automatizaciones.length ? h('p', { class: 'muted' }, `Agentes ejecutados: ${x.automatizaciones.map((a) => `${a.n} ${a.estado.toLowerCase()}`).join(' · ')}`) : null,
     hechos.every((n) => !n) && !x.negocio.length && !x.esperando.length ? h('p', { class: 'muted' }, 'Sin actividad en este periodo.') : null,
     h('p', { class: 'muted small' }, `Del ${new Date(x.desde).toLocaleString('es-ES', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })} a ahora · datos de CEOPadre, sin estimaciones.`));

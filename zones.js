@@ -271,6 +271,17 @@ export function direccion(cards, now = Date.now()) {
     ...cards.flatMap((c) => (c.esperando || []).filter((x) => !x.te_necesita).map((x) => ({ c, trabajo: x.trabajo, objetivo: x.objetivo, esperas: x.esperas || [], condicion: x.condicion, otro: true })))];
   // Otro objetivo del proyecto que espera algo que SÓLO puede hacer Antonio: le necesita (no es «externo»).
   const tuyas = cards.flatMap((c) => (c.esperando || []).filter((x) => x.te_necesita).map((x) => ({ c, trabajo: x.trabajo, objetivo: x.objetivo, condicion: x.condicion })));
+  // T37 (18-11): LAS ESPERAS AGRUPADAS POR ACCIÓN COMÚN. Varios trabajos que esperan la misma acción tuya (el trabajo que enseña
+  // la tarjeta en ESPERANDO_ANTONIO, otros objetivos del proyecto o una espera externa) = UNA petición en «Necesita tu
+  // intervención»; varios que esperan lo mismo y no te necesitan = UNA fila en «En espera». Lo que va solo, como siempre.
+  const deTi = necesita.filter((c) => c.estado === 'ESPERANDO_ANTONIO' && !needsDecision(c) && c.trabajo)
+    .map((c) => ({ c, trabajo: c.trabajo, objetivo: c.objetivo, esperas: c.esperas_info || [], condicion: c.te_necesita, desk: true }));
+  const grupos = porAccion([...deTi, ...tuyas.map((x) => ({ ...x, esperas: (x.c.esperando || []).find((y) => y.trabajo === x.trabajo)?.esperas || [], tuya: true })), ...esperando]);
+  const peticiones = grupos.filter((g) => g.peticion && g.items.length > 1);
+  const enPeticion = new Set(peticiones.flatMap((g) => g.items.map((x) => x.trabajo)));
+  const filasEspera = porAccion(esperando.filter((x) => !enPeticion.has(x.trabajo)));
+  const tuyasSolas = tuyas.filter((x) => !enPeticion.has(x.trabajo));
+  const necesitaSolas = necesita.filter((c) => !enPeticion.has(c.trabajo) || needsDecision(c));
   const terminados = cards.filter((c) => c.estado === 'TERMINADO').sort((a, b) => tms(b) - tms(a));
   const autos = cards.flatMap((c) => (c.automatizaciones || []).map((a) => ({ ...a, proyectoNombre: c.nombre, proyectoId: c.id })));
   const programadas = autos.filter((a) => a.programa?.proxima).sort((a, b) => a.programa.proxima.localeCompare(b.programa.proxima));
@@ -288,7 +299,7 @@ export function direccion(cards, now = Date.now()) {
   const decisiones = cards.reduce((a, c) => a + decisionCount(c), 0);
   const aprobaciones = cards.reduce((a, c) => a + (c.aprobaciones || 0), 0);
   return {
-    necesita, tuyas, problemas, trabajando, esperando, terminados: terminados.slice(0, 5), autosHechas: autosHechas.slice(0, 4), programadas, pausadas, autos, proximos,
+    necesita, tuyas, tuyasSolas, necesitaSolas, peticiones, filasEspera, problemas, trabajando, esperando, terminados: terminados.slice(0, 5), autosHechas: autosHechas.slice(0, 4), programadas, pausadas, autos, proximos,
     // Compatibles con V3.2 (pantalla de proyectos): los que tienen historia y los que están en reposo.
     conHistoria: sortEspera(proyectos.filter(activo)), sinActividad: sortEspera(proyectos.filter((c) => !activo(c))),
     kpis: {
@@ -298,6 +309,58 @@ export function direccion(cards, now = Date.now()) {
       proyectos: proyectos.length, inactivos: proyectos.filter((c) => !activo(c)).length, agentes: autos.length,
     },
   };
+}
+
+/**
+ * T37 · ESPERAS POR ACCIÓN COMÚN. Misma acción = esperas tuyas (de_antonio) que se citan («misma acción que #209», o «#id» de
+ * otra espera tuya visible: la misma regla que src/espera.js confirmar), o esperas del mismo otro trabajo / la misma publicación /
+ * la misma condición externa (mismo texto o cita «#id» de otra condición visible).
+ * Devuelve [{ key, items, esperas (ids tuyos), peticion }] en orden de aparición, primero las que te necesitan. Sin DOM.
+ */
+export function porAccion(items) {
+  const tuyas = (x) => (x.esperas || []).filter((e) => e.de_antonio || e.clase === 'TU_RESPUESTA');
+  const ids = new Set(items.flatMap((x) => tuyas(x).map((e) => e.id)));
+  const padre = new Map();
+  const raiz = (k) => { while (padre.has(k) && padre.get(k) !== k) k = padre.get(k); return k; };
+  // La raíz es tu espera si una de las dos lo es (su texto dice la acción en grupoCard); si no, la menor.
+  const une = (a, b) => {
+    const ra = raiz(a), rb = raiz(b);
+    if (ra === rb) return;
+    const r = ids.has(ra) !== ids.has(rb) ? (ids.has(ra) ? ra : rb) : Math.min(ra, rb);
+    padre.set(r === ra ? rb : ra, r);
+  };
+  for (const x of items) {
+    const es = tuyas(x);
+    for (const e of es) {
+      une(e.id, es[0].id);
+      const misma = /misma acción que (?:la )?(?:espera )?#(\d+)/i.exec(e.descripcion || '');
+      if (misma) une(e.id, Number(misma[1]));
+      for (const m of String(e.descripcion || '').matchAll(/#(\d+)(?!\d)/g)) if (ids.has(Number(m[1]))) une(e.id, Number(m[1]));
+    }
+  }
+  // La misma condición externa (la respuesta de un tercero, un evento de uso real…) que esperan varios trabajos: el mismo texto
+  // o una cita «#id» de otra condición visible. Es una petición pendiente de fuera, no tuya: va a «En espera».
+  const conds = (x) => (x.esperas || []).filter((e) => e.clase === 'CONDICION' && e.id && !e.de_antonio);
+  const idsC = new Set(items.flatMap((x) => conds(x).map((e) => e.id)));
+  const porTexto = new Map();
+  for (const x of items) for (const e of conds(x)) {
+    const t = String(e.descripcion || '').replace(/\s+/g, ' ').trim().toLowerCase();
+    if (t && porTexto.has(t)) une(e.id, porTexto.get(t)); else if (t) porTexto.set(t, e.id);
+    // Una condición que cita una espera TUYA visible («llega con la misma acción que #209») espera esa misma acción tuya.
+    for (const m of String(e.descripcion || '').matchAll(/#(\d+)(?!\d)/g)) if (idsC.has(Number(m[1])) || ids.has(Number(m[1]))) une(e.id, Number(m[1]));
+  }
+  const out = new Map();
+  for (const x of items) {
+    const es = tuyas(x), e = (x.esperas || [])[0];
+    const rc = e && idsC.has(e.id) ? raiz(e.id) : null, deAccion = es.length > 0 || ids.has(rc);
+    const key = es.length ? `accion:${raiz(es[0].id)}` : ids.has(rc) ? `accion:${rc}` : e && ['OTRO_TRABAJO', 'PUBLICACION'].includes(e.clase) && e.depende ? `${e.clase}:${e.depende}`
+      : rc != null ? `CONDICION:${rc}` : `uno:${x.c?.id}:${x.trabajo}`;
+    if (!out.has(key)) out.set(key, { key, items: [], esperas: [], peticion: deAccion });
+    const g = out.get(key);
+    g.items.push(x);
+    for (const t of es) if (!g.esperas.includes(t.id)) g.esperas.push(t.id);
+  }
+  return [...out.values()].sort((a, b) => Number(b.peticion) - Number(a.peticion));
 }
 
 // «GOAL — COMPLETAR SALDOS…» → «Completar saldos…»: el objetivo en lenguaje normal (el texto original sigue en la ficha).

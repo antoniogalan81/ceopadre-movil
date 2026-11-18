@@ -15,7 +15,7 @@ const ESTADO_ENCARGO = { RECIBIDO: 'recibido (propuesta)', DELEGADO: 'delegado a
 const FASE_TONO = { RESULTADO: 'ok', TERMINADO: 'ok', EN_MARCHA: 'work', ESPERANDO: 'wait', TE_NECESITA: 'ask', PAUSADO: 'idle', CANCELADO: 'idle', ENTREGADA: 'work', ENCARGADA: 'work', DENEGADA: 'bad', TOPE: 'ask', ERROR: 'bad', PROPUESTA: 'ask', DETENIDO: 'bad' };
 // T31: adjuntos (src/mama-adjuntos.js). Mismo tope que el servidor; el tipo y la firma los comprueba el servidor.
 export const ADJ_MAX = 5 * 1024 * 1024;
-const kb = (b) => (b < 1024 * 1024 ? `${Math.max(1, Math.round(b / 1024))} KB` : `${(b / 1024 / 1024).toFixed(1).replace('.', ',')} MB`);
+const kb = (b) => (b < 1024 * 1024 ? `${Math.max(1, Math.round(b / 1024))} KB` : `${(b / 1024 / 1024).toFixed(1).replace('.', ',')} MB`); // T36: «1 KB» no se parte
 const chip = (label, tone) => h('span', { class: `a-chip t-${tone}` }, label);
 // T20: qué hizo MAMA con el mensaje o la nota (src/mama.js salidasDe). «Sólo conversación» = no creó nada.
 const SALIDA = { MEMORIA: ['Memoria', 'ok'], FICHA: ['Ficha de proyecto', 'ok'], TAREA: ['Tarea propuesta', 'ask'], SEGUIMIENTO: ['Seguimiento', 'work'], DELEGAR: ['Delegación', 'work'], CONVERSACION: ['Sólo conversación', 'idle'], ERROR: ['No interpretada', 'bad'] };
@@ -36,6 +36,7 @@ const interpretacion = (m) => {
 
 export function mamaUi({ api, toast, show, local }) {
   let abierta = false, timer = null, sig = '', v = null, enviando = false, canal = null, simulacion = null, ocupado = '';
+  let enCurso = null; // T36: el mensaje que se está enviando (se ve ya y sobrevive a un repintado del sondeo)
   // T38: memoria privada (sólo en el PC). Se relee cuando cambia la conversación, no en cada sondeo.
   let mem = null, memDe = null;
   const memFichas = new Map(); // id → ficha abierta (vigente + historial), sólo en esta pestaña
@@ -96,16 +97,26 @@ export function mamaUi({ api, toast, show, local }) {
         m.inciertos?.length ? h('details', { class: 'msg-more' }, h('summary', {}, 'Lo que no sabe seguro'), h('ul', {}, m.inciertos.map((x) => h('li', {}, x)))) : null));
   };
 
+  const enviandoBurbuja = () => { const b = burbuja({ rol: 'antonio', ...enCurso }); b.classList.add('m-pend'); b.append(h('p', { class: 'msg-who m-envio' }, 'enviando…')); return b; };
   async function enviar(e) {
     e.preventDefault();
     const ta = document.getElementById('m-text');
     const texto = ta.value.trim();
     if (!texto || enviando) return;
+    // T36: lo enviado se ve YA en la conversación («enviando…») y la caja queda libre; si falla, se quita y el texto vuelve.
+    enCurso = { texto, at: new Date().toISOString() };
+    const l = document.querySelector('#p-mama .mama-msgs');
+    l?.querySelector('.ceo-vacio')?.remove(); l?.append(enviandoBurbuja()); if (l) l.scrollTop = l.scrollHeight;
+    ta.value = '';
     enviando = true;
     const r = await api.cmd('mama.enviar', { texto });
-    enviando = false;
-    if (!r?.ok) { toast(r?.error || 'No se pudo enviar', 'bad'); return; }
-    ta.value = ''; sig = '';
+    enviando = false; enCurso = null;
+    if (!r?.ok) {
+      document.querySelectorAll('#p-mama .m-pend').forEach((x) => x.remove());
+      const t2 = document.getElementById('m-text'); if (t2 && !t2.value) t2.value = texto;
+      toast(r?.error || 'No se pudo enviar', 'bad'); return;
+    }
+    sig = '';
     await load(); programar();
   }
 
@@ -145,7 +156,8 @@ export function mamaUi({ api, toast, show, local }) {
     const ms = v?.mensajes || [];
     const u = v?.uso || {};
     const lista = h('div', { class: 'ceo-msgs mama-msgs', role: 'log', 'aria-live': 'polite', 'aria-label': 'Conversación con Mama' },
-      ms.length ? ms.map((m) => burbuja(m)) : h('p', { class: 'muted ceo-vacio' }, 'Cuéntale a Mama lo que quieras: una novedad, un compromiso o algo para CEOPadre.'),
+      ms.length || enCurso ? ms.map((m) => burbuja(m)) : h('p', { class: 'muted ceo-vacio' }, 'Cuéntale a Mama lo que quieras: una novedad, un compromiso o algo para CEOPadre.'),
+      enCurso ? enviandoBurbuja() : null,
       v?.pensando ? h('div', { class: 'msg ceo pensando', role: 'status' }, h('p', {}, h('span', { class: 'dots', 'aria-hidden': 'true' }, '• • •'), ' Mama está respondiendo…')) : null);
     const form = h('form', { class: 'ceo-form', onsubmit: enviar },
       h('textarea', { id: 'm-text', 'aria-label': 'Mensaje para Mama', rows: '2', maxlength: '4000', placeholder: 'Escribe a Mama…', onkeydown: (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) enviar(e); } }),
@@ -155,7 +167,7 @@ export function mamaUi({ api, toast, show, local }) {
         onclick: () => document.getElementById('m-file')?.click() }, enviando ? 'Adjuntando…' : '📎 Adjuntar'),
       h('button', { class: 'btn primary', type: 'submit', id: 'm-send', disabled: v?.pensando || false }, 'Enviar'));
     const ords = v?.ordenes || [];
-    const encargos = h('section', { class: 'side-card mama-encargos', 'aria-labelledby': 'm-h-enc' },
+    const encargos = h('section', { class: 'side-card mama-encargos', id: 'm-enc', 'aria-labelledby': 'm-h-enc' },
       h('h2', { id: 'm-h-enc' }, 'Encargos a CEOPadre'),
       h('p', { class: 'muted small' }, `Hoy: ${u.ordenes ?? 0}/${u.ordenes_max ?? '—'} órdenes · ${u.ia ?? 0}/${u.ia_max ?? '—'} respuestas. Mama sólo puede: ${(v?.lista_cerrada || []).map((t) => ({ ENCARGO: 'encargar un trabajo', INSTRUCCION: 'dar una instrucción a un trabajo abierto' }[t] || t)).join(' o ') || '—'}. Nunca aprueba, envía ni gasta.`),
       ords.length ? h('ul', { class: 'side-list' }, ords.map((o) => {
@@ -167,7 +179,7 @@ export function mamaUi({ api, toast, show, local }) {
     const borrador = document.getElementById('m-text')?.value || '';
     const frases = ['m-frase', 'm-frase2'].map((id) => document.getElementById(id)?.value || ''); // una repintada no borra lo tecleado
     const copiaAbierta = document.getElementById('m-mem-copia')?.open || false;
-    b.replaceChildren(h('div', { class: 'mama-grid' }, h('section', { class: 'mama-chat', 'aria-label': 'Conversación' }, lista, form),
+    b.replaceChildren(h('div', { class: 'mama-grid' }, h('section', { class: 'mama-chat', 'aria-label': 'Conversación' }, pendientes(v?.panel), lista, form),
       h('div', { class: 'mama-side' }, panelTareas.el, tarjetaPlan(), tarjetaReglas(), tarjetaMovil(), ...tarjetas(v?.panel), tarjetaMemoria(), encargos)));
     ['m-frase', 'm-frase2'].forEach((id, i) => { const el = document.getElementById(id); if (el) el.value = frases[i]; });
     const dc = document.getElementById('m-mem-copia'); if (dc && copiaAbierta) dc.open = true;
@@ -175,6 +187,24 @@ export function mamaUi({ api, toast, show, local }) {
     ta.value = borrador;
     if (foco) ta.focus();
     lista.scrollTop = lista.scrollHeight;
+  }
+
+  // T36: lo que te espera, DENTRO de la conversación (decisiones, tareas propuestas, compromisos, encargos en curso). Un toque
+  // lleva a su tarjeta (que queda enfocada para el teclado y el lector de pantalla). Sin nada pendiente no se pinta nada.
+  function pendientes(pn) {
+    const a = pn?.actividades || {};
+    const xs = [[pn?.decisiones?.length, 'm-dec', 'decisión', 'decisiones'], [a.tareas_propuestas?.length, 'm-act', 'tarea propuesta', 'tareas propuestas'],
+      [a.compromisos?.length, 'm-act', 'compromiso', 'compromisos'], [a.encargos_abiertos, 'm-enc', 'encargo en curso', 'encargos en curso']].filter(([n]) => n > 0);
+    if (!xs.length) return null;
+    return h('nav', { class: 'mama-pend', 'aria-label': 'Lo que te espera' }, h('span', { class: 'muted small' }, 'Te espera:'),
+      ...xs.map(([n, id, uno, varios]) => h('button', { class: 'btn small', type: 'button', 'data-ir': id, onclick: () => irA(id) }, `${n} ${n === 1 ? uno : varios}`)));
+  }
+  function irA(id) {
+    const c = document.getElementById(id);
+    if (!c) return;
+    c.setAttribute('tabindex', '-1');
+    c.scrollIntoView({ block: 'start' });
+    c.focus({ preventScroll: true });
   }
 
   // T29: plan del día (T24) y reglas de avisos (T23), BAJO DEMANDA. Nada se repite solo desde aquí.
@@ -335,7 +365,7 @@ export function mamaUi({ api, toast, show, local }) {
         : vacio('Nada espera tu decisión.'),
       h('p', { class: 'muted small' }, 'Se deciden en su tarjeta de CEOPadre: Mama nunca aprueba ni rechaza.'));
     const r = pn.resumen || {};
-    const res = card('m-res', `Resumen del día · ${pn.dia || ''}`,
+    const res = card('m-res', ['Resumen del día · ', h('span', { class: 'nw' }, pn.dia || '')], // T36: la fecha no se parte
       h('p', { class: 'small' }, r.linea || '—'),
       r.objetivos?.length ? h('ul', { class: 'side-list' }, r.objetivos.map((o) => h('li', {}, h('strong', {}, o.titulo), h('span', { class: 'muted small' }, ` · ${o.estado.toLowerCase()}`),
         o.kpis?.length ? h('p', { class: 'muted small' }, o.kpis.map((k) => `${k.nombre}: ${k.valor ?? '—'}${k.unidad ? ` ${k.unidad}` : ''} / ${k.objetivo ?? '—'}`).join(' · ')) : null))) : null,

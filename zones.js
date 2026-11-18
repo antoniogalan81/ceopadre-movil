@@ -65,10 +65,17 @@ export function gestText(r) {
  * Indicador de conexión. En el PC: la API local responde o no. En el móvil: sin red en el navegador o sin respuesta de
  * Supabase → «Sin internet»; con red pero sin latido reciente del PC → «PC desconectado»; si no, «Operativo».
  */
-export function netStatus({ local, browserOnline, reachable, pcOnline }) {
-  if (local) return reachable ? ['ok', 'Operativo'] : ['bad', 'CEOPadre no responde'];
+export function netStatus({ local, browserOnline, reachable, pcOnline, motor }) {
+  if (local) return !reachable ? ['bad', 'CEOPadre no responde'] : motor ? motorStatus(motor) : ['ok', 'Operativo'];
   if (!browserOnline || !reachable) return ['bad', 'Sin internet'];
   return pcOnline ? ['ok', 'Operativo'] : ['need', 'PC desconectado'];
+}
+
+/** Con el servidor respondiendo, el MOTOR (18-11): sin CEO no hay decisiones; los fallos técnicos se ven (se reintentan solos). */
+export function motorStatus({ ceo, trabajando = 0, bloqueos_tecnicos: b = 0 }) {
+  if (/ninguno/i.test(ceo || '')) return ['need', 'Sin CEO disponible: los trabajos esperan'];
+  const t = `CEO ${ceo} · ${trabajando} trabajando${b ? ` · ${b} con fallo técnico (se reintenta solo)` : ''}`;
+  return [b ? 'need' : 'ok', t];
 }
 
 // Reinicio en hora local: «15:36» si es hoy, «jue 12:27» si no. Sin dato → '—'.

@@ -40,7 +40,7 @@ function localApi() {
       // MANDO REMOTO: el mismo panel que en el móvil; la foto sólo se relee cuando cambia su huella.
       const sig = JSON.stringify(Object.entries(r.data.remotos || {}).map(([id, b]) => [id, b.hash, b.at, b.error]));
       if (sig !== remSig) { const x = await call('/api/remoto'); if (x.ok) { remotos = x.data; remSig = sig; } }
-      return { proyectos: r.data.proyectos, pc: { online: true }, remoto: r.data.remoto, cuenta: r.data.remoto?.cuenta || '', cuotas: r.data.cuotas, remotos, negocio: r.data.negocio, ui: r.data.ui, autorizaciones: r.data.autorizaciones || [] };
+      return { proyectos: r.data.proyectos, pc: { online: true }, remoto: r.data.remoto, cuenta: r.data.remoto?.cuenta || '', cuotas: r.data.cuotas, remotos, negocio: r.data.negocio, ui: r.data.ui, autorizaciones: r.data.autorizaciones || [], motor: r.data.motor };
     },
     async details(id) { return (await call(`/api/details?proyecto=${encodeURIComponent(id)}`)).data; },
     cmd: (op, params) => call('/api/cmd', { method: 'POST', body: JSON.stringify({ op, params }) }),
@@ -297,7 +297,18 @@ async function refresh() {
 // publicada antes y nada lo decía). En el PC: si web/ cambió desde que se abrió la página, se ofrece recargar; si la copia
 // del móvil es anterior, se dice que falta publicarla. En el móvil: se dice que esta app aún no tiene lo último del PC.
 let uiCargada = null, uiCerrado = '';
+// T36: lo que tapa el aviso por abajo (px desde el borde inferior), para que la conversación de Mama y su caja de escribir
+// queden por encima mientras se ve (web/style.css usa --aviso-h). 0 si no se ve.
+function medirAviso() {
+  const bar = $('#aviso-ui');
+  const alto = bar && !bar.hidden ? Math.max(0, Math.ceil(innerHeight - bar.getBoundingClientRect().top) + 8) : 0;
+  document.documentElement.style.setProperty('--aviso-h', `${alto}px`);
+}
+addEventListener('resize', medirAviso);
 function avisoVersion(ui) {
+  try { avisoVersionPintar(ui); } finally { medirAviso(); }
+}
+function avisoVersionPintar(ui) {
   const bar = $('#aviso-ui');
   if (!bar || !ui?.web) return;
   uiCargada ??= ui.web;
@@ -333,9 +344,9 @@ function avisoVersion(ui) {
       b.disabled = false;
       if (!r?.ok) { toast(r?.error || 'No se pudo preparar la solicitud', 'bad'); return; }
       // Nada que publicar, ya cubierto por una autorización vigente o agrupándose: se dice y no se abre un panel que no pide nada.
-      if (r.data?.nada || r.data?.vigente || r.data?.agrupando) { toast(r.data.mensaje, 'ok'); uiCerrado = clave; bar.hidden = true; return; }
+      if (r.data?.nada || r.data?.vigente || r.data?.agrupando) { toast(r.data.mensaje, 'ok'); uiCerrado = clave; bar.hidden = true; medirAviso(); return; }
       // La solicitud aparece en Dirección con su ficha (paintAuts): se lleva allí, no a un panel técnico.
-      uiCerrado = clave; bar.hidden = true;
+      uiCerrado = clave; bar.hidden = true; medirAviso();
       await refresh();
       // Servidor anterior (sin «autorizaciones» en el estado): la solicitud sólo se ve en el panel de permisos.
       if ((data.autorizaciones || []).length) scrollToId('need-auts'); else openConexiones('autorizaciones');
@@ -344,7 +355,7 @@ function avisoVersion(ui) {
     if (typing()) { toast('Termina (o cierra) lo que estás escribiendo y vuelve a pulsar', 'bad'); return; }
     location.reload();
   };
-  $('#b-aviso-ui-x').onclick = () => { uiCerrado = clave; bar.hidden = true; };
+  $('#b-aviso-ui-x').onclick = () => { uiCerrado = clave; bar.hidden = true; medirAviso(); };
 }
 
 async function run(op, params, okMsg, btn) {
@@ -1175,7 +1186,7 @@ function openDecisions(id) {
 // Indicador de conexión: Operativo · PC desconectado · Sin internet. Con lo que ya hay (latido del PC y el navegador).
 let net = 'ok';
 function paintNet() {
-  const s = netStatus({ local: LOCAL, browserOnline: navigator.onLine, reachable: net !== 'offline', pcOnline: data.pc.online });
+  const s = netStatus({ local: LOCAL, browserOnline: navigator.onLine, reachable: net !== 'offline', pcOnline: data.pc.online, motor: data.motor });
   const el = $('#net');
   el.className = `net m-${s[0]}`;
   el.lastChild.textContent = s[1];

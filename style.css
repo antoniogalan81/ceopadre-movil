@@ -188,7 +188,7 @@ input, textarea {
   font: 16px/1.4 var(--sans); color: var(--ink); background: var(--paper); border: 1.5px solid var(--line);
   border-radius: 12px; padding: 12px; width: 100%;
 }
-input:focus, textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent); }
+input:focus, textarea:focus, input:focus-within { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 25%, transparent); }
 .error { color: var(--bad); }
 .sheet {
   /* 16-11: en el móvil la ventana se abre CENTRADA en lo visible (antes pegada al borde inferior, la zona que tapan la barra y
@@ -1061,7 +1061,7 @@ details.z-projects[open] > summary { margin-bottom: 12px; }
 
 /* MAMA (T9): conversación + encargos; en el móvil una columna. */
 .mama-grid { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 14px; align-items: start; }
-.mama-chat { display: flex; flex-direction: column; gap: 8px; min-height: 60vh; max-height: calc(100dvh - 190px); }
+.mama-chat { display: flex; flex-direction: column; gap: 8px; min-height: 60vh; max-height: calc(100dvh - 190px - var(--aviso-h, 0px)); }
 .mama-msgs { min-height: 240px; border: 1px solid var(--line); border-radius: 14px; padding: 10px; background: var(--paper); }
 .msg.yo .m-at { color: color-mix(in oklch, #fff 75%, transparent); text-align: right; margin-top: 4px; }
 .msg.yo .m-envio { color: color-mix(in oklch, #fff 85%, transparent); }
@@ -1557,3 +1557,30 @@ dialog.cp-dlg { width: min(860px, calc(100vw - 24px)); overflow: auto; }
 /* Acceso a MAMA en el móvil: el error se ve junto al campo y las acciones no quedan bajo la barra. */
 .mm-acceso { display: grid; gap: 10px; }
 .mm-acceso .mm-fallo { margin: 0; padding: 8px 10px; border-radius: 10px; background: var(--bad-bg); }
+
+/* T36 · conversación de MAMA sencilla y usable en PC y móvil (misma lista y caja que el PC; ver web/mama-movil.js). */
+.nw { white-space: nowrap; }
+/* Lo que te espera, dentro de la conversación del PC: un toque lleva a su tarjeta. */
+.mama-pend { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.mama-pend .btn { min-height: 36px; }
+.side-card[tabindex="-1"]:focus { outline: 3px solid var(--accent); outline-offset: 2px; }
+.msg.m-pend { opacity: .85; }
+/* En la pantalla de Mama el botón flotante del CEO tapaba «Enviar» (390 px) y otra conversación distrae: aquí no se enseña. */
+body:has(#p-mama:not([hidden])) .ceo-fab { display: none; }
+/* El aviso de versión (fijo abajo) no tapa la caja de escribir: deja sitio (--aviso-h lo mide web/app.js) y, en móvil, el texto
+   va encima de sus botones en vez de una palabra por línea. */
+.update.ui-aviso { flex-wrap: wrap; }
+.update.ui-aviso span { flex: 1 1 16rem; }
+@media (max-width: 760px) { body { padding-bottom: calc(80px + 76px + env(safe-area-inset-bottom) + var(--aviso-h, 0px)); } }
+/* PC estrecho: la lista se acorta para que la caja de escribir quepa en la primera vista, sobre la barra inferior y el aviso. */
+@media (max-width: 860px) { .mama-msgs { max-height: max(200px, min(62dvh, calc(100dvh - var(--appbar-h, 0px) - 260px - var(--aviso-h, 0px)))); } }
+@media (max-width: 760px) { .mama-msgs { max-height: max(200px, min(62dvh, calc(100dvh - var(--appbar-h, 0px) - 260px - var(--pie) - var(--aviso-h, 0px)))); } }
+/* MAMA en el móvil (PWA): la lista crece con la página y la caja de escribir queda pegada abajo, siempre a la vista. */
+.mama-movil .mama-msgs { max-height: none; min-height: 0; overflow: visible; }
+.mama-movil .mm-form { position: sticky; bottom: max(8px, var(--aviso-h, 0px)); z-index: 2; background: var(--paper); padding: 8px 0 4px; margin-top: 8px; }
+@media (max-width: 760px) { body:has(.tabbar:not([hidden])) .mama-movil .mm-form { bottom: max(calc(var(--pie) + 4px), var(--aviso-h, 0px)); } }
+.ceo-form .btn.icono { min-width: 48px; padding: 0 10px; font-size: 20px; }
+.mm-grabando { display: none; flex: 1; align-items: center; gap: 8px; }
+.mm-form.grabando .mm-grabando { display: flex; }
+.mm-form.grabando > :not(.mm-grabando) { display: none !important; }
+.mm-rec { flex: 1; font-weight: 700; color: var(--bad); }

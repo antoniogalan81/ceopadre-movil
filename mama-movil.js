@@ -20,6 +20,15 @@ const ERROR_ADJ = { adj_tamano: 'El archivo está vacío o supera 5 MB.', adj_ti
 // Lo que el navegador del móvil enseña en una pestaña; el resto (PDF, Office, CSV, HEIC) se descarga y lo abre su visor.
 const VER = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'text/plain']);
 const ESTADO_ENVIO = { pendiente: 'en cola', enviado: 'enviado', recibido: 'recibido por el PC', rechazado: 'no aceptado' };
+// T36 · voz desde la PWA (canal T30). Formatos que el canal y el PC aceptan (MIMES_VOZ de canal.ts / EXT de src/mama-voz.js).
+export const VOZ_SEG = 180, VOZ_BPS = 16_000;
+const MIMES_GRABAR = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus'];
+/** Primer formato de grabación que el navegador soporta y el canal admite (sin «;codecs=», que el canal no conoce), o ''. */
+export const elegirMimeVoz = (soporta) => MIMES_GRABAR.find((m) => soporta(m)) || '';
+const mimeVoz = () => elegirMimeVoz((m) => !!window.MediaRecorder?.isTypeSupported?.(m));
+const puedeGrabar = () => !!(navigator.mediaDevices?.getUserMedia && mimeVoz());
+const ERROR_VOZ = { voz_tamano: 'La nota está vacía o es demasiado larga. Graba otra más corta.', voz_formato: 'Este móvil graba en un formato que Mama no admite.',
+  voz_cola_llena: 'Ya hay 5 notas esperando a salir: espera a que el PC las reciba.', sin_par: 'Empareja primero este móvil.' };
 
 // ---------------------------------------------------------------- almacenes del navegador
 let dbp = null;
@@ -73,6 +82,7 @@ export function explicar(e) {
 /** Monta MAMA móvil dentro de `cuerpo`. `burbuja(m)` es la de web/mama.js (una sola forma de pintar la conversación). */
 export function mamaMovil({ burbuja, toast, ADJ_MAX = 5 * 1024 * 1024 }) {
   let canal = null, uid = null, foto = null, timer = null, vivo = false, paso = 'cargando', email = '', ocupado = false, cuerpo = null, firma = '';
+  let grab = null; // T36: nota de voz en curso { rec, trozos, t0, fin, cancelado, mime, reloj }
   let fallo = ''; // 16-11: el error del acceso se ve EN el formulario (el aviso flotante quedaba detrás de la barra inferior)
   // Paso del acceso guardado SIN secretos (correo y momento; nunca el código): recargar no obliga a pedir otro código.
   const LOGIN = 'ceopadre-mama-acceso';
@@ -92,7 +102,7 @@ export function mamaMovil({ burbuja, toast, ADJ_MAX = 5 * 1024 * 1024 }) {
       pintar(); await ciclo();
     } catch (e) { paso = 'error'; pintar(String(e?.message || e)); }
   }
-  function parar() { vivo = false; clearTimeout(timer); }
+  function parar() { vivo = false; clearTimeout(timer); pararVoz(true); } // salir de Mama descarta la grabación y suelta el micrófono
   async function ciclo() {
     clearTimeout(timer);
     if (!vivo || !canal) return;
@@ -136,8 +146,13 @@ export function mamaMovil({ burbuja, toast, ADJ_MAX = 5 * 1024 * 1024 }) {
     const t = v['mm-text'].trim();
     if (!t) return;
     if (t.length > TEXTO_MAX) throw new Error(`Máximo ${TEXTO_MAX} caracteres`);
-    foto = await canal.enviar(t);
-    document.getElementById('mm-text').value = '';
+    // T36: se ve YA («guardando…») mientras se sella y se guarda en la cola; si falla, se quita y el texto vuelve a la caja.
+    const prov = burbuja({ rol: 'antonio', texto: t, at: new Date().toISOString(), via: 'movil' });
+    prov.classList.add('m-pend'); prov.append(h('p', { class: 'msg-who m-envio' }, 'guardando…'));
+    document.getElementById('mm-msgs')?.append(prov); window.scrollTo(0, document.documentElement.scrollHeight);
+    const caja = document.getElementById('mm-text'); caja.value = '';
+    try { foto = await canal.enviar(t); } catch (x) { prov.remove(); if (!caja.value) caja.value = t; throw x; }
+    firma = '';
     setTimeout(ciclo, 300);
   });
 
@@ -148,8 +163,11 @@ export function mamaMovil({ burbuja, toast, ADJ_MAX = 5 * 1024 * 1024 }) {
     if (!f || ocupado) return;
     if (!f.size || f.size > ADJ_MAX) { toast(ERROR_ADJ.adj_tamano, 'bad'); return; }
     ocupado = true; pintar();
+    // T36: el archivo se ve YA en la conversación («guardando…») mientras se trocea, se sella y queda en la cola.
+    const prov = burbuja({ rol: 'antonio', texto: `📎 ${f.name} · guardando…`, at: new Date().toISOString(), via: 'movil' });
+    prov.classList.add('m-pend'); document.getElementById('mm-msgs')?.append(prov); window.scrollTo(0, document.documentElement.scrollHeight);
     try { foto = await canal.enviarAdjunto(new Uint8Array(await f.arrayBuffer()), f.name, f.type); setTimeout(ciclo, 300); }
-    catch (x) { toast(ERROR_ADJ[x?.codigo] || `No se pudo adjuntar: ${x?.codigo || x?.message || x}`, 'bad'); }
+    catch (x) { prov.remove(); toast(ERROR_ADJ[x?.codigo] || `No se pudo adjuntar: ${x?.codigo || x?.message || x}`, 'bad'); }
     finally { ocupado = false; firma = ''; pintar(); }
   }
   // Abrir: el archivo cifrado del propio móvil, descifrado y con su huella comprobada (abrirAdjunto devuelve null si no cuadra).
@@ -219,23 +237,33 @@ export function mamaMovil({ burbuja, toast, ADJ_MAX = 5 * 1024 * 1024 }) {
         h('button', { class: 'btn', type: 'button', onclick: cancelar, disabled: ocupado }, 'Cancelar')));
     }
     // Conversación: el formulario se monta UNA vez (no se pierde lo que se está escribiendo ni el foco); en cada ciclo sólo se
-    // repintan la lista y los avisos si cambiaron.
+    // repintan la lista y los avisos si cambiaron. T36: la MISMA estructura que el PC (lista .ceo-msgs.mama-msgs y caja .ceo-form);
+    // en el móvil la lista crece con la página y la caja queda pegada abajo, siempre a la vista (web/style.css «T36»).
+    let primera = false;
     if (!document.getElementById('mm-msgs')) {
-      firma = '';
-      cuerpo.replaceChildren(sec(h('div', { id: 'mm-estado' }), h('div', { class: 'msgs', id: 'mm-msgs' }),
-        h('form', { class: 'm-form', onsubmit: enviar },
+      firma = ''; primera = true;
+      cuerpo.replaceChildren(sec(h('div', { id: 'mm-estado' }),
+        h('div', { class: 'ceo-msgs mama-msgs', id: 'mm-msgs', role: 'log', 'aria-live': 'polite', 'aria-label': 'Conversación con Mama' }),
+        h('form', { class: 'ceo-form mm-form', onsubmit: enviar },
           h('label', { for: 'mm-text', class: 'sr-only' }, 'Mensaje para Mama'),
-          h('textarea', { id: 'mm-text', rows: 2, maxlength: TEXTO_MAX, placeholder: 'Escribe a Mama… (el dictado del teclado también vale)' }),
+          h('textarea', { id: 'mm-text', rows: 1, maxlength: TEXTO_MAX, placeholder: 'Escribe a Mama…' }),
           h('input', { type: 'file', id: 'mm-file', hidden: true, onchange: adjuntar, accept: '.pdf,.jpg,.jpeg,.png,.gif,.webp,.heic,.txt,.csv,.docx,.xlsx,.pptx,.doc,.xls' }),
-          h('button', { class: 'btn', type: 'button', id: 'mm-adjuntar', title: 'Adjuntar un archivo (hasta 5 MB)', 'aria-label': 'Adjuntar un archivo',
+          h('button', { class: 'btn icono', type: 'button', id: 'mm-adjuntar', title: 'Adjuntar un archivo (hasta 5 MB)', 'aria-label': 'Adjuntar un archivo',
             onclick: () => document.getElementById('mm-file')?.click() }, '📎'),
-          h('button', { class: 'btn primary', type: 'submit', id: 'mm-enviar' }, 'Enviar'))));
+          puedeGrabar() ? h('button', { class: 'btn icono', type: 'button', id: 'mm-voz', title: `Grabar una nota de voz (hasta ${VOZ_SEG / 60} min)`, 'aria-label': 'Grabar una nota de voz', onclick: () => void grabar() }, '🎙') : null,
+          h('button', { class: 'btn primary', type: 'submit', id: 'mm-enviar' }, 'Enviar'),
+          h('div', { class: 'mm-grabando', id: 'mm-grabando' },
+            h('span', { class: 'mm-rec', id: 'mm-rec', role: 'status' }, ''),
+            h('button', { class: 'btn', type: 'button', id: 'mm-voz-cancelar', onclick: () => pararVoz(true) }, 'Cancelar'),
+            h('button', { class: 'btn primary', type: 'button', id: 'mm-voz-parar', onclick: () => pararVoz(false) }, 'Enviar nota')))));
+      pintarVoz();
     }
-    document.getElementById('mm-enviar').disabled = ocupado;
-    document.getElementById('mm-adjuntar').disabled = ocupado;
+    for (const id of ['mm-enviar', 'mm-adjuntar', 'mm-voz']) { const x = document.getElementById(id); if (x) x.disabled = ocupado; }
     const s = JSON.stringify([f.pcActivo, f.aviso, (f.mensajes || []).map((m) => [m.id, m.estado, m.texto.length, m.adjunto?.listo, m.adjunto?.fallido])]);
     if (s === firma) return;
     firma = s;
+    // Al abrir, y si ya estaba abajo, se queda en lo último (si está leyendo más arriba, no se le mueve).
+    const alFinal = primera || window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 160;
     document.getElementById('mm-estado').replaceChildren(
       f.pcActivo === false ? h('p', { class: 'muted small', role: 'status' }, 'El PC está apagado o sin conexión: Mama responderá cuando vuelva. Lo que escribas queda en cola.') : '', aviso || '');
     const lista = document.getElementById('mm-msgs');
@@ -245,6 +273,52 @@ export function mamaMovil({ burbuja, toast, ADJ_MAX = 5 * 1024 * 1024 }) {
       return b;
     }));
     lista.scrollTop = lista.scrollHeight;
+    if (alFinal) window.scrollTo(0, document.documentElement.scrollHeight);
+  }
+
+  // T36 · VOZ: grabar aquí (MediaRecorder) y entregar al canal (T30: lo trocea, lo sella con la clave del canal y lo deja en cola
+  // ANTES de la red; el PC lo transcribe en local con whisper.cpp). El audio sólo vive en memoria hasta sellarse; el micrófono se
+  // suelta al terminar. 180 s a 16 kbit/s ≈ 360 KB, por debajo del tope del canal (VOZ_MAX_BYTES = 600 KB).
+  function pintarVoz() {
+    const f = document.querySelector('.mm-form');
+    if (!f) return;
+    f.classList.toggle('grabando', !!grab);
+    const r = document.getElementById('mm-rec');
+    if (r) { const s = grab ? Math.floor((Date.now() - grab.t0) / 1000) : 0; r.textContent = grab ? `● Grabando ${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')} (máx. ${VOZ_SEG / 60}:00)` : ''; }
+  }
+  async function grabar() {
+    if (ocupado || grab || !canal) return;
+    const mime = mimeVoz();
+    let s;
+    try { s = await navigator.mediaDevices.getUserMedia({ audio: true }); }
+    catch { toast('Sin permiso para el micrófono: actívalo para esta app en los ajustes del navegador (o usa el dictado del teclado).', 'bad'); return; }
+    const rec = new MediaRecorder(s, { mimeType: mime, audioBitsPerSecond: VOZ_BPS });
+    const g = { rec, trozos: [], t0: Date.now(), fin: 0, cancelado: false, mime: mime.split(';')[0], reloj: 0 };
+    grab = g;
+    rec.ondataavailable = (e) => { if (e.data.size) g.trozos.push(e.data); };
+    rec.onstop = () => {
+      s.getTracks().forEach((t) => t.stop()); clearInterval(g.reloj);
+      grab = null; pintarVoz();
+      if (g.cancelado) { g.trozos.length = 0; toast('Nota de voz descartada', 'ok'); document.getElementById('mm-voz')?.focus(); } else void entregarVoz(g);
+    };
+    g.reloj = setInterval(() => { if (Date.now() - g.t0 >= VOZ_SEG * 1000) pararVoz(false); else pintarVoz(); }, 500);
+    rec.start();
+    pintarVoz();
+    document.getElementById('mm-voz-parar')?.focus(); // una vez, al empezar (no en cada tic del reloj)
+  }
+  function pararVoz(cancelar) {
+    if (!grab || grab.rec.state === 'inactive') return;
+    grab.cancelado = cancelar; grab.fin = Date.now();
+    grab.rec.stop();
+  }
+  async function entregarVoz(g) {
+    ocupado = true; pintar();
+    try {
+      const audio = new Uint8Array(await new Blob(g.trozos, { type: g.mime }).arrayBuffer());
+      foto = await canal.enviarVoz(audio, g.mime, Math.max(1, Math.round(((g.fin || Date.now()) - g.t0) / 1000)));
+      setTimeout(ciclo, 300);
+    } catch (x) { toast(ERROR_VOZ[x?.codigo] || `No se pudo enviar la nota: ${x?.codigo || x?.message || x}`, 'bad'); }
+    finally { g.trozos.length = 0; ocupado = false; firma = ''; pintar(); document.getElementById('mm-voz')?.focus(); }
   }
 
   return { iniciar, parar };

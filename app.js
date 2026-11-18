@@ -1138,7 +1138,7 @@ function paintDone(d) {
   if (box.dataset.sig === sig) return;
   box.dataset.sig = sig;
   const day = (iso) => new Date(iso).toLocaleDateString('es-ES', { day: '2-digit', month: 'short' });
-  fill(box, sideHead('h-done', 'Terminado y comprobado', null),
+  fill(box, sideHead('h-done', 'Resultados', null),
     d.terminados.length || d.autosHechas.length ? h('ul', { class: 'side-list done' },
       d.terminados.slice(0, 3).map((c) => h('li', marca({ tipo: 'resultado', id: c.trabajo || c.id, proyecto: c.id, titulo: c.nombre }), h('button', { class: 'side-item', type: 'button', onclick: () => actions.details(c) },
         h('span', { class: 'ico ok', 'aria-hidden': 'true' }, '✓'), h('b', {}, c.nombre), h('small', { class: 'muted' }, `${day(c.updated_at)} · ${c.ahora || 'terminado'}`)))),

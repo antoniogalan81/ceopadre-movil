@@ -58,12 +58,20 @@ export function describir(c) {
 
 // Sobre del canal móvil: «⟦mama-ctx {json}⟧» + salto + el mensaje. Sólo se reconoce al principio y con JSON válido del contrato.
 const SOBRE = /^⟦mama-ctx (\{[^\n]{2,900}\})⟧\n/;
-export const sellar = (texto, c) => { const n = normalizar(c); return n ? `⟦mama-ctx ${JSON.stringify(n)}⟧\n${texto}` : texto; };
+// §7.3 (19-11): el sobre lleva también la conversación (hilo) del móvil: 'nuevo', el id del PC o el uuid del primer mensaje
+// del móvil (0 = principal, no viaja). No es una orden: sólo dice a qué conversación va el mensaje.
+const HILO_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+export const hiloValido = (x) => (x === 'nuevo' || (Number.isInteger(x) && x >= 0) || (typeof x === 'string' && HILO_UUID.test(x)) ? x : null);
+export const sellar = (texto, c, hilo = null) => {
+  const hv = hiloValido(hilo), s = { ...(normalizar(c) || {}), ...(hv !== null && hv !== 0 ? { hilo: hv } : {}) };
+  return Object.keys(s).length ? `⟦mama-ctx ${JSON.stringify(s)}⟧\n${texto}` : texto;
+};
 export function separar(texto) {
   const t = String(texto ?? '');
   const m = SOBRE.exec(t);
   if (!m) return { texto: t, contexto: null };
-  let c = null;
-  try { c = normalizar(JSON.parse(m[1])); } catch { c = null; }
-  return c ? { texto: t.slice(m[0].length), contexto: c } : { texto: t, contexto: null };
+  let j = null;
+  try { j = JSON.parse(m[1]); } catch { j = null; }
+  const c = normalizar(j), hilo = j && typeof j === 'object' ? hiloValido(j.hilo) : null;
+  return c || hilo !== null ? { texto: t.slice(m[0].length), contexto: c, ...(hilo !== null ? { hilo } : {}) } : { texto: t, contexto: null };
 }

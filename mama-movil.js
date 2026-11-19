@@ -80,9 +80,34 @@ export function explicar(e) {
   return `No se pudo continuar: ${m || 'error desconocido'}`;
 }
 
+/** §7.3: conversación de cada mensaje del historial del móvil. Lo propio la lleva en su sobre ('nuevo' = la abre él: su clave es
+ *  su id); lo del PC, en `hilo`; lo antiguo sin dato, como el PC: Antonio sin marca = principal, Mama = la del último de Antonio. */
+export function hilosMovil(ms) {
+  let actual = 0;
+  const mensajes = ms.map((m) => {
+    if (m.rol === 'antonio') {
+      const s = m.via === 'movil' ? separar(m.texto).hilo : null;
+      actual = m.via === 'movil' ? (s === 'nuevo' ? m.id : s ?? 0) : (m.hilo ?? 0);
+      return { m, hilo: actual };
+    }
+    return { m, hilo: m.hilo ?? actual };
+  });
+  const xs = new Map();
+  for (const { m, hilo } of mensajes) {
+    const x = xs.get(hilo) || { id: hilo, n: 0, ultimo: m.at, titulo: null };
+    x.n += 1; x.ultimo = m.at;
+    if (!x.titulo && m.rol === 'antonio') x.titulo = separar(m.texto).texto.split('\n')[0].trim().slice(0, 60) || '(sin texto)';
+    xs.set(hilo, x);
+  }
+  const lista = [...xs.values()].map((x) => ({ ...x, titulo: x.id === 0 ? 'Conversación principal' : x.titulo || '(sin texto)' }))
+    .sort((a, b) => (a.ultimo < b.ultimo ? 1 : a.ultimo > b.ultimo ? -1 : 0));
+  return { mensajes, lista, ultimo: actual };
+}
+
 /** Monta MAMA móvil dentro de `cuerpo`. `burbuja(m)` es la de web/mama.js (una sola forma de pintar la conversación). */
 export function mamaMovil({ burbuja, toast, ADJ_MAX = 5 * 1024 * 1024, contexto = () => null }) {
   let canal = null, uid = null, foto = null, timer = null, vivo = false, paso = 'cargando', email = '', ocupado = false, cuerpo = null, firma = '', nVistos = 0;
+  let hiloM = null; // §7.3: conversación abierta en el móvil (null = la última usada; 'nuevo'; 0; id del PC; uuid del móvil)
   let grab = null; // T36: nota de voz en curso { rec, trozos, t0, fin, cancelado, mime, reloj }
   let fallo = ''; // 16-11: el error del acceso se ve EN el formulario (el aviso flotante quedaba detrás de la barra inferior)
   // Paso del acceso guardado SIN secretos (correo y momento; nunca el código): recargar no obliga a pedir otro código.
@@ -153,8 +178,11 @@ export function mamaMovil({ burbuja, toast, ADJ_MAX = 5 * 1024 * 1024, contexto 
     document.getElementById('mm-msgs')?.append(prov); window.scrollTo(0, document.documentElement.scrollHeight);
     const caja = document.getElementById('mm-text'); caja.value = '';
     // T-A: el canal sólo lleva texto; el contexto del panel va como sobre en la primera línea (el PC lo separa al recibirlo).
-    const sellado = sellar(t, contexto());
-    try { foto = await canal.enviar(sellado.length <= TEXTO_MAX ? sellado : t); } catch (x) { prov.remove(); if (!caja.value) caja.value = t; throw x; }
+    // §7.3: y la conversación elegida (el PC la separa igual); el primer mensaje de una nueva es su clave en este móvil.
+    const enHilo = hiloM ?? hilosMovil(foto?.mensajes || []).ultimo;
+    const sellado = sellar(t, contexto(), enHilo);
+    try { foto = await canal.enviar(sellado.length <= TEXTO_MAX ? sellado : sellar(t, null, enHilo)); } catch (x) { prov.remove(); if (!caja.value) caja.value = t; throw x; }
+    if (enHilo === 'nuevo') hiloM = (foto?.mensajes || []).findLast((m) => m.via === 'movil' && m.rol === 'antonio')?.id ?? 0;
     firma = '';
     setTimeout(ciclo, 300);
   });
@@ -188,7 +216,7 @@ export function mamaMovil({ burbuja, toast, ADJ_MAX = 5 * 1024 * 1024, contexto 
   }
   const pintarMensaje = (m0) => {
     const s = separar(m0.texto); // lo enviado desde el panel guarda el sobre en este móvil: se pinta el mensaje y su «Sobre:»
-    const m = s.contexto ? { ...m0, texto: s.texto, contexto: s.contexto } : m0;
+    const m = s.contexto ? { ...m0, texto: s.texto, contexto: s.contexto } : s.hilo !== undefined ? { ...m0, texto: s.texto } : m0; // §7.3: el sobre de sólo conversación tampoco se enseña
     const a = m.adjunto;
     if (!a) return burbuja(m);
     if (a.fallido || !a.listo) return burbuja({ ...m, adjunto: undefined, texto: `📎 ${a.nombre || 'archivo'} · ${a.fallido ? 'no se pudo recibir' : 'llegando…'}` });
@@ -247,7 +275,7 @@ export function mamaMovil({ burbuja, toast, ADJ_MAX = 5 * 1024 * 1024, contexto 
     let primera = false;
     if (!document.getElementById('mm-msgs')) {
       firma = ''; primera = true;
-      cuerpo.replaceChildren(sec(h('div', { id: 'mm-estado' }),
+      cuerpo.replaceChildren(sec(h('div', { id: 'mm-estado' }), h('div', { id: 'mm-hilos-host' }),
         h('div', { class: 'ceo-msgs mama-msgs', id: 'mm-msgs', role: 'log', 'aria-live': 'polite', 'aria-label': 'Conversación con Mama' }),
         h('form', { class: 'ceo-form mm-form', onsubmit: enviar },
           h('label', { for: 'mm-text', class: 'sr-only' }, 'Mensaje para Mama'),
@@ -264,7 +292,7 @@ export function mamaMovil({ burbuja, toast, ADJ_MAX = 5 * 1024 * 1024, contexto 
       pintarVoz();
     }
     for (const id of ['mm-enviar', 'mm-adjuntar', 'mm-voz']) { const x = document.getElementById(id); if (x) x.disabled = ocupado; }
-    const s = JSON.stringify([f.pcActivo, f.aviso, (f.mensajes || []).map((m) => [m.id, m.estado, m.texto.length, m.adjunto?.listo, m.adjunto?.fallido])]);
+    const s = JSON.stringify([hiloM, f.pcActivo, f.aviso, (f.mensajes || []).map((m) => [m.id, m.estado, m.texto.length, m.adjunto?.listo, m.adjunto?.fallido, m.hilo])]);
     if (s === firma) return;
     firma = s;
     // Al abrir, y si ya estaba abajo, se queda en lo último (si está leyendo más arriba, no se le mueve).
@@ -272,7 +300,9 @@ export function mamaMovil({ burbuja, toast, ADJ_MAX = 5 * 1024 * 1024, contexto 
     document.getElementById('mm-estado').replaceChildren(
       f.pcActivo === false ? h('p', { class: 'muted small', role: 'status' }, 'El PC está apagado o sin conexión: Mama responderá cuando vuelva. Lo que escribas queda en cola.') : '', aviso || '');
     const lista = document.getElementById('mm-msgs');
-    lista.replaceChildren(...(f.mensajes || []).map((m) => {
+    const hs = hilosMovil(f.mensajes || []), ver = hiloM ?? hs.ultimo;
+    document.getElementById('mm-hilos-host').replaceChildren(barraHilos(hs, ver));
+    lista.replaceChildren(...(ver === 'nuevo' ? [] : hs.mensajes.filter((x) => x.hilo === ver).map((x) => x.m)).map((m) => {
       const b = pintarMensaje(m);
       if (m.via === 'movil' && m.estado && m.estado !== 'recibido') b.append(h('p', { class: `msg-who m-envio${m.estado === 'rechazado' ? ' bad' : ''}` }, ESTADO_ENVIO[m.estado] || m.estado));
       return b;
@@ -287,6 +317,18 @@ export function mamaMovil({ burbuja, toast, ADJ_MAX = 5 * 1024 * 1024, contexto 
       const quitar = () => { if (window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 160) { b.remove(); window.removeEventListener('scroll', quitar); } };
       window.addEventListener('scroll', quitar, { passive: true });
     }
+  }
+
+  // §7.3 · conversaciones en el móvil: las MISMAS que en el PC (el PC manda la de cada mensaje; las del móvil van en su sobre).
+  // Sin otra memoria ni otro historial: es la conversación única de siempre, agrupada. Voz y archivos van a la principal.
+  function barraHilos(hs, ver) {
+    const titulo = ver === 'nuevo' ? 'Conversación nueva' : hs.lista.find((x) => x.id === ver)?.titulo || 'Conversación principal';
+    const abrir = (id) => { hiloM = id; firma = ''; document.getElementById('mm-hilos')?.removeAttribute('open'); pintar(); window.scrollTo(0, document.documentElement.scrollHeight); };
+    return h('div', { class: 'mama-hilos' },
+      h('details', { id: 'mm-hilos' }, h('summary', {}, h('strong', { id: 'mm-hilo-titulo' }, titulo), h('span', { class: 'muted small' }, ` · ${hs.lista.length} conversaci${hs.lista.length === 1 ? 'ón' : 'ones'}`)),
+        h('ul', { class: 'side-list m-hilos-lista' }, hs.lista.map((x) => h('li', {}, h('button', { class: `btn small${x.id === ver ? ' primary' : ''}`, type: 'button', 'data-hilo': String(x.id),
+          'aria-current': x.id === ver ? 'true' : null, onclick: () => abrir(x.id) }, x.titulo), ' ', h('span', { class: 'muted small' }, `${x.n} mensajes`))))),
+      h('button', { class: 'btn small', type: 'button', id: 'mm-nueva', disabled: ver === 'nuevo', onclick: () => { abrir('nuevo'); document.getElementById('mm-text')?.focus(); } }, '+ Nueva'));
   }
 
   // T36 · VOZ: grabar aquí (MediaRecorder) y entregar al canal (T30: lo trocea, lo sella con la clave del canal y lo deja en cola

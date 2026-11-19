@@ -1614,3 +1614,13 @@ body:has(#p-mama:not([hidden])) .mama-fab { display: none; }
 .mama-panel .mama-msgs { flex: 1; min-height: 120px; max-height: none; overflow-y: auto; }
 .msg.yo .m-ctx { color: color-mix(in oklch, #fff 85%, transparent); font-style: italic; text-align: right; margin-top: 2px; }
 .mama-panel .mama-movil > h2 { display: none; } /* el panel ya lleva la cabecera de Mama */
+/* §7.3 conversaciones de MAMA: barra compacta encima del chat; la lista y la búsqueda plegadas */
+.mama-chat { min-width: 0; } /* el título largo de una conversación no ensancha la columna en el móvil */
+.mama-hilos { display: flex; gap: 8px; align-items: flex-start; margin-bottom: 8px; }
+.mama-hilos details { flex: 1; min-width: 0; }
+.mama-hilos summary { cursor: pointer; min-height: 36px; display: flex; align-items: center; gap: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mama-hilos input[type=search] { width: 100%; box-sizing: border-box; margin: 6px 0; min-height: 36px; }
+.mama-hilos .side-list { max-height: 40dvh; overflow-y: auto; }
+.mama-hilos .side-list .btn { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.msg.m-hallado { outline: 2px solid var(--accent, #2b6cb0); outline-offset: 2px; }
+@media (max-width: 520px) { .mama-hilos summary .muted { display: none; } }

@@ -38,6 +38,8 @@ const interpretacion = (m) => {
 export function mamaUi({ api, toast, show, local }) {
   let abierta = false, timer = null, sig = '', v = null, enviando = false, canal = null, simulacion = null, ocupado = '';
   let enPanel = false, ctxActual = null; // T-A: panel contextual (misma conversación) y el elemento del que se habla
+  // §7.3: conversación abierta (undefined = la última; 'nuevo' = aún sin primer mensaje), búsqueda y mensaje hallado a resaltar.
+  let hilo, busq = null, buscando = null, hallado = null;
   let enCurso = null; // T36: el mensaje que se está enviando (se ve ya y sobrevive a un repintado del sondeo)
   // T38: memoria privada (sólo en el PC). Se relee cuando cambia la conversación, no en cada sondeo.
   let mem = null, memDe = null;
@@ -48,9 +50,10 @@ export function mamaUi({ api, toast, show, local }) {
 
   async function load() {
     if (!local) { v = null; paint(); return; }
-    const [r, c] = await Promise.all([api.cmd('mama.ver', {}), api.cmd('mama.canal.ver', {})]);
+    const [r, c] = await Promise.all([api.cmd('mama.ver', Number.isInteger(hilo) ? { hilo } : {}), api.cmd('mama.canal.ver', {})]);
     if (!r?.ok) { toast(r?.error || 'No se pudo abrir MAMA', 'bad'); return; }
     v = r.data; canal = c?.ok ? c.data : null;
+    if (hilo !== 'nuevo') hilo = v.hilo;
     void panelTareas?.cargar();
     const ult = v.mensajes?.at(-1)?.id ?? 0;
     if (ult !== memDe) { memDe = ult; await cargarMemoria(); }
@@ -141,8 +144,9 @@ export function mamaUi({ api, toast, show, local }) {
     bajar = true; // lo suyo y la respuesta se ven aunque estuviera leyendo arriba
     ta.value = '';
     enviando = true;
-    const r = await api.cmd('mama.enviar', { texto, ...(enPanel && ctxActual ? { contexto: ctxActual } : {}) });
+    const r = await api.cmd('mama.enviar', { texto, ...(enPanel && ctxActual ? { contexto: ctxActual } : {}), ...(hilo !== undefined ? { hilo } : {}) });
     enviando = false; enCurso = null;
+    if (r?.ok && r.data?.hilo !== undefined) hilo = r.data.hilo; // la conversación nueva ya tiene id: lo siguiente va a ella
     if (!r?.ok) {
       body()?.querySelectorAll('.m-pend').forEach((x) => x.remove());
       const t2 = document.getElementById('m-text'); if (t2 && !t2.value) t2.value = texto;
@@ -182,13 +186,14 @@ export function mamaUi({ api, toast, show, local }) {
       void movil.iniciar(b);
       return;
     }
-    const s = JSON.stringify([enviando, v?.mensajes?.length, v?.mensajes?.at(-1)?.id, v?.pensando, v?.ordenes?.map((o) => [o.id, o.trabajo_estado, o.estado_encargo]), v?.uso, v?.panel, canal, v?.plan, simulacion, ocupado, mem, [...memFichas]]);
+    const s = JSON.stringify([hilo, v?.hilos, busq, hallado, enviando, v?.mensajes?.length, v?.mensajes?.at(-1)?.id, v?.pensando, v?.ordenes?.map((o) => [o.id, o.trabajo_estado, o.estado_encargo]), v?.uso, v?.panel, canal, v?.plan, simulacion, ocupado, mem, [...memFichas]]);
     if (s === sig) return;
     sig = s;
-    const ms = v?.mensajes || [];
+    const ms = hilo === 'nuevo' ? [] : v?.mensajes || [];
     const u = v?.uso || {};
     const lista = h('div', { class: 'ceo-msgs mama-msgs', role: 'log', 'aria-live': 'polite', 'aria-label': 'Conversación con Mama' },
-      ms.length || enCurso ? ms.map((m) => burbuja(m)) : h('p', { class: 'muted ceo-vacio' }, 'Cuéntale a Mama lo que quieras: una novedad, un compromiso o algo para CEOPadre.'),
+      ms.length || enCurso ? ms.map((m) => { const x = burbuja(m); x.dataset.mid = m.id; if (m.id === hallado) x.classList.add('m-hallado'); return x; })
+        : h('p', { class: 'muted ceo-vacio' }, hilo === 'nuevo' ? 'Conversación nueva: escribe el primer mensaje (su título saldrá de él). Mama recuerda lo de siempre.' : 'Cuéntale a Mama lo que quieras: una novedad, un compromiso o algo para CEOPadre.'),
       enCurso ? enviandoBurbuja() : null,
       v?.pensando ? h('div', { class: 'msg ceo pensando', role: 'status' }, h('p', {}, h('span', { class: 'dots', 'aria-hidden': 'true' }, '• • •'), ' Mama está respondiendo…')) : null);
     const form = h('form', { class: 'ceo-form', onsubmit: enviar },
@@ -217,17 +222,54 @@ export function mamaUi({ api, toast, show, local }) {
     const borrador = document.getElementById('m-text')?.value || '';
     const frases = ['m-frase', 'm-frase2'].map((id) => document.getElementById(id)?.value || ''); // una repintada no borra lo tecleado
     const copiaAbierta = document.getElementById('m-mem-copia')?.open || false;
-    b.replaceChildren(h('div', { class: 'mama-grid' }, h('section', { class: 'mama-chat', 'aria-label': 'Conversación' }, pendientes(v?.panel), lista, form),
+    const hilosAbierto = document.getElementById('m-hilos')?.open || false;
+    const qBusca = document.getElementById('m-buscar')?.value || '', focoBusca = document.activeElement?.id === 'm-buscar';
+    b.replaceChildren(h('div', { class: 'mama-grid' }, h('section', { class: 'mama-chat', 'aria-label': 'Conversación' }, barraHilos(), pendientes(v?.panel), lista, form),
       h('div', { class: 'mama-side' }, panelTareas.el, tarjetaPlan(), tarjetaReglas(), tarjetaMovil(), ...tarjetas(v?.panel), tarjetaMemoria(), encargos)));
     ['m-frase', 'm-frase2'].forEach((id, i) => { const el = document.getElementById(id); if (el) el.value = frases[i]; });
     const dc = document.getElementById('m-mem-copia'); if (dc && copiaAbierta) dc.open = true;
+    const dh = document.getElementById('m-hilos'); if (dh && hilosAbierto) dh.open = true;
+    const ib = document.getElementById('m-buscar'); if (ib) { ib.value = qBusca; if (focoBusca) ib.focus({ preventScroll: true }); }
     const ta = document.getElementById('m-text');
     ta.value = borrador;
     if (foco) ta.focus({ preventScroll: true });
-    if (abajo) lista.scrollTop = lista.scrollHeight;
+    const hx = hallado && lista.querySelector(`[data-mid="${hallado}"]`);
+    if (hx) { lista.scrollTop = Math.max(0, hx.offsetTop - lista.offsetTop - 20); hallado = null; }
+    else if (abajo) lista.scrollTop = lista.scrollHeight;
     else { lista.scrollTop = y; if (nuevos > 0) avisoNuevos(lista); }
   }
   let bajar = false, nVistos = 0;
+
+  // §7.3 · CONVERSACIONES: abrir una antigua, empezar otra y buscar en todas. Títulos y temas los pone el PC (sin clasificar a mano).
+  function barraHilos() {
+    const hs = v?.hilos || [];
+    const titulo = hilo === 'nuevo' ? 'Conversación nueva' : hs.find((x) => x.id === hilo)?.titulo || 'Conversación principal';
+    const grupos = new Map();
+    for (const x of hs) { const g = x.tema || 'General'; grupos.set(g, [...(grupos.get(g) || []), x]); }
+    const fila = (x) => h('li', {}, h('button', { class: `btn small${x.id === hilo ? ' primary' : ''}`, type: 'button', 'data-hilo': x.id,
+      'aria-current': x.id === hilo ? 'true' : null, onclick: () => abrirHilo(x.id) }, x.titulo), ' ', h('span', { class: 'muted small' }, `${x.n} mensajes · ${fecha(x.ultimo)}`));
+    return h('div', { class: 'mama-hilos' },
+      h('details', { id: 'm-hilos' }, h('summary', {}, h('strong', { id: 'm-hilo-titulo' }, titulo), h('span', { class: 'muted small' }, ` · ${hs.length} conversaci${hs.length === 1 ? 'ón' : 'ones'}`)),
+        h('input', { type: 'search', id: 'm-buscar', placeholder: 'Buscar en todas las conversaciones…', 'aria-label': 'Buscar en las conversaciones con Mama', maxlength: '120', oninput: buscarLuego }),
+        busq ? h('div', { id: 'm-resultados', role: 'status' }, busq.resultados.length
+          ? h('ul', { class: 'side-list' }, busq.resultados.map((r) => h('li', {}, h('button', { class: 'btn small', type: 'button', 'data-hallado': r.id, onclick: () => abrirHilo(r.hilo, r.id) },
+            r.titulo || 'Conversación'), h('p', { class: 'muted small' }, `${fecha(r.at)} · ${r.fragmento}`))))
+          : h('p', { class: 'muted small' }, `Nada con «${busq.q}».`)) : null,
+        ...[...grupos].map(([g, xs]) => h('section', { 'aria-label': g }, grupos.size > 1 ? h('h3', { class: 'small' }, g) : null, h('ul', { class: 'side-list m-hilos-lista' }, xs.map(fila))))),
+      h('button', { class: 'btn small', type: 'button', id: 'm-nueva', disabled: hilo === 'nuevo', onclick: nuevaConversacion }, '+ Nueva'));
+  }
+  async function abrirHilo(id, msg = null) { document.getElementById('m-hilos')?.removeAttribute('open'); hilo = id; hallado = msg; bajar = !msg; sig = ''; await load(); }
+  function nuevaConversacion() { hilo = 'nuevo'; sig = ''; paint(); document.getElementById('m-text')?.focus(); }
+  function buscarLuego(e) {
+    clearTimeout(buscando);
+    const q = e.target.value.trim();
+    if (q.length < 2) { if (busq) { busq = null; sig = ''; paint(); } return; }
+    buscando = setTimeout(async () => {
+      const r = await api.cmd('mama.buscar', { q });
+      if (!r?.ok) { toast(r?.error || 'No se pudo buscar', 'bad'); return; }
+      busq = r.data; sig = ''; paint();
+    }, 250);
+  }
   /** «Mensajes nuevos ↓»: discreto; bajar es decisión de Antonio. Se quita solo al llegar abajo. */
   function avisoNuevos(lista) {
     const b = h('button', { class: 'btn primary small ceo-nuevo', type: 'button', onclick: () => { lista.scrollTo({ top: lista.scrollHeight, behavior: 'smooth' }); b.remove(); } }, 'Mensajes nuevos ↓');

@@ -1,4 +1,4 @@
-// GENERADO por tools/mama-web-canal.mjs desde focogravital/APP/src/mama/canal.ts (último cambio 234f772). NO EDITAR AQUÍ:
+// GENERADO por tools/mama-web-canal.mjs desde focogravital/APP/src/mama/canal.ts (último cambio bd97190). NO EDITAR AQUÍ:
 // se cambia en el APP y se regenera; test/mama-web-canal.test.js falla si divergen.
 // MAMA T11 · cliente móvil del canal cifrado (contrato CEOPadre/knowledge/mama/CANAL-T10.md).
 // Una sola conversación: la de MAMA en el PC. Supabase sólo transporta sobres «c1.» y claves públicas.
@@ -26,6 +26,7 @@ import {
                                                                                 
                                                                                                         
                            
+                                                                                                                       
  
 /** T31: archivo de la conversación. `listo` = el archivo está en el móvil (cifrado) y se puede abrir. */
                                                                                                                                           
@@ -601,6 +602,7 @@ export class MamaCanal {
             id: f.id, rol: d.rol, texto: d.texto, at: typeof d.at === "string" ? d.at : this.iso(), via: "pc",
             ...(d.rol !== "antonio" ? { nuevo: true } : {}),
             ...(Array.isArray(d.inciertos) && d.inciertos.length ? { inciertos: d.inciertos.map(String) } : {}),
+            ...((Number.isInteger(d.hilo) && d.hilo >= 0) || (typeof d.hilo === "string" && UUID.test(d.hilo)) ? { hilo: d.hilo } : {}),
             ...(a && !a.fallido && TIPOS_ADJ[a.mime] ? { adjunto: { id: a.id, nombre: nombreAdjunto(a.nombre), mime: a.mime, bytes: Number(a.bytes) || 0, listo: false } } : {}),
           });
         } catch { /* sobre alterado o movido de fila: no se muestra */ }

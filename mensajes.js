@@ -63,11 +63,11 @@ export function mensajesUi({ api, toast }) {
     const incluido = ['LECTURA', 'BORRADORES'].includes(c.nivel);
     const sel = h('select', { 'aria-label': `Qué hacer con ${c.nombre || c.clave}`, disabled: !!ocupado, onchange: (e) => clasificar(c, e.target.value) },
       ...Object.entries(NIVEL).map(([k, v]) => h('option', { value: k, selected: c.nivel === k }, v)));
-    const cat = h('input', { class: 'msj-cat', value: c.categoria || '', placeholder: 'categoría (proveedor, cliente…)', 'aria-label': 'Categoría', maxlength: 40,
-      onchange: (e) => accion(`c-${c.id}`, () => api.cmd('mensajes.clasificar', { id: c.id, nivel: c.nivel, categoria: e.target.value.trim() }), () => 'Categoría guardada') });
+    const cat = h('input', { class: 'msj-cat', value: c.categoria || '', placeholder: 'grupo/subgrupo (Proveedores/Agua, Familia…)', 'aria-label': 'Grupo y subgrupo', maxlength: 40,
+      onchange: (e) => accion(`c-${c.id}`, () => api.cmd('mensajes.clasificar', { id: c.id, nivel: c.nivel, categoria: e.target.value.trim() }), (d) => (d.privado ? 'Privado: queda fuera de revisión (no se lee ni se analiza)' : 'Grupo guardado')) });
     return h('li', { class: 'msj-fila' },
       h('div', {}, h('strong', {}, c.nombre || c.clave), ' ', h('span', { class: 'muted small' }, `${c.canal}${c.tipo === 'grupo' ? ' · grupo' : ''} · ${c.n_mensajes} mensajes · último ${fecha(c.ultimo_at)}${c.memoria_version ? ` · memoria v${c.memoria_version}` : ''}`)),
-      h('div', { class: 'row msj-acc' }, sel, incluido ? cat : null,
+      h('div', { class: 'row msj-acc' }, sel, cat, c.privado ? h('span', { class: 'a-chip', title: 'Familia, amigos o conocidos: fuera de revisión' }, '🔒 privado') : null,
         incluido ? h('button', { class: 'btn small', type: 'button', disabled: !!ocupado, onclick: () => analizar(c) }, ocupado === `a-${c.id}` ? 'Analizando…' : 'Analizar contexto') : null,
         c.nivel === 'BORRADORES' ? h('button', { class: 'btn small primary', type: 'button', disabled: !!ocupado,
           onclick: () => accion(`p-${c.id}`, () => api.cmd('mensajes.preparar', { id: c.id }), (d) => (d.preparado ? 'Borrador preparado: está arriba, en la bandeja, esperando tu aprobación' : d.duplicado ? 'Ya tenías ese borrador en la bandeja' : `Sin borrador: ${d.motivo}`)) }, ocupado === `p-${c.id}` ? 'Preparando…' : 'Preparar respuesta') : null),
@@ -92,12 +92,18 @@ export function mensajesUi({ api, toast }) {
 
   function pintar() {
     const n = (f) => contactos.filter(f).length;
-    const FILTROS = { incluidos: ['Incluidos', (c) => ['LECTURA', 'BORRADORES'].includes(c.nivel)], pendientes: ['Sin clasificar', (c) => c.nivel === 'PENDIENTE'], excluidos: ['Excluidos', (c) => c.nivel === 'EXCLUIDO'] };
+    const FILTROS = { incluidos: ['Incluidos', (c) => ['LECTURA', 'BORRADORES'].includes(c.nivel)], pendientes: ['Sin clasificar', (c) => c.nivel === 'PENDIENTE' && !c.privado],
+      privados: ['Privados', (c) => c.privado], excluidos: ['Excluidos', (c) => c.nivel === 'EXCLUIDO' && !c.privado] };
     vistas.replaceChildren(...Object.entries(FILTROS).map(([k, [txt, f]]) => h('button', { class: `btn small${filtro === k ? ' primary' : ''}`, type: 'button', role: 'tab', 'aria-selected': String(filtro === k), onclick: () => { filtro = k; pintar(); } }, `${txt} (${n(f)})`)));
     const xs = contactos.filter(FILTROS[filtro][1]);
     // El formulario de preferencias se conserva si se está escribiendo en él (no se repinta debajo del cursor).
     const escribiendo = document.activeElement && prefsBox.contains(document.activeElement);
-    lista.replaceChildren(xs.length ? h('ul', { class: 'side-list' }, xs.map(fila)) : h('p', { class: 'muted small' }, filtro === 'pendientes' ? 'No hay contactos sin clasificar.' : 'Ninguno aquí.'));
+    // Agrupados por grupo y subgrupo (los sin grupo, al final), sin clasificar nada a mano más allá del campo de cada contacto.
+    const grupos = new Map();
+    for (const c of xs) { const g = c.grupo ? `${c.grupo}${c.subgrupo ? ` / ${c.subgrupo}` : ''}` : 'Sin grupo'; grupos.set(g, [...(grupos.get(g) || []), c]); }
+    const orden = [...grupos].sort(([a], [b]) => (a === 'Sin grupo') - (b === 'Sin grupo') || a.localeCompare(b, 'es'));
+    lista.replaceChildren(...(xs.length ? (grupos.size > 1 || !grupos.has('Sin grupo') ? orden.map(([g, cs]) => h('section', { 'aria-label': g, class: 'msj-grupo' }, h('h3', { class: 'small' }, `${g} (${cs.length})`), h('ul', { class: 'side-list' }, cs.map(fila))))
+      : [h('ul', { class: 'side-list' }, xs.map(fila))]) : [h('p', { class: 'muted small' }, filtro === 'pendientes' ? 'No hay contactos sin clasificar.' : 'Ninguno aquí.')]));
     panel.replaceChildren();
     if (!escribiendo) {
       // T27: aprendido de TUS ediciones (propuesto → lo que aprobaste o enviaste), sólo de contactos incluidos. Nada se aplica

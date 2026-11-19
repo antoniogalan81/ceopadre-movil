@@ -216,7 +216,9 @@ export function copiaUi({ cmd, toast, ask }) {
     const aviso = dlg.querySelector('#toast'); // el aviso de CEOPadre vive dentro del diálogo abierto: se conserva
     dlg.replaceChildren(...[
       h('h2', {}, 'Copia de seguridad ECOAPP'),
-      h('p', { class: 'muted' }, `${st.origen} → ${st.destino}`),
+      h('p', { class: 'muted' }, `${st.origen} → ${st.destino} `,
+        // 19-11: el MISMO panel «Consultar» (Automático · MAMA · CEO) con el estado real de este agente.
+        h('button', { class: 'btn ghost small', type: 'button', onclick: () => window.dispatchEvent(new CustomEvent('ceo:abrir', { detail: { ref: 'copia' } })) }, '💬 Consultar')),
       h('section', { class: `cp-box t-${d ? 'ok' : 'wait'}` }, h('h3', {}, 'Disco externo'),
         d ? [fila('Estado', [chip(d.vinculado ? 'Conectado y vinculado' : 'Conectado (se vinculará en la primera copia)', 'ok')]),
           fila('Unidad', `${d.letra}: · ${d.etiqueta} · serie ${Number(d.serie).toString(16).toUpperCase()}`),

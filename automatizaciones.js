@@ -28,6 +28,15 @@ export function estadoMensaje(m) {
 }
 const sha256 = async (s) => [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(s)))].map((x) => x.toString(16).padStart(2, '0')).join('');
 
+// CEO y MAMA en Agentes (19-11): no son automatizaciones ni identidades nuevas; sólo accesos a lo que ya existe.
+const consultar = (destino) => window.dispatchEvent(new CustomEvent('ceo:abrir', { detail: { ref: 'agentes', destino } }));
+const PRINCIPALES = [
+  { destino: 'CEO', nombre: 'CEO', a: 'al CEO', sub: 'Dirección de CEOPadre', desc: 'Dirige y coordina los proyectos, objetivos, agentes, decisiones y trabajos de CEOPadre.',
+    abrir: () => window.dispatchEvent(new CustomEvent('ceo:abrir', { detail: { ref: 'general', destino: 'CEO' } })) },
+  { destino: 'MAMA', nombre: 'MAMA', a: 'a MAMA', sub: 'Tu asistente personal', desc: 'Responde, gestiona tus peticiones, hace lo que tiene autorizado y delega en el CEO o en otros agentes.',
+    abrir: () => document.getElementById('b-mama')?.click() },
+];
+
 export function autoUi({ api, ask, toast, show, data, run, viewText, ai, alquileres = () => [], mensajes = null }) {
   let mode = null;           // 'list' | 'edit' | 'runs' | 'inbox'
   let onlyProject = null;    // lista de un solo proyecto (desde DETALLES)
@@ -333,18 +342,25 @@ export function autoUi({ api, ask, toast, show, data, run, viewText, ai, alquile
     const alq = (onlyProject ? [] : alquileres()).filter((x) => !q || x.texto.toLowerCase().includes(q));
     const items = [...alq.map((x) => ({ tone: x.tono, el: x.el })),
       ...groups.flatMap(([, xs]) => xs).map((a) => ({ tone: situacion(a).tone, el: tarjeta(a) }))].sort((a, b) => ORDEN[a.tone] - ORDEN[b.tone]);
+    // 19-11 · CEO y MAMA como agentes: las MISMAS identidades y el MISMO panel «Consultar» (Automático · MAMA · CEO) sobre la
+    // conversación de esta pantalla (ref «agentes»). La tarjeta abre su conversación de siempre (Hablar con el CEO / chat de MAMA).
+    const principales = onlyProject ? [] : PRINCIPALES.filter((x) => !q || `${x.nombre} ${x.desc}`.toLowerCase().includes(q)).map((x) =>
+      miniTarjeta({ id: `agente-${x.destino.toLowerCase()}`, clase: 'ag-principal', ctx: { tipo: 'pantalla', id: 'agentes', titulo: `Agentes · ${x.nombre}` }, titulo: x.nombre, sub: x.sub, desc: x.desc, estado: ['Agente principal', 'idle'],
+        accion: { txt: `💬 Consultar ${x.a}`, cls: 'primary', on: () => consultar(x.destino) }, abrir: x.abrir }));
     const buscar = h('input', { type: 'search', class: 'ag-search', placeholder: 'Buscar agente o proyecto', 'aria-label': 'Buscar agente o proyecto' });
     buscar.value = filtro;
     buscar.addEventListener('input', () => { filtro = buscar.value; const pos = buscar.selectionStart; paint(true); const b = document.querySelector('.ag-search'); b?.focus(); b?.setSelectionRange(pos, pos); });
     const n = all().length;
     return [h('div', { class: 'ag-bar' },
       h('button', { class: 'btn primary', type: 'button', disabled: !online(), onclick: (e) => nuevoAgente(e.currentTarget) }, '+ Nuevo agente'),
+      onlyProject ? null : h('button', { class: 'btn ghost small', type: 'button', ...marca({ tipo: 'pantalla', id: 'agentes', titulo: 'Agentes' }), onclick: () => consultar('AUTO') }, '💬 Consultar'),
       n > 6 ? buscar : null,
       pending().length ? h('button', { class: 'btn accent small', type: 'button', onclick: openInbox }, `Aprobaciones pendientes · ${pending().length}`) : inbox().length ? h('button', { class: 'btn ghost small', type: 'button', onclick: openInbox }, 'Mensajes') : null,
       onlyProject ? h('button', { class: 'btn ghost small', type: 'button', onclick: () => openList(null) }, 'Ver todos los proyectos') : null),
     // Una sola rejilla (el proyecto va en cada tarjeta): primero lo que te necesita o falla, después lo que trabaja.
+    principales.length ? h('div', { class: 'ag-grid' }, principales) : null,
     items.length ? h('div', { class: 'ag-grid' }, items.map((x) => x.el))
-      : h('p', { class: 'empty' }, q ? 'Ningún agente coincide con la búsqueda.' : onlyProject ? 'Este proyecto aún no tiene agentes.' : 'Todavía no hay agentes. Crea el primero con «+ Nuevo agente».'),
+      : principales.length && q ? null : h('p', { class: 'empty' }, q ? 'Ningún agente coincide con la búsqueda.' : onlyProject ? 'Este proyecto aún no tiene agentes.' : 'Todavía no hay agentes. Crea el primero con «+ Nuevo agente».'),
     h('details', { class: 'fold ag-mas', 'data-k': 'ag-mas' }, h('summary', {}, 'Procesos de Windows y configuración avanzada'),
       h('div', { class: 'a-acts' }, h('button', { class: 'btn ghost small', type: 'button', onclick: () => openEditor(null, onlyProject) }, 'Crear paso a paso (avanzado)')),
       winSection())];

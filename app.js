@@ -264,7 +264,7 @@ function acusarAviso() {
 }
 window.addEventListener('popstate', aplicarRuta);
 window.addEventListener('ceo:nav', (e) => navPush(e.detail || {}));
-window.addEventListener('ceo:abrir', (e) => { if (e.detail?.ref) void openCeo(e.detail.ref, { pregunta: e.detail.pregunta || null }); });
+window.addEventListener('ceo:abrir', (e) => { if (e.detail?.ref) void openCeo(e.detail.ref, { pregunta: e.detail.pregunta || null, destino: e.detail.destino || null }); });
 window.addEventListener('ceo:copiar', (e) => { if (e.detail?.ref) void copiarConsulta(e.detail.ref, e.detail.btn || null); });
 document.addEventListener('click', (e) => {
   const t = e.target.closest?.('#tabbar [data-go], .tabs [data-tab]');
@@ -1423,10 +1423,11 @@ function pintarDestino() {
 const VUELTA = { proyecto: 'Ir al proyecto', objetivo: 'Ir al objetivo', agentes: 'Ir a Agentes', inicio: 'Ir a Dirección' };
 const draftKey = (ref) => `ceo-borrador:${ref}`;
 const borradorCEO = { get: (ref) => { try { return localStorage.getItem(draftKey(ref)) || ''; } catch { return ''; } }, set: (ref, v) => { try { if (v) localStorage.setItem(draftKey(ref), v); else localStorage.removeItem(draftKey(ref)); } catch { /* sin almacenamiento */ } } };
-async function openCeo(ref, { pregunta = null, push = true, id = null } = {}) {
+async function openCeo(ref, { pregunta = null, push = true, id = null, destino = null } = {}) {
   if (!api) return;
   const dlg = $('#ceo');
   if (ceo.ref !== ref) { ceo.elemento = leer(ultimoClic); ceo.destino = 'AUTO'; }
+  if (DESTINO_TXT[destino]) ceo.destino = destino; // Agentes: «Consultar» de la tarjeta del CEO o de MAMA llega ya elegido
   ceo.ref = ref;
   if (!dlg.open) dlg.showModal();
   if (push) navPush({ ceo: ref });

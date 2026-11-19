@@ -516,5 +516,17 @@ export function mamaUi({ api, toast, show, local }) {
   }
   const bc = document.getElementById('b-mama-copia');
   if (bc) { bc.hidden = !local; bc.addEventListener('click', () => void abrirCopia()); }
-  return { open, panel, cerrarPanel, contextoActual, abierta: () => abierta };
+  /** Añadido #9 (19-11): en la PWA, la conversación de «Consultar» trae de MAMA sólo la referencia (el canal de CEOPadre no lleva su
+   *  texto). Se completa como conMama del PC, pero con el historial cifrado de este móvil (canal de extremo a extremo emparejado).
+   *  Devuelve la conversación y cuántas respuestas aún no han llegado al móvil (para reintentar). En el PC no hace nada. */
+  async function conMamaMovil(conv) {
+    const ids = local || !conv ? [] : conv.mensajes.flatMap((m) => (m.datos?.via === 'MAMA' ? m.datos.mama || [] : []));
+    if (!ids.length) return { conv, faltan: 0 };
+    movil ??= mamaMovil({ toast, burbuja, ADJ_MAX, contexto: () => (enPanel ? ctxActual : null) });
+    const tx = await movil.textosPc(ids);
+    const mensajes = conv.mensajes.map((m) => (m.datos?.via === 'MAMA' && m.datos.mama?.length && m.datos.mama.every((i) => tx[i])
+      ? { ...m, texto: [m.rol === 'ceo' ? null : m.texto, ...m.datos.mama.map((i) => tx[i])].filter(Boolean).join('\n\n') } : m));
+    return { conv: { ...conv, mensajes }, faltan: ids.filter((i) => !tx[i]).length };
+  }
+  return { open, panel, cerrarPanel, contextoActual, abierta: () => abierta, conMamaMovil };
 }

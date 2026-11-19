@@ -62,6 +62,16 @@ const almacen = { getItem: async (k) => (await idb.get(`a:${k}`)) ?? null, setIt
 
 // ---------------------------------------------------------------- cliente
 let base = null; // { sb, MamaCanal }
+/** Id remoto de un mensaje del PC: el MISMO cálculo que idSalida de src/mama-canal.js (HKDF «mama-id-v1» + HMAC «mama-salida|id»).
+ *  Sólo lo puede hacer quien tiene la clave del canal: así el panel «Consultar» del móvil encuentra en SU historial cifrado la
+ *  respuesta de MAMA que la conversación del CEO sólo referencia por id local. Carga perezosa: la PWA no paga @noble al abrir. */
+export async function idSalidaMovil(k, localId) {
+  const [{ hkdf }, { hmac }, { sha256 }, { uuid4, utf8 }] = await Promise.all([import('./vendor/noble/hashes/hkdf.js'),
+    import('./vendor/noble/hashes/hmac.js'), import('./vendor/noble/hashes/sha2.js'), import('./vendor/mama-canal/cripto.js')]);
+  const h = hmac(sha256, hkdf(sha256, k, undefined, utf8('mama-id-v1'), 32), utf8(`mama-salida|${localId}`));
+  return uuid4(() => h.slice(0, 16));
+}
+
 async function cargarBase() {
   if (base) return base;
   const [{ MamaCanal }, { FOCO_URL, FOCO_ANON }] = await Promise.all([import('./vendor/mama-canal/canal.js'), import('./config-foco.js')]);
@@ -115,14 +125,37 @@ export function mamaMovil({ burbuja, toast, ADJ_MAX = 5 * 1024 * 1024, contexto 
   const recordar = (x) => { try { if (x) localStorage.setItem(LOGIN, JSON.stringify(x)); else localStorage.removeItem(LOGIN); } catch { /* sin almacenamiento */ } };
   const recordado = () => { try { const x = JSON.parse(localStorage.getItem(LOGIN) || 'null'); return x && Date.now() - x.at < 60 * 60_000 ? x : null; } catch { return null; } };
 
+  /** El canal de la sesión de FocoGravital de este navegador; null sin sesión (sin acceso no hay nada que descifrar). */
+  async function conCanal() {
+    const { sb, MamaCanal } = await cargarBase();
+    const s = (await sb.auth.getSession()).data.session;
+    if (!s) return null;
+    if (uid !== s.user.id) { uid = s.user.id; canal = new MamaCanal({ sb, uid, almacen, seguro, ficheros, rand: (n) => crypto.getRandomValues(new Uint8Array(n)) }); }
+    return canal;
+  }
+  /** Añadido #9 (19-11): textos de mensajes de MAMA por id LOCAL del PC, sacados del historial cifrado de ESTE móvil (lo que
+   *  textosMama hace en el PC). Sin sesión, sin emparejar o sin haber llegado aún → no está (el panel deja la referencia). */
+  async function textosPc(ids) {
+    try {
+      const c = await conCanal();
+      if (!c) return {};
+      await c.preparar();
+      if (!c.canal?.k) return {};
+      const remotos = await Promise.all(ids.map((id) => idSalidaMovil(c.canal.k, id)));
+      const buscar = () => { const porId = new Map(c.instantanea().mensajes.map((m) => [m.id, m]));
+        return Object.fromEntries(ids.map((id, i) => [id, porId.get(remotos[i])?.texto]).filter(([, t]) => t)); };
+      let out = buscar();
+      // Sólo si falta alguna se trae lo nuevo del canal (la respuesta pudo llegar con el chat de MAMA cerrado).
+      if (Object.keys(out).length < ids.length) { await c.sincronizar().catch(() => undefined); out = buscar(); }
+      return out;
+    } catch { return {}; }
+  }
+
   async function iniciar(c) {
     cuerpo = c; vivo = true;
     try {
-      const { sb, MamaCanal } = await cargarBase();
-      const s = (await sb.auth.getSession()).data.session;
-      if (!s) { const r = recordado(); email ||= r?.email || ''; paso = r?.paso === 'codigo' ? 'codigo' : 'correo'; return pintar(); }
+      if (!(await conCanal())) { const r = recordado(); email ||= r?.email || ''; paso = r?.paso === 'codigo' ? 'codigo' : 'correo'; return pintar(); }
       recordar(null);
-      if (uid !== s.user.id) { uid = s.user.id; canal = new MamaCanal({ sb, uid, almacen, seguro, ficheros, rand: (n) => crypto.getRandomValues(new Uint8Array(n)) }); }
       foto = await canal.preparar();
       paso = 'canal';
       pintar(); await ciclo();
@@ -376,5 +409,5 @@ export function mamaMovil({ burbuja, toast, ADJ_MAX = 5 * 1024 * 1024, contexto 
     finally { g.trozos.length = 0; ocupado = false; firma = ''; pintar(); document.getElementById('mm-voz')?.focus(); }
   }
 
-  return { iniciar, parar };
+  return { iniciar, parar, textosPc };
 }

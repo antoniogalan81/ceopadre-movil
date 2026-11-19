@@ -1439,7 +1439,9 @@ async function openCeo(ref, { pregunta = null, push = true, id = null } = {}) {
   const r = await api.cmd('ceo.conversacion', { ref, ...(id ? { id } : {}) });
   if (ceo.ref !== ref) return;
   if (!r?.ok) { fill($('#ceo-msgs'), h('p', { class: 'bad' }, r?.error || 'El PC no responde')); return; }
-  ceo.conv = r.data;
+  const conv = await conMamaPanel(r.data);
+  if (ceo.ref !== ref) return;
+  ceo.conv = conv;
   $('#ceo-input').value = borradorCEO.get(ref);
   paintCeo();
   if (pregunta && !r.data.mensajes.length && !r.data.pensando) await enviarCeo(pregunta);
@@ -1630,10 +1632,21 @@ function avisoNuevo(box) {
   }
   b.hidden = false;
 }
+// Añadido #9 (19-11): en la PWA la respuesta de MAMA llega al panel como referencia; mui la completa con el historial cifrado del
+// móvil. Si aún no ha llegado por el canal (el PC la sube cada ~15 s), se reintenta cada 5 s durante 1 min como mucho.
+let mamaReintento = { id: null, n: 0, t: null };
+async function conMamaPanel(d) {
+  if (LOCAL || !mui || !d) return d;
+  const { conv, faltan } = await mui.conMamaMovil(d);
+  if (mamaReintento.id !== d.id) mamaReintento = { id: d.id, n: 0, t: null };
+  clearTimeout(mamaReintento.t);
+  if (faltan && !d.pensando && mamaReintento.n++ < 12) mamaReintento.t = setTimeout(() => { if ($('#ceo').open && ceo.conv?.id === d.id) void refreshCeo(); }, 5000);
+  return conv;
+}
 async function refreshCeo() {
   if (!ceo.conv) return;
   const r = await api.cmd('ceo.conversacion', { ref: ceo.ref, id: ceo.conv.id });
-  if (r?.ok && ceo.ref === r.data.ref) { ceo.conv = r.data; paintCeo(); }
+  if (r?.ok && ceo.ref === r.data.ref) { const conv = await conMamaPanel(r.data); if (ceo.ref === conv.ref) { ceo.conv = conv; paintCeo(); } }
   return r?.data;
 }
 function pollCeo() {
@@ -1677,7 +1690,7 @@ function ceoUi() {
   $('#ceo-otras').addEventListener('change', async (e) => {
     if (!e.target.value) return;
     const r = await api.cmd('ceo.conversacion', { ref: ceo.ref, id: e.target.value });
-    if (r?.ok) { ceo.conv = r.data; paintCeo(); if (r.data.pensando) pollCeo(); }
+    if (r?.ok) { ceo.conv = await conMamaPanel(r.data); paintCeo(); if (r.data.pensando) pollCeo(); }
   });
   $('#ceo').addEventListener('cancel', (e) => { e.preventDefault(); cerrarCeo(); });
   // «Hablar con el CEO»: con el contexto de donde estás (la ficha de un proyecto) o general.

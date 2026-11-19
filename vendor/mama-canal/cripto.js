@@ -1,4 +1,4 @@
-// GENERADO por tools/mama-web-canal.mjs desde focogravital/APP/src/mama/cripto.ts (último cambio bd97190). NO EDITAR AQUÍ:
+// GENERADO por tools/mama-web-canal.mjs desde focogravital/APP/src/mama/cripto.ts (último cambio fae0381). NO EDITAR AQUÍ:
 // se cambia en el APP y se regenera; test/mama-web-canal.test.js falla si divergen.
 // MAMA T11 · extremo MÓVIL del canal cifrado. Contrato: E:\ECOAPP\CEOPadre\knowledge\mama\CANAL-T10.md (§3 y §4).
 // Funciones puras con @noble (JS auditado, MIT): el aleatorio se inyecta (en la app, expo-crypto; en pruebas, node:crypto),

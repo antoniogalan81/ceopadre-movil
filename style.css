@@ -1247,6 +1247,8 @@ dialog.ceo-chat::backdrop { background: oklch(0 0 0 / .25); }
 .ceo-dec .reco { font-weight: 650; } .ceo-dec.done { border-left-color: var(--ink-3); color: var(--ink-2); }
 .ceo-dec .dec-btns { margin-top: 2px; }
 .ceo-head { flex-wrap: wrap; }
+/* 19-11: con el teclado del móvil abierto (web/modal.js pone .teclado) se pliega lo secundario de «Consultar»: el historial sigue a la vista. */
+.teclado .ceo-chat .ceo-tools, .teclado .ceo-chat #ceo-ctx, .teclado .ceo-chat .ceo-nota { display: none; }
 @media (min-width: 761px) {
   dialog.ceo-chat { transition: width .18s ease; }
   dialog.ceo-chat.ancho { width: min(980px, 94vw); }

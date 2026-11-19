@@ -27,7 +27,11 @@ export function ventanasUniversales(doc = document) {
     const ajustar = () => {
       const r = doc.documentElement.style;
       r.setProperty('--vvh', `${Math.round(vv.height)}px`);
-      r.setProperty('--kb', `${Math.max(0, Math.round(doc.defaultView.innerHeight - vv.height - vv.offsetTop))}px`);
+      const kb = Math.max(0, Math.round(doc.defaultView.innerHeight - vv.height - vv.offsetTop));
+      r.setProperty('--kb', `${kb}px`);
+      // 19-11 (vivo, 390 px): con un contexto real la cabecera de «Consultar» ocupaba 208 px y el historial quedaba en 8 px.
+      // Con el teclado abierto se pliega lo secundario (style.css, .teclado); vuelve al cerrarlo.
+      doc.documentElement.classList.toggle('teclado', kb > 150);
       // El campo que se está escribiendo sigue a la vista al abrirse el teclado.
       const a = doc.activeElement;
       if (a?.closest?.('dialog[open]') && /^(TEXTAREA|INPUT|SELECT)$/.test(a.tagName)) a.scrollIntoView({ block: 'nearest' });

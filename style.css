@@ -765,6 +765,9 @@ a.btn { display: inline-flex; align-items: center; justify-content: center; text
 .a-msg.t-warn { border-left-color: var(--warn); } .a-msg.t-work { border-left-color: var(--work); }
 .a-sel { display: inline-flex; align-items: center; gap: 10px; min-height: 44px; font-size: 16px; cursor: pointer; }
 .a-sel input { width: 22px; height: 22px; }
+/* §10 Mensajes (19-11): casilla de selección múltiple junto al nombre (no a lo ancho) y barra de lo marcado. */
+.msj-fila input[type=checkbox] { width: 20px; height: 20px; margin: 0 6px 0 0; vertical-align: middle; }
+.msj-barra { flex-wrap: wrap; gap: 6px; align-items: center; padding: 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); }
 .a-reply { background: var(--bg); border-radius: 10px; padding: 10px 12px; display: grid; gap: 4px; }
 .a-reply b { font-size: 10.5px; letter-spacing: .1em; color: var(--ink-3); }
 @media (max-width: 560px) { .a-msg .a-acts .btn, .a-card .a-acts .btn.a-run { flex: 1 1 auto; } }

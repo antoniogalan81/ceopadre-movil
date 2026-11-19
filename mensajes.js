@@ -7,10 +7,15 @@ import { h } from './dom.js';
 const NIVEL = { PENDIENTE: 'Sin clasificar', EXCLUIDO: 'Excluido (no se analiza)', LECTURA: 'Sólo leer y recordar', BORRADORES: 'Preparar borradores' };
 const TIPO = { HECHO: 'Hecho', PROPUESTA: 'Propuesta', ACUERDO: 'Acuerdo', COMPROMISO: 'Compromiso', PENDIENTE: 'Pendiente', CONTRADICHO: 'Contradicho', SUPOSICION: 'Suposición', OBSOLETO: 'Obsoleto' };
 const AMBITO = { contacto: 'Sólo este contacto', categoria: 'Toda su categoría', global: 'Todos los mensajes' };
+// §10 (19-11): grupos iniciales que se ofrecen al escribir (se puede escribir cualquier otro). Varios grupos con «;».
+const GRUPOS_INICIALES = ['Trabajo', 'Ventas', 'Empleados', 'Proveedores', 'Amigos', 'Familia', 'Conocidos'];
 const fecha = (iso) => (iso ? new Date(iso).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—');
 
 export function mensajesUi({ api, toast }) {
   let contactos = [], prefs = [], estilos = [], filtro = 'incluidos', abierto = null, analisis = null, ocupado = '';
+  const elegidos = new Set(); // §10: selección múltiple clara (sólo lo que Antonio marca)
+  const sugerencias = h('datalist', { id: 'msj-grupos' });
+  const barra = h('div', { class: 'msj-barra row', hidden: true, role: 'group', 'aria-label': 'Contactos seleccionados' });
   const lista = h('div', { class: 'msj-lista' });
   const panel = h('div', { class: 'msj-panel' });
   const vistas = h('div', { class: 'msj-vistas', role: 'tablist' });
@@ -19,7 +24,7 @@ export function mensajesUi({ api, toast }) {
     h('h2', { id: 'msj-h' }, 'Contactos y memoria'),
     h('p', { class: 'muted small' }, 'Sólo los contactos que incluyas se analizan y reciben borradores; el resto no se guarda. Excluir borra lo ya guardado de ese contacto.'),
     h('div', { class: 'row' }, h('button', { class: 'btn small', type: 'button', onclick: () => accion('ingerir', () => api.cmd('mensajes.ingerir', {}), (d) => `Leídas ${d.revisiones} revisiones · ${d.mensajes} mensajes nuevos · ${(d.borradores || []).filter((x) => x.preparado).length} borradores`) }, 'Leer mensajes nuevos')),
-    vistas, lista, panel, h('h3', {}, 'Cómo quieres que responda'), prefsBox);
+    sugerencias, vistas, barra, lista, panel, h('h3', {}, 'Cómo quieres que responda'), prefsBox);
 
   async function cargar() {
     const [c, p] = await Promise.all([api.cmd('mensajes.contactos', {}), api.cmd('mensajes.preferencias', {})]);
@@ -63,10 +68,12 @@ export function mensajesUi({ api, toast }) {
     const incluido = ['LECTURA', 'BORRADORES'].includes(c.nivel);
     const sel = h('select', { 'aria-label': `Qué hacer con ${c.nombre || c.clave}`, disabled: !!ocupado, onchange: (e) => clasificar(c, e.target.value) },
       ...Object.entries(NIVEL).map(([k, v]) => h('option', { value: k, selected: c.nivel === k }, v)));
-    const cat = h('input', { class: 'msj-cat', value: c.categoria || '', placeholder: 'grupo/subgrupo (Proveedores/Agua, Familia…)', 'aria-label': 'Grupo y subgrupo', maxlength: 40,
+    const cat = h('input', { class: 'msj-cat', value: c.categoria || '', placeholder: 'Ventas/León XIII; Proveedores/Tiendas', 'aria-label': 'Grupos y subgrupos (varios con ;)', maxlength: 160, list: 'msj-grupos',
       onchange: (e) => accion(`c-${c.id}`, () => api.cmd('mensajes.clasificar', { id: c.id, nivel: c.nivel, categoria: e.target.value.trim() }), (d) => (d.privado ? 'Privado: queda fuera de revisión (no se lee ni se analiza)' : 'Grupo guardado')) });
+    const marca = h('input', { type: 'checkbox', checked: elegidos.has(c.id), disabled: !!ocupado, 'aria-label': `Seleccionar ${c.nombre || c.clave}`,
+      onchange: (e) => { if (e.target.checked) elegidos.add(c.id); else elegidos.delete(c.id); pintar(); } });
     return h('li', { class: 'msj-fila' },
-      h('div', {}, h('strong', {}, c.nombre || c.clave), ' ', h('span', { class: 'muted small' }, `${c.canal}${c.tipo === 'grupo' ? ' · grupo' : ''} · ${c.n_mensajes} mensajes · último ${fecha(c.ultimo_at)}${c.memoria_version ? ` · memoria v${c.memoria_version}` : ''}`)),
+      h('div', {}, marca, ' ', h('strong', {}, c.nombre || c.clave), ' ', h('span', { class: 'muted small' }, `${c.canal}${c.tipo === 'grupo' ? ' · grupo' : ''} · ${c.n_mensajes} mensajes · último ${fecha(c.ultimo_at)}${c.memoria_version ? ` · memoria v${c.memoria_version}` : ''}`)),
       h('div', { class: 'row msj-acc' }, sel, cat, c.privado ? h('span', { class: 'a-chip', title: 'Familia, amigos o conocidos: fuera de revisión' }, '🔒 privado') : null,
         incluido ? h('button', { class: 'btn small', type: 'button', disabled: !!ocupado, onclick: () => analizar(c) }, ocupado === `a-${c.id}` ? 'Analizando…' : 'Analizar contexto') : null,
         c.nivel === 'BORRADORES' ? h('button', { class: 'btn small primary', type: 'button', disabled: !!ocupado,
@@ -76,9 +83,9 @@ export function mensajesUi({ api, toast }) {
 
   function formPreferencia() {
     const incl = contactos.filter((c) => ['LECTURA', 'BORRADORES'].includes(c.nivel));
-    const cats = [...new Set(incl.map((c) => c.categoria).filter(Boolean))];
+    const cats = [...new Set(incl.flatMap((c) => (c.categoria || '').split(';').map((x) => x.trim()).filter(Boolean)))]; // §10: una por grupo
     const amb = h('select', { name: 'ambito', 'aria-label': 'A qué se aplica' }, ...Object.entries(AMBITO).map(([k, v]) => h('option', { value: k }, v)));
-    const obj = h('select', { name: 'objetivo', 'aria-label': 'Contacto o categoría' },
+    const obj = h('select', { name: 'objetivo', 'aria-label': 'Contacto o categoría', style: 'max-width: 100%' },
       ...incl.map((c) => h('option', { value: c.id, 'data-amb': 'contacto' }, c.nombre || c.clave)), ...cats.map((x) => h('option', { value: x, 'data-amb': 'categoria' }, `categoría: ${x}`)));
     return h('form', { class: 'msj-pref-form', onsubmit: (e) => {
       e.preventDefault();
@@ -88,6 +95,36 @@ export function mensajesUi({ api, toast }) {
       void accion('pref', () => api.cmd('mensajes.preferencia', { ambito: f.ambito.value, objetivo, texto: f.texto.value }), () => 'Guardado: se aplica en los próximos borradores');
     } }, h('label', { for: 'msj-pref-t' }, 'Corrígeme («demasiado formal», «más corto», «no uses esta expresión», «así es exactamente como quiero»):'),
       h('textarea', { id: 'msj-pref-t', name: 'texto', rows: 2, required: true, maxlength: 500 }), h('div', { class: 'row' }, amb, obj, h('button', { class: 'btn small primary', type: 'submit', disabled: !!ocupado }, 'Guardar')));
+  }
+
+  // §10: lo marcado, de una vez y a la vista (cuántos y quiénes). La clasificación no concede lectura: el nivel se elige aparte y
+  // un grupo privado (amigos, familia, conocidos) deja al contacto EXCLUIDO en el servidor, se pida lo que se pida.
+  function pintarBarra() {
+    for (const id of [...elegidos]) if (!contactos.some((c) => c.id === id)) elegidos.delete(id);
+    barra.hidden = !elegidos.size;
+    if (!elegidos.size) { barra.replaceChildren(); return; }
+    const sel = contactos.filter((c) => elegidos.has(c.id));
+    const nivel = h('select', { 'aria-label': 'Nivel para los seleccionados' }, h('option', { value: '' }, 'Nivel: no cambiar'), ...Object.entries(NIVEL).map(([k, v]) => h('option', { value: k }, v)));
+    const grupo = h('input', { class: 'msj-cat', placeholder: 'Añadir al grupo (Ventas/León XIII)', 'aria-label': 'Añadir los seleccionados a un grupo', maxlength: 80, list: 'msj-grupos' });
+    const aplicar = async () => {
+      const g = grupo.value.trim(), n = nivel.value;
+      if (!g && !n) { toast('Elige un nivel o escribe un grupo', 'bad'); return; }
+      const r = await accion('lote', async () => {
+        let hechos = 0, privados = 0;
+        for (const c of sel) {
+          const actuales = (c.categoria || '').split(';').map((x) => x.trim()).filter(Boolean);
+          const categoria = g && !actuales.some((x) => x.toLowerCase() === g.toLowerCase()) ? [...actuales, g].join('; ') : c.categoria || undefined;
+          const r = await api.cmd('mensajes.clasificar', { id: c.id, nivel: n || c.nivel, categoria });
+          if (!r?.ok) return { ok: false, error: `${c.nombre || c.clave}: ${r?.error || 'no se pudo'} (aplicado a ${hechos} de ${sel.length})` };
+          hechos++; if (r.data?.privado) privados++;
+        }
+        return { ok: true, data: { hechos, privados } };
+      }, (d) => `Aplicado a ${d.hechos} contacto${d.hechos === 1 ? '' : 's'}${d.privados ? ` · ${d.privados} privado${d.privados === 1 ? '' : 's'}: fuera de revisión` : ''}`);
+      if (r?.ok) { elegidos.clear(); pintar(); } // con un fallo se conserva la selección para reintentar
+    };
+    barra.replaceChildren(h('strong', {}, `${sel.length} seleccionado${sel.length === 1 ? '' : 's'}: `), h('span', { class: 'muted small' }, sel.map((c) => c.nombre || c.clave).join(', ')),
+      nivel, grupo, h('button', { class: 'btn small primary', type: 'button', disabled: !!ocupado, onclick: aplicar }, ocupado === 'lote' ? 'Aplicando…' : 'Aplicar a los seleccionados'),
+      h('button', { class: 'btn small', type: 'button', onclick: () => { elegidos.clear(); pintar(); } }, 'Quitar selección'));
   }
 
   function pintar() {
@@ -100,11 +137,14 @@ export function mensajesUi({ api, toast }) {
     const escribiendo = document.activeElement && prefsBox.contains(document.activeElement);
     // Agrupados por grupo y subgrupo (los sin grupo, al final), sin clasificar nada a mano más allá del campo de cada contacto.
     const grupos = new Map();
-    for (const c of xs) { const g = c.grupo ? `${c.grupo}${c.subgrupo ? ` / ${c.subgrupo}` : ''}` : 'Sin grupo'; grupos.set(g, [...(grupos.get(g) || []), c]); }
+    for (const c of xs) for (const x of (c.grupos?.length ? c.grupos : [c.grupo ? c : { grupo: null }])) { const g = x.grupo ? `${x.grupo}${x.subgrupo ? ` / ${x.subgrupo}` : ''}` : 'Sin grupo'; grupos.set(g, [...(grupos.get(g) || []), c]); }
     const orden = [...grupos].sort(([a], [b]) => (a === 'Sin grupo') - (b === 'Sin grupo') || a.localeCompare(b, 'es'));
     lista.replaceChildren(...(xs.length ? (grupos.size > 1 || !grupos.has('Sin grupo') ? orden.map(([g, cs]) => h('section', { 'aria-label': g, class: 'msj-grupo' }, h('h3', { class: 'small' }, `${g} (${cs.length})`), h('ul', { class: 'side-list' }, cs.map(fila))))
       : [h('ul', { class: 'side-list' }, xs.map(fila))]) : [h('p', { class: 'muted small' }, filtro === 'pendientes' ? 'No hay contactos sin clasificar.' : 'Ninguno aquí.')]));
     panel.replaceChildren();
+    pintarBarra();
+    const usados = contactos.flatMap((c) => (c.categoria || '').split(';').map((x) => x.trim()).filter(Boolean));
+    sugerencias.replaceChildren(...[...new Set([...GRUPOS_INICIALES, ...usados])].map((v) => h('option', { value: v })));
     if (!escribiendo) {
       // T27: aprendido de TUS ediciones (propuesto → lo que aprobaste o enviaste), sólo de contactos incluidos. Nada se aplica
       // hasta que lo confirmas; lo rechazado no vuelve salvo que lo repitas en 3 borradores nuevos.

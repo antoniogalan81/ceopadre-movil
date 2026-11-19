@@ -22,3 +22,16 @@ export function miniTarjeta({ id, titulo, sub = '', desc = '', estado, accion = 
   el.addEventListener('keydown', (e) => { if ((e.key === 'Enter' || e.key === ' ') && e.target === el) { e.preventDefault(); abrir(); } });
   return el;
 }
+
+const hora = (iso) => (iso ? new Date(iso).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '');
+/** 19-11 · SEGUIMIENTO de un encargo (src/seguimiento.js), igual en MAMA y en el CEO: estado real con su color, si te necesita,
+ *  el último avance conocido y, al terminar, el resultado plegado. null si no hay nada que seguir. */
+export function seguimientoUi(s) {
+  if (!s) return null;
+  const r = s.resultado;
+  return h('div', { class: `seguimiento t-${s.tono}`, role: 'status', 'data-fase': s.fase, 'data-te-necesita': s.te_necesita ? '1' : '0' },
+    h('p', { class: 'msg-who' }, h('span', { class: `a-chip t-${s.tono}` }, s.texto), s.titulo ? ` ${s.titulo}` : ''),
+    s.avance && !r ? h('p', { class: 'muted small' }, `Último avance${s.actualizado ? ` (${hora(s.actualizado)})` : ''}: ${s.avance}`) : null,
+    r ? h('details', { class: 'msg-more' }, h('summary', {}, `Resultado${r.cumplido && r.cumplido !== 'sin informe' ? ` · objetivo cumplido: ${r.cumplido}` : ''}`),
+      h('p', { class: 'msg-r' }, r.resumen || 'Sin resumen'), r.pendiente?.length ? h('ul', {}, r.pendiente.map((x) => h('li', { class: 'warn' }, `Pendiente: ${x}`))) : null) : null);
+}

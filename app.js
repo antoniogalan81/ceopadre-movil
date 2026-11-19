@@ -13,6 +13,7 @@ import { aiEditor } from './redactor.js';
 import { alquileresUi } from './alquiler.js';
 import { copiaUi } from './copia.js';
 import { borrador, ventanasUniversales } from './modal.js';
+import { seguimientoUi } from './tarjeta.js';
 
 ventanasUniversales(); // V3.9: clic fuera = Volver/Cerrar en TODAS las ventanas modales (web/modal.js)
 
@@ -57,13 +58,23 @@ async function remoteApi() {
   let pc = null, cuenta = null;
   const logos = new Map(); // id → { hash, data }
   const remotes = new Map(); // MANDO REMOTO: id → fila de ceo_remoto; la foto (datos) sólo se relee si cambia su huella
+  // 20-11 · Supabase: cada latido del PC (20 s) avisa por Realtime y el estado se relee. Antes bajaban TODAS las tarjetas
+  // (~100 KB medidos con 20 proyectos) cada vez; ahora sólo id+posición+fecha y los datos de las que cambiaron.
+  const tarjetas = new Map(); // id → { at, datos }
   const online = () => pcOnline(pc?.visto_en); // tiempo real contra el sello del servidor; nunca un valor guardado
   return {
     sb,
     async state() {
-      const [c, p, rm] = await Promise.all([sb.from('ceo_card').select('datos,posicion').order('posicion'), sb.from('ceo_pc').select('*').maybeSingle(),
+      const [c, p, rm] = await Promise.all([sb.from('ceo_card').select('id,posicion,at').order('posicion'), sb.from('ceo_pc').select('*').maybeSingle(),
         sb.from('ceo_remoto').select('id,nombre,hash,error,at').order('nombre')]);
       if (c.error) throw new Error(c.error.message);
+      const nuevas = c.data.filter((r) => tarjetas.get(r.id)?.at !== r.at).map((r) => r.id);
+      if (nuevas.length) {
+        const d = await sb.from('ceo_card').select('id,datos,at').in('id', nuevas);
+        if (d.error) throw new Error(d.error.message);
+        for (const x of d.data) tarjetas.set(x.id, { at: x.at, datos: x.datos });
+      }
+      for (const id of [...tarjetas.keys()]) if (!c.data.some((r) => r.id === id)) tarjetas.delete(id);
       const changed = (rm.data || []).filter((x) => remotes.get(x.id)?.hash !== x.hash).map((x) => x.id);
       if (changed.length) {
         const d = await sb.from('ceo_remoto').select('id,datos').in('id', changed);
@@ -77,7 +88,7 @@ async function remoteApi() {
         return v;
       });
       pc = p.data;
-      const proyectos = c.data.map((r) => r.datos);
+      const proyectos = c.data.filter((r) => tarjetas.has(r.id)).map((r) => ({ ...tarjetas.get(r.id).datos })); // copia: la caché no se toca
       // Logos: sólo los que faltan o cambiaron de huella, una vez (tabla ceo_logo, sin Realtime).
       // Caché del teléfono por huella: un logo sólo se descarga de nuevo si cambia.
       for (const x of proyectos) {
@@ -1069,7 +1080,7 @@ const sideHead = (id, title, n, link) => h('header', { class: 'side-head' }, h('
   link ? h('button', { class: 'link', type: 'button', onclick: link[1] }, link[0]) : null);
 
 // OBJETIVOS EMPRESARIALES: el resumen de la vista de Negocio (misma orden negocio.lista; cada 60 s como mucho).
-const goals = { at: 0, list: null, busy: false, k: '' };
+const goals = { at: 0, list: null, busy: false, k: '', huella: null };
 // T37 · respondidas en las últimas 48 h: se ven con su estado real (en cola · recibida · ejecutada) sin abrir el objetivo.
 const RECIENTE_MS = 48 * 3600_000;
 const reciente = (n) => n.estado !== 'PENDIENTE' && n.por === 'antonio' && n.resuelta_at && Date.now() - Date.parse(n.resuelta_at) < RECIENTE_MS;
@@ -1080,7 +1091,7 @@ function paintGoals() {
   if (k !== goals.k) { goals.k = k; goals.at = 0; }
   if (n && !goals.busy && Date.now() - goals.at > 60_000 && data.pc.online !== false) {
     goals.busy = true;
-    void api.cmd('negocio.lista', {}).then((r) => { if (r?.ok) goals.list = r.data.objetivos; })
+    void api.cmd('negocio.lista', goals.huella ? { huella: goals.huella } : {}).then((r) => { if (r?.ok && !r.data.igual) { goals.list = r.data.objetivos; goals.huella = r.data.huella || null; } })
       // El intento cuenta aunque falle (sin red / PC caído): sin esto, finally → paintGoals → otra llamada al instante, en bucle.
       .finally(() => { goals.at = Date.now(); goals.busy = false; paintGoals(); });
   }
@@ -1542,7 +1553,7 @@ async function posponerCeo(d, b) {
 }
 function ceoMsg(m, aplicados) {
   if (m.rol === 'antonio') return h('div', { class: 'msg yo' }, m.datos?.destino && m.datos.destino !== 'AUTO' ? h('p', { class: 'msg-who' }, `A ${DESTINO_TXT[m.datos.destino]}`) : null, h('p', {}, m.texto));
-  if (m.rol === 'sistema') return h('div', { class: 'msg sis' }, h('p', {}, m.texto));
+  if (m.rol === 'sistema') return h('div', { class: 'msg sis' }, h('p', {}, m.texto), seguimientoUi(m.seguimiento));
   const d = m.datos || {};
   const fila = (t, v, cls = '') => (v ? [h('dt', { class: cls }, t), h('dd', { class: cls }, v)] : null);
   return h('div', { class: 'msg ceo' },
@@ -1593,7 +1604,7 @@ function paintCeo() {
     vb.textContent = c.ref.startsWith('decision:') ? 'Ir a la decisión' : VUELTA[k] || 'Volver';
     vb.onclick = () => { cerrarCeo(false); if (k === 'proyecto') { const p = (data.proyectos || []).find((x) => x.id === c.vuelta.proyecto); if (p) actions.details(p); } else if (k === 'objetivo') nui?.openOne(c.vuelta.objetivo); else if (k === 'agentes') goTab('autos'); else goTab('home'); };
   }
-  const aplicados = new Set(c.mensajes.filter((m) => m.rol === 'sistema').map((m) => Number((/^Aplicado \(#(\d+)\)/.exec(m.texto) || [])[1])).filter(Boolean));
+  const aplicados = new Set(c.mensajes.filter((m) => m.rol === 'sistema').map((m) => Number((/^(?:Aplicado|Entregado|Registrado) \(#(\d+)\)/.exec(m.texto) || [])[1])).filter(Boolean));
   const descartados = new Set(c.mensajes.filter((m) => m.rol === 'sistema').map((m) => Number((/^Descartado \(#(\d+)\)/.exec(m.texto) || [])[1])).filter(Boolean));
   aplicados.descartados = descartados;
   fill($('#ceo-dec'), ceoDecision(c));
@@ -1606,7 +1617,7 @@ function paintCeo() {
   // POSICIÓN DE LECTURA (11-11): antes cada sondeo (1,5 s mientras piensa) repintaba y bajaba al final, sacando a Antonio
   // de lo que leía y cerrando los desplegables. Ahora: sin cambios no se repinta; sólo se baja si ya estaba abajo (o si
   // acaba de escribir él); si no, se conserva su posición y se avisa de la respuesta nueva.
-  const firma = `${c.id}|${c.mensajes.length}|${c.mensajes.at(-1)?.id}|${c.pensando}|${c.error}`;
+  const firma = `${c.id}|${c.mensajes.length}|${c.mensajes.at(-1)?.id}|${c.pensando}|${c.error}|${c.mensajes.map((m) => (m.seguimiento ? `${m.seguimiento.estado}:${m.seguimiento.actualizado}` : '')).join('')}`; // el seguimiento avanza sin mensajes nuevos
   if (firma === box.dataset.firma && !forzarAbajo) return;
   const nuevos = box.dataset.conv === c.id ? c.mensajes.length - Number(box.dataset.n || 0) : 0;
   const abajo = forzarAbajo || box.dataset.conv !== c.id || box.scrollHeight - box.scrollTop - box.clientHeight < 60;

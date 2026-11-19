@@ -49,14 +49,15 @@ const chip = (label, tone) => h('span', { class: `a-chip t-${tone}` }, label);
 const corto = (s, n = 140) => { const t = claro(String(s || '').split('\n')[0]); return t.length > n ? `${t.slice(0, n - 1)}…` : t; };
 
 export function negocioUi({ api, ask, toast, show, data, run, viewText, onChange = () => {} }) {
-  let mode = null, list = [], viewing = null, sig = '', timer = null;
+  let mode = null, list = [], viewing = null, sig = '', timer = null, huella = null;
   const projects = () => data().proyectos || [];
   const online = () => data().pc?.online !== false;
   const cmd = (op, params, okMsg, btn) => run(op, params, okMsg, btn);
 
   async function load() {
-    const r = await api.cmd('negocio.lista', {});
-    if (r?.ok) list = r.data.objetivos;
+    // Con la huella de la última lista, el PC sólo responde «igual» si nada cambió (no vuelven ~300 KB cada 8 s).
+    const r = await api.cmd('negocio.lista', huella ? { huella } : {});
+    if (r?.ok && !r.data.igual) { list = r.data.objetivos; huella = r.data.huella || null; }
     if (viewing) { const v = await api.cmd('negocio.ver', { id: viewing.id }); if (v?.ok) viewing = v.data; }
     paint();
   }

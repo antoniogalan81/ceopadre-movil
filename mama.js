@@ -7,6 +7,7 @@ import { planDia } from './mama-plan.js';
 import { mamaMovil } from './mama-movil.js';
 import { tareasUi } from './mama-tareas.js';
 import { describir, leer } from './mama-contexto.js';
+import { seguimientoUi } from './tarjeta.js';
 
 const fecha = (iso) => (iso ? new Date(iso).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '');
 const ESTADO = { HECHA: ['Hecha', 'ok'], DENEGADA: ['Denegada', 'bad'], TOPE: ['Tope diario', 'ask'], ERROR: ['Falló', 'bad'], PROPUESTA: ['Propuesta', 'ask'] };
@@ -128,6 +129,7 @@ export function mamaUi({ api, toast, show, local }) {
     // Su cara identifica a MAMA (12-11): no se repite «MAMA» en cada respuesta; el nombre queda para los lectores de pantalla.
     return h('div', { class: 'msg ceo msg-mama' }, h('img', { class: 'mama-av', src: 'mama-avatar-64.png', srcset: 'mama-avatar-64.png 1x, mama-avatar-128.png 2x', alt: '', width: 32, height: 32 }),
       h('div', { class: 'msg-mama-cuerpo' }, h('p', { class: 'msg-who' }, h('span', { class: 'sr-only' }, 'MAMA · '), fecha(m.at)), h('p', { class: 'msg-r' }, m.texto), adjunto(m, abrir), interpretacion(m),
+        ...(v?.ordenes || []).filter((o) => o.mensaje_id === m.id).map((o) => seguimientoUi(o.seguimiento) || h('p', { class: 'msg-who' }, chip(o.texto || o.estado, FASE_TONO[o.fase] || 'idle'))), // 19-11: cada encargo bajo la respuesta que lo originó
         m.inciertos?.length ? h('details', { class: 'msg-more' }, h('summary', {}, 'Lo que no sabe seguro'), h('ul', {}, m.inciertos.map((x) => h('li', {}, x)))) : null));
   };
 
@@ -186,7 +188,7 @@ export function mamaUi({ api, toast, show, local }) {
       void movil.iniciar(b);
       return;
     }
-    const s = JSON.stringify([hilo, v?.hilos, busq, hallado, enviando, v?.mensajes?.length, v?.mensajes?.at(-1)?.id, v?.pensando, v?.ordenes?.map((o) => [o.id, o.trabajo_estado, o.estado_encargo]), v?.uso, v?.panel, canal, v?.plan, simulacion, ocupado, mem, [...memFichas]]);
+    const s = JSON.stringify([hilo, v?.hilos, busq, hallado, enviando, v?.mensajes?.length, v?.mensajes?.at(-1)?.id, v?.pensando, v?.ordenes?.map((o) => [o.id, o.trabajo_estado, o.estado_encargo, o.seguimiento?.actualizado]), v?.uso, v?.panel, canal, v?.plan, simulacion, ocupado, mem, [...memFichas]]);
     if (s === sig) return;
     sig = s;
     const ms = hilo === 'nuevo' ? [] : v?.mensajes || [];

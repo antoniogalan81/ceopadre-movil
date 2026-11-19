@@ -1205,7 +1205,7 @@ dialog.ceo-chat::backdrop { background: oklch(0 0 0 / .25); }
 .msg.yo .msg-who { color: inherit; opacity: .85; }
 /* §7.1: el campo crece con el texto (hasta 30 % de la pantalla) y sin tirador. ponytail: field-sizing es de Chromium (PC y Android);
    en Safari/Firefox queda en su altura mínima con scroll interno: añadir un auto-ajuste por JS si se usa allí. */
-.ceo-form textarea { flex: 1; min-height: 48px; max-height: 30vh; resize: none; field-sizing: content; overflow-y: auto; font: 15px/1.4 var(--sans); padding: 10px 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--paper); color: var(--ink); }
+.ceo-form textarea { flex: 1; min-height: 48px; max-height: min(30vh, calc(var(--vvh, 100vh) * .3)); /* con teclado, 30 % de lo visible: el historial sigue a la vista */ resize: none; field-sizing: content; overflow-y: auto; font: 15px/1.4 var(--sans); padding: 10px 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--paper); color: var(--ink); }
 .ceo-form .btn { min-height: 48px; }
 .ceo-nota { margin: 0; text-align: center; }
 .ceo-vacio { margin: auto 0; text-align: center; }

@@ -348,6 +348,8 @@ export function porAccion(items) {
     if (t && porTexto.has(t)) une(e.id, porTexto.get(t)); else if (t) porTexto.set(t, e.id);
     // Una condición que cita una espera TUYA visible («llega con la misma acción que #209») espera esa misma acción tuya.
     for (const m of String(e.descripcion || '').matchAll(/#(\d+)(?!\d)/g)) if (idsC.has(Number(m[1])) || ids.has(Number(m[1]))) une(e.id, Number(m[1]));
+    // 19-11: la acción de Antonio de la que depende (src/espera.js accionDe, identificador estable): el mismo grupo que esa acción.
+    if (e.accion && ids.has(e.accion)) une(e.id, e.accion);
   }
   const out = new Map();
   for (const x of items) {

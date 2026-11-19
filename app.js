@@ -841,6 +841,29 @@ function waitCard(x) {
       h('button', { class: 'link', type: 'button', onclick: () => actions.details(c) }, 'Ver detalles'))), () => actions.details(c), c.nombre);
 }
 
+// Qué es cada condición vigilada (src/clase-trabajo.js naturalezaEspera), en el orden en que interesa.
+const NATURALEZA = { EVENTO: 'Eventos externos vigilados', VERIFICACION: 'Verificaciones de criterios con uso real', COMPROBACION: 'Comprobaciones técnicas' };
+/** Filas de «Seguimiento automático»: una por condición (o por grupo de trabajos con la misma), su naturaleza y su tarjeta. */
+function seguimiento(filas) {
+  const rows = filas.flatMap((f) => (f.items.length > 1 ? [{ f, e: f.items.flatMap((x) => x.esperas || [])[0] || null }]
+    : (f.items[0].esperas?.length ? f.items[0].esperas : [null]).map((e) => ({ x: f.items[0], e }))))
+    .map((r) => {
+      const c = (r.x || r.f.items[0]).c, hum = esperaHumana(r.e?.descripcion || r.x?.condicion || '');
+      const nat = NATURALEZA[r.e?.naturaleza] ? r.e.naturaleza : 'COMPROBACION';
+      const titulo = nat === 'EVENTO' ? hum.titulo : nat === 'VERIFICACION' ? 'Verificación de un criterio' : CLASE_ESPERA[r.e?.clase] || 'Comprobación técnica';
+      const que = one(hum.que || r.e?.depende || 'pendiente de diagnóstico', 120);
+      const card = () => (r.f ? grupoCard(r.f) : waitCard({ ...r.x, esperas: r.e ? [r.e] : [] }));
+      return { ...r, c, nat, titulo, que, card, fallando: !!r.e?.falla_desde };
+    });
+  const fallando = rows.filter((r) => r.fallando), resto = rows.filter((r) => !r.fallando);
+  const linea = (r) => fold(`seg-${r.e?.id ?? `${r.c.id}:${(r.x || r.f.items[0]).trabajo}`}`, `${r.c.nombre} · ${r.titulo} — ${r.que}`, r.card());
+  const grupos = Object.keys(NATURALEZA).map((k) => resto.filter((r) => r.nat === k)).filter((xs) => xs.length)
+    .map((xs) => h('section', { class: 'seg-grupo', 'aria-label': NATURALEZA[xs[0].nat] }, h('h4', {}, `${NATURALEZA[xs[0].nat]} (${xs.length})`), ...xs.map(linea)));
+  const resumen = `${rows.length} comprobaci${rows.length === 1 ? 'ón automática' : 'ones automáticas'} en seguimiento · 0 requieren tu intervención${fallando.length ? ` · ${fallando.length} no se ${fallando.length === 1 ? 'puede' : 'pueden'} comprobar (arriba)` : ''}`;
+  return { total: rows.length, fallando, resto, grupos, resumen };
+}
+const one = (t, n) => { const s = String(t || '').replace(/\s+/g, ' ').trim(); return s.length > n ? `${s.slice(0, n - 1)}…` : s; };
+
 /**
  * T37 · VARIOS TRABAJOS, UNA ACCIÓN: una sola fila (la tarjeta compacta de las necesidades, con decideRow y comunes) en vez de
  * una tarjeta por trabajo. Si es tuya, «Ya lo he hecho» la confirma para todos (espera.hecho por cada espera del grupo que el
@@ -983,10 +1006,18 @@ function paintList() {
   repaint($('#marcha'), d.trabajando.map(desk));
   $('#n-marcha').textContent = String(d.trabajando.length);
   $('#marcha-empty').hidden = d.trabajando.length > 0;
-  // Esperando algo externo: en lenguaje normal.
-  repaint($('#esperando'), d.filasEspera.map((f) => (f.items.length > 1 ? grupoCard(f) : waitCard(f.items[0]))));
-  $('#n-wait').textContent = String(d.filasEspera.length);
-  $('#z-wait').hidden = !d.filasEspera.length;
+  // SEGUIMIENTO AUTOMÁTICO (19-11): lo que CEOPadre vigila solo no es trabajo de Antonio. Una línea de resumen; el detalle plegado
+  // por naturaleza, una línea por condición (no por trabajo: un trabajo con 7 esperas enseñaba sólo la primera) y la tarjeta
+  // completa dentro. Una comprobación que no se puede hacer (racha de error) se ve fuera del pliegue: no se esconde.
+  // Un trabajo que te espera a ti (su acción va arriba, una vez) también vigila criterios técnicos: van aquí, no se pierden.
+  const tePiden = [...new Map([...d.peticiones.flatMap((g) => g.items),
+    ...d.tuyas.map((x) => ({ c: x.c, trabajo: x.trabajo, objetivo: x.objetivo, esperas: (x.c.esperando || []).find((y) => y.trabajo === x.trabajo)?.esperas || [] })),
+    ...d.necesita.filter((c) => c.estado === 'ESPERANDO_ANTONIO' && c.trabajo).map((c) => ({ c, trabajo: c.trabajo, objetivo: c.objetivo, esperas: c.esperas_info || [] }))]
+    .map((x) => [x.trabajo, x])).values()];
+  const seg = seguimiento([...d.filasEspera, ...tePiden.flatMap((x) => x.esperas.filter((e) => !e.de_antonio).map((e) => ({ items: [{ ...x, esperas: [e] }] })))]);
+  repaint($('#esperando'), [...seg.fallando.map((r) => r.card()), seg.resto.length ? fold('seg-todo', seg.resumen, ...seg.grupos) : null].filter(Boolean));
+  $('#n-wait').textContent = String(seg.total);
+  $('#z-wait').hidden = !seg.total;
   // Todos los proyectos: plegado al final (GESTIONES + los que tienen historia + los que están en reposo).
   repaint($('#espera'), [gestUnit(o, false), ...d.conHistoria.map(tile)].filter(Boolean));
   paintIdle(d.sinActividad);

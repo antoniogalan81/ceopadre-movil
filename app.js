@@ -1565,7 +1565,8 @@ function ceoMsg(m, aplicados) {
       fila('PROPUESTA ORIGINAL', d.quiere_hacer), fila('SI NO LO HACEMOS', d.si_no)) : null,
     d.hechos?.length ? h('details', { class: 'msg-more' }, h('summary', {}, `Comprobado (${d.hechos.length})${d.inciertos?.length ? ` · sin confirmar (${d.inciertos.length})` : ''}`),
       h('ul', {}, d.hechos.map((x) => h('li', {}, x)), (d.inciertos || []).map((x) => h('li', { class: 'warn' }, `Sin confirmar: ${x}`)))) : d.inciertos?.length ? h('p', { class: 'small warn' }, `Sin confirmar: ${d.inciertos.join(' · ')}`) : null,
-    d.cambio ? cambioBox(m, d, aplicados) : null);
+    d.cambio ? cambioBox(m, d, aplicados) : null,
+    seguimientoUi(m.seguimiento)); // 20-11: el encargo que MAMA hizo desde este panel (recibido · en marcha · te necesita · terminado)
 }
 const CAMBIO_T = { ALTERNATIVA: 'ALTERNATIVA DEL CEO', APROBAR: 'APROBAR LA PROPUESTA (lo pediste)', RECHAZAR: 'RECHAZAR LA PROPUESTA (lo pediste)', PAUSAR: 'PAUSAR', REANUDAR: 'REANUDAR', INSTRUCCION: 'INSTRUCCIÓN', OBJETIVO_NUEVO: 'OBJETIVO NUEVO' };
 /** El cambio que el CEO identificó: qué se ejecutará exactamente y el botón que lo autoriza (o por qué ya no vale). */

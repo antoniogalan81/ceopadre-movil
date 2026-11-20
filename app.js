@@ -647,6 +647,11 @@ const actions = {
     if (esGasto(c) && !(await ask({ title: '¿Autorizas este gasto?', help: c.recomendacion || c.propuesta, ok: 'SÍ, AUTORIZO ESTE GASTO', danger: true }))) return;
     await (c.version ? run('decision.resolver', { proyecto: c.id, ref: c.ref, version: c.version, accion: 'APROBAR' }, 'Aprobado', b) : run('trabajo.aprobar', { trabajo: c.trabajo }, 'Aprobado', b));
   },
+  // 20-11: contestar con texto la decisión que pide confirmar un hecho (mismo decision.contestar que «Consultar» y MAMA).
+  async responder(c, b) {
+    const r = await ask({ title: 'Tu respuesta', help: c.propuesta, ok: 'Enviar', fields: [{ name: 't', label: 'Respuesta', type: 'textarea' }] });
+    if (r?.t?.trim()) await run('decision.contestar', { proyecto: c.id, ref: c.ref, version: c.version, texto: r.t.trim() }, 'Respondida', b);
+  },
   reject: (c, b) => (c.version ? run('decision.resolver', { proyecto: c.id, ref: c.ref, version: c.version, accion: 'RECHAZAR' }, 'Rechazado', b) : run('trabajo.rechazar', { trabajo: c.trabajo }, 'Rechazado', b)),
   // ↺ La alternativa del CEO para ESTA versión de la decisión (el PC ejecuta el texto que guardó, no el de la pantalla).
   alternativa: (c, b) => run('decision.alternativa', { proyecto: c.id, ref: c.ref, version: c.version }, 'Alternativa en marcha', b),
@@ -730,10 +735,11 @@ const conseq = (c) => (esGasto(c) ? null : h('p', { class: 'ln conseq' }, h('b',
 const jobDecision = (c) => (c.estado === 'ESPERANDO_DECISION' ? h('div', { class: 'decision' }, superadaBox(c),
   ...(explica(c.consejo, 'trabajo') && !esGasto(c) ? [explica(c.consejo, 'trabajo'), h('details', { class: 'prop-more tecnico' }, h('summary', {}, 'Detalle técnico'), ...decisionLines(c))]
     : [...decisionLines(c), advice(c.consejo), conseq(c)]),
-  decideRow({ yes: (e) => actions.approve(c, e.currentTarget), no: (e) => actions.reject(c, e.currentTarget),
+  // 20-11: si pide confirmar un hecho, «Aprobar» no lo confirma: el botón principal abre la respuesta (llega como su respuesta).
+  decideRow({ yes: (e) => (c.abierta ? actions.responder(c, e.currentTarget) : actions.approve(c, e.currentTarget)), no: (e) => actions.reject(c, e.currentTarget),
     ask: c.ref ? (e) => actions.consult(c, c.ref, e.currentTarget) : null,
     alt: c.consejo?.alternativa && c.version ? (e) => actions.alternativa(c, e.currentTarget) : null, altLabel: c.consejo?.alternativa?.etiqueta, rec: c.consejo?.veredicto,
-    yesLabel: esGasto(c) ? 'Sí, autorizo este gasto' : c.consejo?.aprobar || 'Aprobar la propuesta', noLabel: esGasto(c) ? 'No autorizo este gasto' : c.consejo?.rechazar || 'Rechazar la propuesta' }),
+    yesLabel: esGasto(c) ? 'Sí, autorizo este gasto' : c.abierta ? 'Responder' : c.consejo?.aprobar || 'Aprobar la propuesta', noLabel: esGasto(c) ? 'No autorizo este gasto' : c.consejo?.rechazar || 'Rechazar la propuesta' }),
   // Un trabajo esperando no se pospone (seguiría parado igual): lo independiente ya sigue en otros trabajos.
   comunes({ copy: (b) => copiarConsulta(`decision:${c.id}:${c.ref}`, b), detalles: () => detallesDecision(c.nombre, c, 'trabajo'), instruir: (b) => actions.instruct(c, b) })) : null);
 /** «Ver detalles» de cualquier decisión: contexto, justificación, alternativas, riesgos y consecuencias, en texto llano

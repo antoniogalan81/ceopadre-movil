@@ -106,7 +106,7 @@ async function remoteApi() {
       }
       for (const x of proyectos) x._logo = x.logo && logos.get(x.id)?.hash === x.logo ? logos.get(x.id).data : null;
       cuenta ??= (await sb.auth.getUser()).data.user?.email || '';
-      return { proyectos, pc: { online: online(), visto: pc?.visto_en }, cuenta, cuotas: pc?.datos?.cuotas, remotos, negocio: pc?.datos?.negocio, ui: pc?.datos?.ui, autorizaciones: pc?.datos?.autorizaciones || [], recursos: pc?.datos?.recursos || null };
+      return { proyectos, pc: { online: online(), visto: pc?.visto_en }, cuenta, cuotas: pc?.datos?.cuotas, remotos, negocio: pc?.datos?.negocio, ui: pc?.datos?.ui, autorizaciones: pc?.datos?.autorizaciones || [], recursos: pc?.datos?.recursos || null, encargos: pc?.datos?.encargos || [] };
     },
     async details(id) { const r = await sb.from('ceo_card').select('detalle').eq('id', id).maybeSingle(); return r.data?.detalle; },
     // `alGuardar`: la orden ya está en la cola durable (ceo_orden); aunque el teléfono se cierre o recargue, el PC la aplicará.
@@ -1724,14 +1724,14 @@ function paintCeo() {
   // POSICIÓN DE LECTURA (11-11): antes cada sondeo (1,5 s mientras piensa) repintaba y bajaba al final, sacando a Antonio
   // de lo que leía y cerrando los desplegables. Ahora: sin cambios no se repinta; sólo se baja si ya estaba abajo (o si
   // acaba de escribir él); si no, se conserva su posición y se avisa de la respuesta nueva.
-  const firma = `${c.id}|${c.mensajes.length}|${c.mensajes.at(-1)?.id}|${c.pensando}|${c.error}|${c.mensajes.map((m) => (m.seguimiento ? `${m.seguimiento.estado}:${m.seguimiento.actualizado}` : '')).join('')}`; // el seguimiento avanza sin mensajes nuevos
+  const firma = `${c.id}|${c.mensajes.length}|${c.mensajes.at(-1)?.id}|${c.pensando}|${c.enviando || ''}|${c.error}|${c.mensajes.map((m) => (m.seguimiento ? `${m.seguimiento.estado}:${m.seguimiento.actualizado}` : '')).join('')}`; // el seguimiento avanza sin mensajes nuevos
   if (firma === box.dataset.firma && !forzarAbajo) return;
   const nuevos = box.dataset.conv === c.id ? c.mensajes.length - Number(box.dataset.n || 0) : 0;
   const abajo = forzarAbajo || box.dataset.conv !== c.id || box.scrollHeight - box.scrollTop - box.clientHeight < 60;
   const y = box.scrollTop;
   box.dataset.firma = firma; box.dataset.conv = c.id; box.dataset.n = String(c.mensajes.length);
   fill(box, c.mensajes.length ? c.mensajes.map((m) => ceoMsg(m, aplicados)) : h('p', { class: 'muted ceo-vacio' }, c.ref === 'general' ? 'Pregúntale lo que quieras sobre tus proyectos: «¿Qué es lo más importante que nos queda pendiente?»' : 'Pregúntale lo que quieras sobre esto. Responde con los datos actuales de CEOPadre.'),
-    c.pensando ? h('div', { class: 'msg ceo pensando', role: 'status' }, h('p', {}, h('span', { class: 'dots', 'aria-hidden': 'true' }, '• • •'), c.mensajes.at(-1)?.datos?.destino === 'MAMA' ? ' Recibida. MAMA está respondiendo…' : ' Recibida. Respondiendo (si hace falta, se consulta a MAMA)…')) : null,
+    c.pensando ? h('div', { class: 'msg ceo pensando', role: 'status' }, h('p', {}, h('span', { class: 'dots', 'aria-hidden': 'true' }, '• • •'), c.enviando ? ` ${c.enviando}` : c.mensajes.at(-1)?.datos?.destino === 'MAMA' ? ' Recibida. MAMA está respondiendo…' : ' Recibida. Respondiendo (si hace falta, se consulta a MAMA)…')) : null,
     // El fallo se ve (antes sólo desaparecía «respondiendo…») y se reintenta SIN volver a guardar la pregunta.
     !c.pensando && c.error && c.mensajes.at(-1)?.rol === 'antonio' ? h('div', { class: 'msg sis ceo-err', role: 'alert' }, h('p', {}, h('b', {}, 'El CEO no ha podido responder: '), c.error),
       h('button', { class: 'btn primary small', type: 'button', onclick: async (e) => { if (await run('ceo.reintentar', { conversacion: c.id }, 'Reintentando', e.currentTarget)) { ceo.t0 = Date.now(); void refreshCeo(); pollCeo(); } } }, 'Reintentar')) : null);
@@ -1778,14 +1778,24 @@ function pollCeo() {
 }
 async function enviarCeo(texto) {
   const t = String(texto || '').trim();
-  if (!t || !ceo.conv) return;
-  const r = await api.cmd('ceo.preguntar', { conversacion: ceo.conv.id, texto: t, destino: ceo.destino, ...(ceo.elemento ? { contexto: ceo.elemento } : {}) });
-  if (!r?.ok) { toast(r?.error || 'No se pudo enviar', 'bad'); return; }
-  borradorCEO.set(ceo.ref, '');
+  if (!t) return;
+  if (!ceo.conv) { toast('Aún se está abriendo la conversación: envíalo en un momento (tu texto sigue en la caja)'); return; } // en el móvil tarda 1-2 s
+  // T37 (RI4888): el mensaje y su estado se ven YA. En la PWA la orden viaja por la cola del PC (hasta segundos): «Enviando…» →
+  // «Guardada» (cola durable, ceo_orden) → «Recibida» (el PC la aceptó). Si no se pudo enviar, se retira y el texto vuelve a la caja.
+  const antes = ceo.conv, destino = ceo.destino;
+  const marcar = (enviando) => { if (ceo.conv?.id === antes.id) { ceo.conv = { ...ceo.conv, enviando }; paintCeo(); } };
+  ceo.conv = { ...antes, pensando: true, error: null, enviando: LOCAL ? '' : 'Enviando…', mensajes: [...antes.mensajes, { id: -1, rol: 'antonio', texto: t, datos: { destino } }] };
   $('#ceo-input').value = '';
-  ceo.conv = { ...ceo.conv, pensando: true, error: null, mensajes: [...ceo.conv.mensajes, { id: -1, rol: 'antonio', texto: t, datos: { destino: ceo.destino } }] };
   forzarAbajo = true;
   paintCeo();
+  const r = await api.cmd('ceo.preguntar', { conversacion: antes.id, texto: t, destino, ...(ceo.elemento ? { contexto: ceo.elemento } : {}) },
+    { alGuardar: () => marcar('Guardada: tu PC la recoge en unos segundos…') });
+  if (!r?.ok && !r?.pendiente) {
+    if (ceo.conv?.id === antes.id) { ceo.conv = antes; paintCeo(); if (!$('#ceo-input').value) $('#ceo-input').value = t; }
+    toast(r?.error || 'No se pudo enviar', 'bad'); return;
+  }
+  borradorCEO.set(ceo.ref, '');
+  marcar(r?.pendiente ? 'Guardada: tu PC sigue con ella' : '');
   ceo.t0 = Date.now();
   pollCeo();
 }
@@ -2543,7 +2553,7 @@ async function start() {
   aui ??= autoUi({ api, ask, toast, show, data: () => data, run, viewText: (t, x) => view(t, x), ai, alquileres: () => [...copiaMinis(), ...ALQ.minis(data.proyectos)],
     mensajes: LOCAL ? mensajesUi({ api, toast }) : null }); // MENSAJES (16-11): contactos y memoria, sólo en el PC
   nui ??= negocioUi({ api, ask, toast, show, data: () => data, run, viewText: (t, x) => view(t, x), onChange: () => { goals.at = 0; paintGoals(); }, consultar: (t) => openCeo('general', { pregunta: t }) });
-  mui ??= mamaUi({ api, toast, show, local: LOCAL });
+  mui ??= mamaUi({ api, toast, show, local: LOCAL, encargosMovil: () => data?.encargos || [] });
   show('p-list');
   await refresh();
   $('#b-ceo').hidden = false; $('#b-mama-fab').hidden = false;

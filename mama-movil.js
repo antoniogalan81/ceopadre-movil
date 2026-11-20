@@ -8,6 +8,7 @@
 //  · emparejar = el código de 10 caracteres que da el PC (Mama → tarjeta «Móvil»). Un solo móvil: éste sustituye al anterior.
 import { h } from './dom.js';
 import { sellar, separar } from './mama-contexto.js';
+import { seguimientoUi } from './tarjeta.js';
 
 const TEXTO_MAX = 4000, CICLO_MS = 5000;
 const AVISO = {
@@ -115,10 +116,23 @@ export function hilosMovil(ms) {
 }
 
 /** Monta MAMA móvil dentro de `cuerpo`. `burbuja(m)` es la de web/mama.js (una sola forma de pintar la conversación). */
-export function mamaMovil({ burbuja, toast, ADJ_MAX = 5 * 1024 * 1024, contexto = () => null }) {
+export function mamaMovil({ burbuja, toast, ADJ_MAX = 5 * 1024 * 1024, contexto = () => null, encargos = () => [] }) {
   let canal = null, uid = null, foto = null, timer = null, vivo = false, paso = 'cargando', email = '', ocupado = false, cuerpo = null, firma = '', nVistos = 0;
   let hiloM = null; // §7.3: conversación abierta en el móvil (null = la última usada; 'nuevo'; 0; id del PC; uuid del móvil)
   let grab = null; // T36: nota de voz en curso { rec, trozos, t0, fin, cancelado, mime, reloj }
+  // T37 (RI4888): estado de cada encargo bajo la respuesta de MAMA que lo originó. Llega en el latido del PC ({m: id local, s}); aquí
+  // se casa con el historial cifrado por el id remoto (sólo quien tiene la clave del canal puede hacerlo). Sin sondeos propios.
+  let porMsg = new Map(), firmaEnc = '';
+  let kRemotos = null; const idsRemotos = new Map(); // id local del PC → id del mensaje en este móvil (HMAC con la clave del canal; se calcula una vez)
+  async function casarEncargos() {
+    const es = (encargos() || []).filter((e) => Number.isInteger(e?.m) && e.s);
+    if (!canal?.canal?.k || !es.length) { porMsg = new Map(); firmaEnc = ''; return; }
+    if (kRemotos !== canal.canal.k) { idsRemotos.clear(); kRemotos = canal.canal.k; } // emparejado de nuevo: otra clave, otros ids
+    for (const e of es) if (!idsRemotos.has(e.m)) idsRemotos.set(e.m, await idSalidaMovil(canal.canal.k, e.m));
+    const m = new Map();
+    for (const e of es) { const id = idsRemotos.get(e.m); m.set(id, [...(m.get(id) || []), e.s]); }
+    porMsg = m; firmaEnc = JSON.stringify(es.map((e) => [e.m, e.s.fase, e.s.texto, e.s.avance, e.s.resultado?.resumen?.length]));
+  }
   let fallo = ''; // 16-11: el error del acceso se ve EN el formulario (el aviso flotante quedaba detrás de la barra inferior)
   // Paso del acceso guardado SIN secretos (correo y momento; nunca el código): recargar no obliga a pedir otro código.
   const LOGIN = 'ceopadre-mama-acceso';
@@ -165,7 +179,7 @@ export function mamaMovil({ burbuja, toast, ADJ_MAX = 5 * 1024 * 1024, contexto 
   async function ciclo() {
     clearTimeout(timer);
     if (!vivo || !canal) return;
-    try { if (!document.hidden) { foto = await canal.sincronizar(); pintar(); } } catch { /* sin red: la cola sigue en disco */ }
+    try { if (!document.hidden) { foto = await canal.sincronizar(); await casarEncargos().catch(() => undefined); pintar(); } } catch { /* sin red: la cola sigue en disco */ }
     timer = setTimeout(ciclo, foto?.fase === 'esperando' ? 2000 : CICLO_MS);
   }
   const accion = (f) => async (e) => {
@@ -325,7 +339,7 @@ export function mamaMovil({ burbuja, toast, ADJ_MAX = 5 * 1024 * 1024, contexto 
       pintarVoz();
     }
     for (const id of ['mm-enviar', 'mm-adjuntar', 'mm-voz']) { const x = document.getElementById(id); if (x) x.disabled = ocupado; }
-    const s = JSON.stringify([hiloM, f.pcActivo, f.aviso, (f.mensajes || []).map((m) => [m.id, m.estado, m.texto.length, m.adjunto?.listo, m.adjunto?.fallido, m.hilo])]);
+    const s = JSON.stringify([hiloM, f.pcActivo, f.aviso, firmaEnc, (f.mensajes || []).map((m) => [m.id, m.estado, m.texto.length, m.adjunto?.listo, m.adjunto?.fallido, m.hilo])]);
     if (s === firma) return;
     firma = s;
     // Al abrir, y si ya estaba abajo, se queda en lo último (si está leyendo más arriba, no se le mueve).
@@ -338,6 +352,7 @@ export function mamaMovil({ burbuja, toast, ADJ_MAX = 5 * 1024 * 1024, contexto 
     lista.replaceChildren(...(ver === 'nuevo' ? [] : hs.mensajes.filter((x) => x.hilo === ver).map((x) => x.m)).map((m) => {
       const b = pintarMensaje(m);
       if (m.via === 'movil' && m.estado && m.estado !== 'recibido') b.append(h('p', { class: `msg-who m-envio${m.estado === 'rechazado' ? ' bad' : ''}` }, ESTADO_ENVIO[m.estado] || m.estado));
+      for (const s of porMsg.get(m.id) || []) (b.querySelector('.msg-mama-cuerpo') || b).append(seguimientoUi(s)); // T37: como en el PC, dentro de su respuesta
       return b;
     }));
     lista.scrollTop = lista.scrollHeight;

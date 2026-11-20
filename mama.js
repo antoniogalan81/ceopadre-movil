@@ -36,7 +36,7 @@ const interpretacion = (m) => {
     i.fuente?.texto ? h('p', { class: 'muted small' }, `Fuente: ${i.fuente.tipo === 'nota' ? 'nota de tu tarea' : 'tu mensaje'} (${i.fuente.texto})`) : null);
 };
 
-export function mamaUi({ api, toast, show, local }) {
+export function mamaUi({ api, toast, show, local, encargosMovil = () => [] }) {
   let abierta = false, timer = null, sig = '', v = null, enviando = false, canal = null, simulacion = null, ocupado = '';
   let enPanel = false, ctxActual = null; // T-A: panel contextual (misma conversación) y el elemento del que se habla
   // §7.3: conversación abierta (undefined = la última; 'nuevo' = aún sin primer mensaje), búsqueda y mensaje hallado a resaltar.
@@ -184,7 +184,7 @@ export function mamaUi({ api, toast, show, local }) {
       if (movilVivo) return;
       movilVivo = true;
       // T31: los archivos de la conversación se adjuntan, reciben y abren también aquí (web/mama-movil.js, misma burbuja).
-      movil ??= mamaMovil({ toast, burbuja, ADJ_MAX, contexto: () => (enPanel ? ctxActual : null) });
+      movil ??= mamaMovil({ toast, burbuja, ADJ_MAX, contexto: () => (enPanel ? ctxActual : null), encargos: encargosMovil });
       void movil.iniciar(b);
       return;
     }
@@ -524,7 +524,7 @@ export function mamaUi({ api, toast, show, local }) {
   async function conMamaMovil(conv) {
     const ids = local || !conv ? [] : conv.mensajes.flatMap((m) => (m.datos?.via === 'MAMA' ? m.datos.mama || [] : []));
     if (!ids.length) return { conv, faltan: 0 };
-    movil ??= mamaMovil({ toast, burbuja, ADJ_MAX, contexto: () => (enPanel ? ctxActual : null) });
+    movil ??= mamaMovil({ toast, burbuja, ADJ_MAX, contexto: () => (enPanel ? ctxActual : null), encargos: encargosMovil });
     const tx = await movil.textosPc(ids);
     const mensajes = conv.mensajes.map((m) => (m.datos?.via === 'MAMA' && m.datos.mama?.length && m.datos.mama.every((i) => tx[i])
       ? { ...m, texto: [m.rol === 'ceo' ? null : m.texto, ...m.datos.mama.map((i) => tx[i])].filter(Boolean).join('\n\n') } : m));

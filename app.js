@@ -1,6 +1,6 @@
 // CEOPadre en el navegador. En el PC habla con la API local; en el móvil, con Supabase.
 // No ejecuta nada: pinta el estado y deja órdenes. Todo el texto se inserta como texto (nunca HTML).
-import { cleanGoal, conditionsText, decisionCount, decisionsText, direccion, esPotente, esperaHumana, gestText, mood, needsDecision, netStatus, office, passwordAt, pcOnline, priority, PROMPT_LIMIT, PROMPT_WARN, quotaView, REAUTH_MS, claude7d, actualizado, resetText, waitingConditions, zone } from './zones.js';
+import { cleanGoal, conditionsText, decisionCount, decisionsText, direccion, esPotente, esperaHumana, gestText, mood, needsDecision, netStatus, office, passwordAt, pcOnline, priority, PROMPT_LIMIT, PROMPT_WARN, quotaView, REAUTH_MS, claude7d, actualizado, resetText, waitingConditions, zone, pulso, antes } from './zones.js';
 import { describir, leer, marca } from './mama-contexto.js'; // T-A: contrato único de contexto para MAMA (y del panel de consulta)
 import { claro, h } from './dom.js';
 import { advice, comunes, decideRow, EFECTO, explica, mapBody, mapPanel, pendingDecisions, proposals } from './map.js';
@@ -761,6 +761,19 @@ function canonDecisionLine(c) {
 /** Puesto de trabajo (EN MARCHA): qué hace, qué sigue y, si hay que decidir, la decisión a mano. */
 // «última señal hace N»: la hora del último evento real del proceso (no un contador que avanza solo): lento ≠ parado.
 const signal = (c) => (c.ultima_actividad ? `última señal ${ago(c.ultima_actividad)}` : '');
+// F2 · «¿avanza de verdad?» en DOS líneas como mucho: el semáforo con su motivo (y cuándo se comprobó la espera o lo reimpulsó
+// CEOPadre) y las 3 últimas acciones con su hora. En el PC, las acciones reales (sólo locales); en el móvil, los pasos por ronda.
+function pulsoLineas(c) {
+  const p = pulso(c, Date.now(), hhmm);
+  if (!p) return { pulso: null, antes: null };
+  const xs = antes(c);
+  return { pulso: h('p', { class: `ln pulso p-${p.clase.toLowerCase()}`, 'data-pulso': p.clase, title: `${p.clase}: ${p.motivo}` },
+      h('i', { class: 'sem', 'aria-hidden': 'true' }), h('b', {}, p.clase), ' ', p.motivo),
+    antes: xs.length ? h('p', { class: 'ln antes', title: xs.map((x) => `${hhmm(x.at)} ${x.largo || x.texto}`).join('\n') }, h('b', {}, 'ANTES'),
+      ...xs.map((x) => h('span', { class: 'paso' }, h('time', { datetime: x.at }, hhmm(x.at)), ' ', x.texto)))
+      // Sólo si el PC ya manda los pasos (servidor con F2): uno anterior no los trae y no se afirma «sin pasos».
+      : Array.isArray(c.pasos) ? h('p', { class: 'ln antes' }, h('b', {}, 'ANTES'), h('span', { class: 'paso' }, 'todavía sin pasos terminados')) : null };
+}
 // Lo que el puesto pide a Antonio cuando no es una pregunta: dicho en una frase, con el botón que lo resuelve al lado.
 function needLine(c) {
   if (WAITING.includes(c.estado)) { const [a, b] = waitLines(c); return line('TE NECESITA', `${a} ${b}`); }
@@ -788,13 +801,16 @@ function desk(c) {
   const running = ['TRABAJANDO', 'SIN_ACTIVIDAD'].includes(c.estado);
   const decision = jobDecision(c);
   const need = needLine(c);
+  const pl = pulsoLineas(c);
   return pulsable(h('article', { class: `desk m-${mood(c)}`, 'data-id': c.id, ...marca({ tipo: ['ERROR', 'BLOQUEADO'].includes(c.estado) ? 'error' : c.trabajo ? 'trabajo' : 'proyecto', id: c.trabajo || c.id, proyecto: c.id, titulo: c.nombre, acciones: c.trabajo ? ['trabajo.instruccion'] : [] }) },
     h('header', { class: 'unit-head' }, logo(c),
       h('div', { class: 'title' }, h('h3', { title: c.nombre }, c.nombre), status(c)),
       c.estado === 'TRABAJANDO' ? h('span', { class: 'beacon', title: 'Trabajando ahora', 'aria-hidden': 'true' }) : null),
     h('p', { class: 'ln goal', title: c.objetivo }, cleanGoal(c.objetivo)),
     need,
+    pl.pulso,
     running ? line('HACIENDO AHORA', c.actividad ? `${c.actividad} · ${signal(c)}` : 'preparando el siguiente paso') : null,
+    pl.antes,
     need || decision ? null : line(running ? 'ÚLTIMO AVANCE' : 'SITUACIÓN', c.ahora),
     running && c.siguiente ? line('DESPUÉS', c.siguiente, 'next') : null,
     c.detalle && ['BLOQUEADO', 'ERROR', 'SIN_ACTIVIDAD'].includes(c.estado) ? h('p', { class: 'note' }, c.detalle) : null,
@@ -833,10 +849,12 @@ function waitCard(x) {
   const hasta = e?.hasta ? new Date(e.hasta).toLocaleDateString('es-ES', { day: 'numeric', month: 'short' }) : '';
   const tuya = clase === 'TU_RESPUESTA';
   const cj = { ...c, trabajo: x.trabajo }; // las acciones van al trabajo que espera (puede no ser el que enseña la tarjeta)
+  const pl = x.trabajo === c.trabajo ? pulsoLineas(c) : {}; // pasos y acciones son de c.trabajo
   const dep = e ? [e.depende, e.depende_estado ? ` · ahora ${(MOOD_LABEL[e.depende_estado] || e.depende_estado).toLowerCase()}${e.depende_actividad ? `: ${e.depende_actividad}` : ''}` : ''].join('') : 'No consta';
   return pulsable(h('article', { class: 'wait-card', 'data-id': `${c.id}:${x.trabajo}`, ...marca({ tipo: 'espera', id: x.trabajo, proyecto: c.id, titulo: `${c.nombre} — ${titulo}`, acciones: ['espera.comprobar', 'trabajo.instruccion'] }) },
     h('header', { class: 'unit-head' }, logo(c), h('div', { class: 'title' }, h('h3', {}, `${c.nombre} — ${titulo}`),
       h('small', { class: 'muted goal1', title: x.objetivo }, hum.asunto || cleanGoal(x.objetivo)))),
+    pl.pulso, pl.antes,
     h('dl', { class: 'wait-dl' },
       h('dt', {}, 'Qué espera'), h('dd', {}, que),
       h('dt', {}, 'De quién depende'), h('dd', {}, dep),
@@ -2270,6 +2288,9 @@ function esperasPanel(c, d) {
 /** Historial de rondas: siempre visible, cada ronda plegada. */
 function roundsPanel(d) {
   return h('section', { class: 'panel' }, h('h4', {}, `Historial de trabajo (${d.rondas?.length || 0} pasos)`),
+    // F2: las 20 últimas acciones con su hora, PLEGADAS (sólo el PC las tiene: nunca suben a Supabase).
+    d.acciones?.length ? fold('acciones', `Últimas acciones con hora (${d.acciones.length})`,
+      h('ol', { class: 'notes acciones' }, d.acciones.map((a) => h('li', {}, h('time', { datetime: a.at }, when(a.at)), ' ', a.texto)))) : null,
     ...(d.rondas?.length ? d.rondas.map((r) => roundItem(r, d.trabajo?.trabajo)) : [h('p', { class: 'muted' }, 'Todavía no ha trabajado en este objetivo.')]));
 }
 

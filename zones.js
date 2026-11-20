@@ -438,3 +438,38 @@ export function proyectosEn(texto, proyectos = []) {
   return [...proyectos].sort((a, b) => b.nombre.length - a.nombre.length)
     .filter((p) => { const k = sinTilde(p.nombre).replace(/[^a-z0-9]/g, ''); return k.length >= 3 && compact.includes(k); }).map((p) => p.id);
 }
+
+// F2 (20-11) · SEMÁFORO de un trabajo: ACTIVO · LENTO · ESPERANDO · ATASCADO (o null si no hay nada en marcha), con su motivo en
+// una frase y las horas que importan (última señal, cuándo se comprobó la espera, cuándo lo reimpulsó CEOPadre). Puro: sólo campos
+// de la tarjeta que ya llegan al PC y al móvil. `hora(iso)` formatea la hora (la interfaz pone la suya).
+export const PULSO_LENTO_MS = 5 * 60_000; // sin señal 5 min: lento (a los 10 el motor lo marca SIN_ACTIVIDAD)
+export const PULSO_ATASCO_MS = 30 * 60_000; // el umbral del objetivo: «en marcha» sin señal 30 min es un atasco
+const ESPERA_MOTIVO = { EN_COLA: 'en cola: arranca en cuanto quede libre el hueco', ESPERANDO_CLAUDE: 'sin cuota de Claude: se reanuda solo',
+  ESPERANDO_CEO: 'sin cuota del CEO: se reanuda solo', ESPERANDO_DECISION: 'te espera a ti: una decisión', ESPERANDO_ANTONIO: 'te espera a ti: una acción tuya',
+  LISTO: 'te espera a ti: tu turno', PAUSADO: 'en pausa' };
+export function pulso(c, ahora = Date.now(), hora = (iso) => new Date(iso).toISOString().slice(11, 16)) {
+  if (!c?.estado || ['LIBRE', 'TERMINADO', 'CANCELADO'].includes(c.estado)) return null;
+  // Lo que hizo CEOPadre va DELANTE (a 390 px se recorta el final de la línea; el texto entero queda en el title).
+  const ret = c.retomado?.at ? `${c.retomado.como || 'retomado por CEOPadre'} a las ${hora(c.retomado.at)} · ` : '';
+  const senal = c.ultima_actividad ? Date.parse(c.ultima_actividad) : NaN;
+  const quieto = Number.isFinite(senal) ? ahora - senal : Infinity;
+  if (['BLOQUEADO', 'ERROR'].includes(c.estado)) return { clase: 'ATASCADO', motivo: `${ret}parado: necesita revisión` };
+  if (WORKING.includes(c.estado)) {
+    const desde = Number.isFinite(senal) ? ` desde las ${hora(c.ultima_actividad)}` : '';
+    if (c.estado === 'SIN_ACTIVIDAD' || quieto >= PULSO_ATASCO_MS) return { clase: 'ATASCADO', motivo: `${ret}sin señales${desde}${ret ? '' : ': CEOPadre lo corta y lo reintenta solo'}` };
+    if (quieto >= PULSO_LENTO_MS) return { clase: 'LENTO', motivo: `${ret}sin señal nueva${desde}` };
+    return { clase: 'ACTIVO', motivo: `${ret}última señal a las ${hora(c.ultima_actividad)}` };
+  }
+  if (c.estado === 'ESPERANDO_CONDICION') {
+    const e = (c.esperas_info || [])[0];
+    const mira = e?.comprobada ? `comprobada a las ${hora(e.comprobada)}` : 'aún sin comprobar';
+    return { clase: 'ESPERANDO', motivo: `${ret}${mira} · ${e?.depende || 'una condición'}` };
+  }
+  return { clase: 'ESPERANDO', motivo: `${ret}${ESPERA_MOTIVO[c.estado] || c.estado.toLowerCase()}` };
+}
+// Estado de una ronda en una palabra (a 390 px caben tres pasos «HH:MM CEO sigue» en una línea); el literal, en el title.
+const PASO_CORTO = { CONTINUAR: 'sigue', TERMINADO: 'terminó', TERMINAR: 'cierra', ESPERANDO: 'espera', ESPERAR: 'espera', FALLO: 'falló',
+  BLOQUEADO_REAL: 'bloqueo', BLOQUEAR: 'bloquea', PREGUNTAR_ANTONIO: 'te pregunta', VERIFICAR_ALGO: 'verifica', CORREGIR: 'corrige', 'en curso': 'en curso' };
+/** Las 3 últimas acciones: en el PC las de las herramientas (acciones); si no hay (móvil), los pasos por ronda. */
+export const antes = (c) => (c?.acciones?.length ? c.acciones.slice(0, 3).map((a) => ({ at: a.at, texto: a.texto }))
+  : (c?.pasos || []).slice(0, 3).map((p) => ({ at: p.at, texto: `${p.tipo} ${PASO_CORTO[p.estado] || String(p.estado || '').toLowerCase()}`, largo: `${p.tipo} · ${p.estado}` })));

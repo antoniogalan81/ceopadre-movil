@@ -13,7 +13,7 @@ import { aiEditor } from './redactor.js';
 import { alquileresUi } from './alquiler.js';
 import { copiaUi } from './copia.js';
 import { borrador, ventanasUniversales } from './modal.js';
-import { seguimientoUi } from './tarjeta.js';
+import { miniTarjeta, seguimientoUi } from './tarjeta.js';
 import * as retirada from './retirada.js'; // 53099883: lo respondido sale al momento de la lista (PC y móvil)
 
 ventanasUniversales(); // V3.9: clic fuera = Volver/Cerrar en TODAS las ventanas modales (web/modal.js)
@@ -43,7 +43,7 @@ function localApi() {
       // MANDO REMOTO: el mismo panel que en el móvil; la foto sólo se relee cuando cambia su huella.
       const sig = JSON.stringify(Object.entries(r.data.remotos || {}).map(([id, b]) => [id, b.hash, b.at, b.error]));
       if (sig !== remSig) { const x = await call('/api/remoto'); if (x.ok) { remotos = x.data; remSig = sig; } }
-      return { proyectos: r.data.proyectos, pc: { online: true }, remoto: r.data.remoto, cuenta: r.data.remoto?.cuenta || '', cuotas: r.data.cuotas, remotos, negocio: r.data.negocio, ui: r.data.ui, autorizaciones: r.data.autorizaciones || [], motor: r.data.motor };
+      return { proyectos: r.data.proyectos, pc: { online: true }, remoto: r.data.remoto, cuenta: r.data.remoto?.cuenta || '', cuotas: r.data.cuotas, remotos, negocio: r.data.negocio, ui: r.data.ui, autorizaciones: r.data.autorizaciones || [], motor: r.data.motor, recursos: r.data.recursos || null };
     },
     async details(id) { return (await call(`/api/details?proyecto=${encodeURIComponent(id)}`)).data; },
     cmd: (op, params) => call('/api/cmd', { method: 'POST', body: JSON.stringify({ op, params }) }),
@@ -106,7 +106,7 @@ async function remoteApi() {
       }
       for (const x of proyectos) x._logo = x.logo && logos.get(x.id)?.hash === x.logo ? logos.get(x.id).data : null;
       cuenta ??= (await sb.auth.getUser()).data.user?.email || '';
-      return { proyectos, pc: { online: online(), visto: pc?.visto_en }, cuenta, cuotas: pc?.datos?.cuotas, remotos, negocio: pc?.datos?.negocio, ui: pc?.datos?.ui, autorizaciones: pc?.datos?.autorizaciones || [] };
+      return { proyectos, pc: { online: online(), visto: pc?.visto_en }, cuenta, cuotas: pc?.datos?.cuotas, remotos, negocio: pc?.datos?.negocio, ui: pc?.datos?.ui, autorizaciones: pc?.datos?.autorizaciones || [], recursos: pc?.datos?.recursos || null };
     },
     async details(id) { const r = await sb.from('ceo_card').select('detalle').eq('id', id).maybeSingle(); return r.data?.detalle; },
     // `alGuardar`: la orden ya está en la cola durable (ceo_orden); aunque el teléfono se cierre o recargue, el PC la aplicará.
@@ -1081,6 +1081,7 @@ function paintList() {
   paintNext(d);
   paintDone(d);
   paintProjects(d);
+  paintRecursos();
   paintTabs(inboxN, negNeed);
   paintQuota();
   paintDecisions();
@@ -1246,6 +1247,54 @@ function paintProjects(d) {
     h('div', { class: 'row side-links' },
       h('button', { class: 'btn ghost small', type: 'button', onclick: () => goTab('proyectos') }, `Todos los proyectos (${d.kpis.proyectos})`),
       h('button', { class: 'btn ghost small', type: 'button', onclick: () => $('#b-autos').click() }, `Agentes (${d.kpis.agentes})`)));
+}
+
+// GOAL multi E · RECURSOS DE TRABAJO (src/recursos.js, mismo dato en el PC y en el móvil): una tarjeta por equipo con lo importante
+// primero (estado REAL, perfil y cuota) y el detalle plegado. Lo que no es real se dice tal cual: «No conectado» o «Simulado».
+// Los cambios usan las órdenes de la lista cerrada (proyecto.equipo, perfil.elegir) con ask/run: validan y auditan ellas.
+const REC_ESTADO = { CONECTADO: ['Conectado', 'ok'], NO_CONECTADO: ['No conectado', 'idle'], SIMULADO: ['Simulado (pruebas)', 'warn'], SIN_SENAL: ['Sin señal', 'bad'] };
+const REC_CUOTA = { DISPONIBLE: 'cuota disponible', POR_COMPROBAR: 'cuota por comprobar', SIN_SERVICIO: 'sin cuota' };
+const recPerfil = (p) => (p ? `${p.proveedor} · ${p.titular}${p.estado === 'ACTIVO' ? '' : ` · ${p.estado}`}` : 'sin perfil');
+const recCuota = (p, e) => (!p ? '' : p.cuota ? `${REC_CUOTA[p.cuota.estado] || p.cuota.estado}${p.cuota.hasta ? ` hasta ${hhmm(p.cuota.hasta)}` : ''}` : e.local ? 'cuota sin dato' : 'cuota: —');
+async function recAsignar(e, b) {
+  const opts = data.proyectos.filter((c) => !c.gestion).map((c) => ({ value: c.id, label: c.nombre }));
+  const r = await ask({ title: `Asignar un proyecto a ${e.id}`, help: e.local ? 'Sus rondas se ejecutarán en este PC.' : `${e.estado === 'CONECTADO' ? '' : `Ahora ${e.id} está ${(REC_ESTADO[e.estado] || [e.estado])[0].toLowerCase()}: `}CEOPadre te dirá qué pasará de verdad con la siguiente ronda.`,
+    fields: [{ name: 'proyecto', label: 'Proyecto', type: 'choice', options: opts }], ok: 'Asignar', ctx: { tipo: 'pantalla', id: 'recursos', titulo: 'Recursos de trabajo' } });
+  if (r?.proyecto) await run('proyecto.equipo', { proyecto: r.proyecto, equipo: e.local ? '' : e.id }, 'Asignado', b);
+}
+async function recPredeterminado(r, b) {
+  const activos = r.perfiles.filter((p) => p.estado === 'ACTIVO');
+  const x = await ask({ title: 'Perfil de IA predeterminado', help: 'Vale para todos los trabajos sin perfil propio ni de su proyecto. Los perfiles PENDIENTES no se pueden elegir.',
+    fields: [{ name: 'perfil', label: 'Perfil', type: 'choice', value: r.predeterminado || '', options: [{ value: '', label: 'Ninguno: manda la estrategia de IA' }, ...activos.map((p) => ({ value: p.id, label: `${p.proveedor} · ${p.titular} (${p.equipo})` }))] }], ok: 'Guardar' });
+  if (x) await run('perfil.elegir', { ambito: 'predeterminado', perfil: x.perfil || '' }, 'Guardado', b);
+}
+function paintRecursos() {
+  const r = data.recursos, box = $('#s-recursos');
+  if (!box) return;
+  const sig = JSON.stringify([r || null, data.pc.online]);
+  if (box.dataset.sig === sig) return;
+  box.dataset.sig = sig;
+  box.hidden = !r;
+  if (!r) return;
+  const det = () => box.querySelector('details[data-k="rec-det"]');
+  const abierto = !!det()?.open; // repintar tras una orden no cierra el detalle que Antonio tenía abierto
+  const sinPc = data.pc.online === false;
+  fill(box, sideHead('h-recursos', 'Recursos de trabajo', r.equipos.length),
+    h('div', { class: 'rec-list' }, r.equipos.map((e) => miniTarjeta({ id: `eq-${e.id}`, clase: 'rec-eq', titulo: `${e.id}${e.local ? ' · este PC' : ''}`,
+      estado: REC_ESTADO[e.estado] || [e.estado, 'idle'], sub: [recPerfil(e.perfil), recCuota(e.perfil, e)].filter(Boolean).join(' · '),
+      desc: e.local ? `${e.trabajos} en marcha de ${e.tope} posibles · ${e.ram_libre_gb} GB libres` : e.motivo || '',
+      ctx: { tipo: 'pantalla', id: 'recursos', titulo: `Recursos · ${e.id}` },
+      accion: { txt: 'Asignar proyecto', disabled: sinPc, on: (b) => recAsignar(e, b) },
+      abrir: () => { const d = det(); d.open = true; d.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } }))),
+    fold('rec-det', 'Detalle: perfiles, proyectos y envío',
+      h('p', { class: 'muted small' }, r.envio ? `Envío de rondas a otros equipos: activado (canal ${r.canal === 'SIMULADO' ? 'SIMULADO de pruebas' : r.canal === 'REAL' ? 'conectado' : 'no conectado'}).`
+        : 'Envío de rondas a otros equipos: desactivado. Todo se ejecuta en este PC aunque un proyecto tenga otro equipo asignado.'),
+      h('ul', { class: 'side-list rec-perfiles' }, r.perfiles.map((p) => h('li', { class: 'rec-perfil' },
+        h('span', { class: `a-chip t-${p.estado === 'ACTIVO' ? 'ok' : p.estado === 'PENDIENTE' ? 'warn' : 'idle'}` }, p.estado === 'ACTIVO' ? 'Activo' : p.estado === 'PENDIENTE' ? 'Pendiente' : 'Desactivado'),
+        ' ', h('b', {}, `${p.proveedor} · ${p.titular}`), h('small', { class: 'muted' }, ` ${p.equipo}${p.id === r.predeterminado ? ' · predeterminado' : ''}${p.estado !== 'ACTIVO' && p.motivo ? ` — ${p.motivo}` : ''}`)))),
+      h('p', { class: 'muted small' }, r.equipos.map((e) => `${e.id}: ${e.proyectos.length ? e.proyectos.join(', ') : e.local ? 'los demás proyectos' : 'ningún proyecto'}`).join(' · ')),
+      h('div', { class: 'row side-links' }, h('button', { class: 'btn ghost small', type: 'button', disabled: sinPc, onclick: (ev) => recPredeterminado(r, ev.currentTarget) }, 'Perfil predeterminado…'))));
+  if (abierto) det().open = true;
 }
 
 // Proyectos en reposo: una fila compacta (logo + nombre), plegada. Un toque abre su ficha.

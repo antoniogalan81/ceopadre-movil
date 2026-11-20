@@ -1628,14 +1628,15 @@ function ceoDecision(c) {
     d.explicacion ? h('details', { class: 'prop-more tecnico' }, h('summary', {}, 'Detalle técnico'), h('p', { class: 'small' }, d.propuesta)) : null,
     decideRow({ yes: d.tipo === 'pregunta' ? null : d.abierta ? (e) => otraCeo(d, e.currentTarget, true) : (e) => decidirCeo('APROBAR', e.currentTarget),
       no: d.tipo === 'pregunta' ? null : (e) => decidirCeo('RECHAZAR', e.currentTarget),
-      yesLabel: d.gasto ? 'Sí, autorizo este gasto' : d.abierta ? d.boton : d.aprobar || d.boton || ACC.APROBAR, noLabel: d.gasto ? 'No autorizo este gasto' : d.rechazar || (d.tipo === 'necesidad' ? 'No lo voy a hacer' : ACC.RECHAZAR), rec: d.recomienda, ...altB }),
+      yesLabel: d.gasto ? 'Sí, autorizo este gasto' : d.abierta ? (String(d.responder?.texto || d.recomendacion || '').trim() ? 'Aceptar' : d.boton) : d.aprobar || d.boton || ACC.APROBAR, noLabel: d.gasto ? 'No autorizo este gasto' : d.rechazar || (d.tipo === 'necesidad' ? 'No lo voy a hacer' : ACC.RECHAZAR), rec: d.recomienda, ...altB }),
     // V3.11: también desde aquí, sin salir de la conversación: otra instrucción y posponer (sólo donde tienen sentido).
     comunes({ instruir: d.tipo === 'propuesta' ? null : (b) => otraCeo(d, b), posponer: d.tipo === 'necesidad' || d.tipo === 'pregunta' ? (b) => posponerCeo(d, b) : null }));
 }
 /** «Dar otra instrucción» (o responder una pregunta abierta) desde la conversación: la orden de siempre de cada clase. */
 async function otraCeo(d, b, responder = false) {
   const r = await ask({ title: responder || d.tipo === 'pregunta' ? 'Tu respuesta' : 'Otra instrucción en lugar de la propuesta', help: d.propuesta, ok: 'Enviar',
-    fields: [{ name: 't', label: responder || d.tipo === 'pregunta' ? 'Respuesta' : 'Qué quieres que se haga', type: 'textarea' }] });
+    // 20-11: al RESPONDER, la recomendación del CEO viene escrita (se envía tal cual o se cambia); otra instrucción empieza vacía.
+    fields: [{ name: 't', label: responder || d.tipo === 'pregunta' ? 'Respuesta' : 'Qué quieres que se haga', type: 'textarea', value: responder || d.tipo === 'pregunta' ? String(d.responder?.texto || d.recomendacion || '').trim() : '' }] });
   if (!r?.t) return;
   const id = d.ref.slice(d.ref.indexOf(':') + 1);
   const [op, params] = d.tipo === 'necesidad' ? ['negocio.necesidad', responder ? { id: d.necesidad, respuesta: r.t } : { id: d.necesidad, instruccion: r.t }]

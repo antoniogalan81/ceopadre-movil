@@ -279,7 +279,7 @@ export function negocioUi({ api, ask, toast, show, data, run, viewText, onChange
         recom,
         h('details', { class: 'prop-more need-ctx', 'data-k': `ctx-${n.ref}` }, h('summary', {}, 'Contexto, consecuencias y riesgos'), contexto, ex ? null : advice(k)),
       ] : [n.motivo_nivel ? h('p', { class: 'need-nivel' }, `Por qué te lo pregunto: ${n.motivo_nivel}${n.origen ? ` · lo pide: ${n.origen}` : ''}`) : null, contexto, ex ? null : advice(k)],
-      decideRow({ yes: una(n.ref, (b) => si(b)), yesLabel: n.tipo === 'CONEXION' ? `Conectar ${n.conexion || 'la cuenta'}` : n.abierta ? ef.boton : k?.aprobar || ef.boton || 'Aprobar',
+      decideRow({ yes: una(n.ref, (b) => si(b)), yesLabel: n.tipo === 'CONEXION' ? `Conectar ${n.conexion || 'la cuenta'}` : n.abierta ? (propuestaDe(n) ? 'Aceptar recomendación' : ef.boton) : k?.aprobar || ef.boton || 'Aprobar',
         no: una(n.ref, (b) => descartarNec(o, n, b)), noLabel: k?.rechazar || 'No lo voy a hacer',
         alt: k?.alternativa ? una(n.ref, (b) => after(cmd('decision.alternativa', { proyecto: n.proyecto, ref: `necesidad:${n.id}`, version: n.version }, 'Alternativa registrada', b))) : null,
         altLabel: k?.alternativa?.etiqueta, rec: k?.veredicto, ask: () => ceoAbrir(n.ref) }),
@@ -309,8 +309,13 @@ export function negocioUi({ api, ask, toast, show, data, run, viewText, onChange
     const r = await ask({ title: 'Otra instrucción en lugar de la propuesta', help: n.que, ok: 'Enviar', fields: [{ name: 't', label: 'Qué quieres que se haga', type: 'textarea' }] });
     if (r?.t) await after(cmd('negocio.necesidad', { id: n.id, instruccion: r.t }, 'Instrucción registrada', btn));
   }
+  // 20-11 · RESOLVER CON LA RECOMENDACIÓN: si el CEO ya preparó la respuesta (la operativa del asesor o su recomendación), el
+  // cuadro la trae ESCRITA: «Enviar» la manda tal cual (una sola confirmación) y se puede editar antes. Nada se envía solo.
+  const propuestaDe = (n) => (n.tipo === 'ACCION' ? '' : String(n.consejo?.acciones?.responder?.texto || n.recomendacion || '').trim());
   async function resolverNec(o, n, btn) {
-    const r = await ask({ title: n.que, help: n.como || '', ok: 'Enviar', fields: [{ name: 'respuesta', label: n.tipo === 'ACCION' ? 'Qué has hecho (opcional)' : 'Tu respuesta', type: 'textarea', required: n.tipo !== 'ACCION' }] });
+    const propuesta = propuestaDe(n);
+    const help = [propuesta ? `EL CEO RECOMIENDA: ${n.recomendacion || propuesta}\nYa está escrita abajo: si estás de acuerdo, pulsa «Enviar»; si no, cámbiala.` : '', n.como || ''].filter(Boolean).join('\n\n');
+    const r = await ask({ title: n.que, help, ok: 'Enviar', fields: [{ name: 'respuesta', label: n.tipo === 'ACCION' ? 'Qué has hecho (opcional)' : 'Tu respuesta', type: 'textarea', required: n.tipo !== 'ACCION', value: propuesta }] });
     if (r) await after(cmd('negocio.necesidad', { id: n.id, respuesta: r.respuesta || 'Hecho' }, 'Recibido: el CEO continúa', btn));
   }
   // T28 · inclusión en bloque en Mensajes: cada contacto con su motivo y fuente a la vista; al aprobar se puede desmarcar cualquiera.

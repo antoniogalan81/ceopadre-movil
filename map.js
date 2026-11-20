@@ -107,7 +107,7 @@ export function advice(c) {
 export function proposals(m, decide, consult = null, copy = null) {
   if (!m.propuestas?.length) return null;
   return h('div', { class: 'props' }, lbl(`CAMBIOS PROPUESTOS (${m.propuestas.length})`),
-    m.propuestas.map((p) => h('article', { class: 'prop', 'data-ref': p.ref || null },
+    m.propuestas.map((p) => h('article', { class: 'prop', 'data-ref': p.ref || null, ...marca({ tipo: 'decision', id: p.ref || `propuesta:${p.id}`, version: p.version, titulo: p.campo }) },
       // Con la explicación del CEO, lo técnico (campo, antes/después) queda plegado.
       explica(p.consejo, 'propuesta') ? null : h('p', { class: 'prop-field' }, '🔒 ', p.campo),
       explica(p.consejo, 'propuesta') ? null : h('p', { class: 'ln what' }, h('b', {}, 'QUÉ CAMBIA'), ' ', short(p.despues, 260)),

@@ -32,7 +32,11 @@ function guardar() {
   aplicar();
 }
 const esc = (s) => (globalThis.CSS?.escape ? CSS.escape(s) : String(s).replace(/["\\]/g, '\\$&'));
-export const selector = (m) => `${m.zona ? `#${esc(m.zona)} ` : ''}[data-mama-tipo="${esc(m.tipo)}"][data-mama-id="${esc(m.id)}"]`;
+/** Huella corta de un texto (FNV-1a): versión de una tarjeta sin versión propia (el contrato T-A sólo admite identificadores). */
+export const huella = (s) => { let h = 2166136261; for (const ch of String(s || '')) h = Math.imul(h ^ ch.codePointAt(0), 16777619); return (h >>> 0).toString(36); };
+// Con versión (la de la tarjeta pulsada), una petición NUEVA del mismo trabajo u objetivo (otra versión) no queda oculta; la
+// misma tarjeta repintada SIN versión (ya no pide nada: «Ya lo he hecho» confirmado) sigue oculta hasta que salga de los datos.
+export const selector = (m) => `${m.zona ? `#${esc(m.zona)} ` : ''}[data-mama-tipo="${esc(m.tipo)}"][data-mama-id="${esc(m.id)}"]${m.version ? `:is([data-mama-version="${esc(m.version)}"], :not([data-mama-version]))` : ''}`;
 // Ocultar por CSSOM (el.style), no con una hoja <style> en línea: la CSP de la web (style-src 'self') la bloquea. Un vigía de
 // mutaciones lo reaplica a lo que cualquier repintado vuelva a crear; lo que deja de estar marcado se muestra de nuevo.
 function aplicar() {
@@ -51,12 +55,12 @@ export function retirarDesde(el) {
   const card = el?.closest?.('[data-mama-tipo][data-mama-id]');
   if (!card) return null;
   const tipo = card.dataset.mamaTipo, id = card.dataset.mamaId;
-  return retirar({ tipo, id, zona: SOLO_PENDIENTE.has(tipo) ? null : card.closest('[id]')?.id || null });
+  return retirar({ tipo, id, version: card.dataset.mamaVersion || null, zona: SOLO_PENDIENTE.has(tipo) ? null : card.closest('[id]')?.id || null });
 }
 /** Marca por referencia (p. ej. desde el panel «Consultar», donde el botón no está dentro de la tarjeta). */
-export function retirar({ tipo, id, zona = null }) {
+export function retirar({ tipo, id, version = null, zona = null }) {
   if (!tipo || !id) return null;
-  const m = { tipo, id: String(id), zona, estado: 'EN_VUELO', at: Date.now() };
+  const m = { tipo, id: String(id), ...(version ? { version: String(version) } : {}), zona, estado: 'EN_VUELO', at: Date.now() };
   marcas = [...marcas.filter((x) => selector(x) !== selector(m)), m];
   guardar();
   return m;

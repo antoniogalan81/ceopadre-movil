@@ -732,7 +732,7 @@ function superadaBox(c) {
 // Qué pasa con cada botón, dicho antes de pulsarlo (lo que hace de verdad el motor: trabajo.aprobar / trabajo.rechazar).
 const conseq = (c) => (esGasto(c) ? null : h('p', { class: 'ln conseq' }, h('b', {}, 'SI APRUEBAS'), ' el CEO sigue con lo propuesto. ',
   h('b', {}, 'SI RECHAZAS'), ' busca otra vía sin ese cambio o termina explicando por qué no se puede.'));
-const jobDecision = (c) => (c.estado === 'ESPERANDO_DECISION' ? h('div', { class: 'decision' }, superadaBox(c),
+const jobDecision = (c) => (c.estado === 'ESPERANDO_DECISION' ? h('div', { class: 'decision', ...marca({ tipo: 'decision', id: c.ref || `trabajo:${c.trabajo}`, proyecto: c.id, version: c.version, titulo: c.propuesta }) }, superadaBox(c), // 53099883: marca = se retira al pulsar
   ...(explica(c.consejo, 'trabajo') && !esGasto(c) ? [explica(c.consejo, 'trabajo'), h('details', { class: 'prop-more tecnico' }, h('summary', {}, 'Detalle técnico'), ...decisionLines(c))]
     : [...decisionLines(c), advice(c.consejo), conseq(c)]),
   // 20-11: si pide confirmar un hecho, «Aprobar» no lo confirma: el botón principal abre la respuesta (llega como su respuesta).
@@ -820,7 +820,7 @@ function desk(c) {
   const decision = jobDecision(c);
   const need = needLine(c);
   const pl = pulsoLineas(c);
-  return pulsable(h('article', { class: `desk m-${mood(c)}`, 'data-id': c.id, ...marca({ tipo: ['ERROR', 'BLOQUEADO'].includes(c.estado) ? 'error' : c.trabajo ? 'trabajo' : 'proyecto', id: c.trabajo || c.id, proyecto: c.id, titulo: c.nombre, acciones: c.trabajo ? ['trabajo.instruccion'] : [] }) },
+  return pulsable(h('article', { class: `desk m-${mood(c)}`, 'data-id': c.id, ...marca({ tipo: ['ERROR', 'BLOQUEADO'].includes(c.estado) ? 'error' : c.trabajo ? 'trabajo' : 'proyecto', id: c.trabajo || c.id, proyecto: c.id, version: c.te_necesita ? retirada.huella(c.te_necesita) : null, titulo: c.nombre, acciones: c.trabajo ? ['trabajo.instruccion'] : [] }) },
     h('header', { class: 'unit-head' }, logo(c),
       h('div', { class: 'title' }, h('h3', { title: c.nombre }, c.nombre), status(c)),
       c.estado === 'TRABAJANDO' ? h('span', { class: 'beacon', title: 'Trabajando ahora', 'aria-hidden': 'true' }) : null),
@@ -842,7 +842,7 @@ function desk(c) {
 /** Otro objetivo del proyecto que espera algo que sólo puedes hacer tú (renovar un permiso…): qué y el botón que lo resuelve. */
 function tuyaCard(x) {
   const hum = esperaHumana(x.condicion || '');
-  return h('article', { class: 'desk m-need', 'data-id': `${x.c.id}:${x.trabajo}`, ...marca({ tipo: 'espera', id: x.trabajo, proyecto: x.c.id, titulo: x.c.nombre, acciones: ['espera.hecho', 'trabajo.instruccion'] }) },
+  return h('article', { class: 'desk m-need', 'data-id': `${x.c.id}:${x.trabajo}`, ...marca({ tipo: 'espera', id: x.trabajo, proyecto: x.c.id, version: retirada.huella(x.condicion), titulo: x.c.nombre, acciones: ['espera.hecho', 'trabajo.instruccion'] }) },
     h('header', { class: 'unit-head' }, logo(x.c), h('div', { class: 'title' }, h('h3', {}, x.c.nombre), status({ estado: 'ESPERANDO_ANTONIO' }))),
     h('p', { class: 'ln goal', title: x.objetivo }, cleanGoal(x.objetivo)),
     line('TE NECESITA', hum.que ? hum.que.charAt(0).toUpperCase() + hum.que.slice(1) : x.condicion),
@@ -1186,7 +1186,7 @@ function goalNeeds(g) {
     plan ? h('div', { class: 'need-card compacta' }, h('p', { class: 'need-t' }, h('b', {}, 'Aprobar el plan'), ' — el CEO preparó la hoja de ruta de este objetivo y espera tu aprobación.'),
       h('p', { class: 'need-nivel' }, 'Por qué: sin tu aprobación el objetivo no empieza. Se aprueba viendo el plan entero (actuación protegida).'),
       h('div', { class: 'row' }, h('button', { class: 'btn primary small', type: 'button', onclick: () => nui?.openOne(g.id) }, 'Abrir el plan para aprobarlo'))) : null,
-    pregunta ? h('div', { class: 'need-card compacta', 'data-ref': `objetivo:${g.id}` }, h('p', { class: 'need-t' }, h('b', {}, 'Te pregunta el director'), ` — ${g.pregunta}`),
+    pregunta ? h('div', { class: 'need-card compacta', 'data-ref': `objetivo:${g.id}`, ...marca({ tipo: 'decision', id: `objetivo:${g.id}`, objetivo: g.id, version: retirada.huella(g.pregunta), titulo: g.pregunta }) }, h('p', { class: 'need-t' }, h('b', {}, 'Te pregunta el director'), ` — ${g.pregunta}`),
       h('div', { class: 'row' },
         h('button', { class: 'btn primary small', type: 'button', disabled: off, onclick: (e) => goalAnswer(g, e.currentTarget) }, 'Responder'),
         g.categoria === 'CUOTA' || g.categoria === 'DIRECTOR' ? h('button', { class: 'btn ghost small', type: 'button', disabled: off, onclick: (e) => run('negocio.reanudar', { id: g.id }, 'Reanudado', e.currentTarget).then(() => { goals.at = 0; paintGoals(); }) }, 'Reanudar') : null)) : null,
@@ -1564,8 +1564,10 @@ function cerrarCeo(volverAtras = true) {
 }
 const ACC = { APROBAR: 'Aprobar la propuesta', RECHAZAR: 'Rechazar la propuesta' };
 // La decisión del panel «Consultar» sale ya de las listas: la tarjeta de la necesidad usa la referencia completa (ceo.ref) y la
-// de la propuesta, la corta (d.ref).
-const retirarCeo = (d) => [...new Set([ceo.ref, d?.ref].filter((x) => x && x !== 'general'))].map((id) => retirada.retirar({ tipo: 'decision', id }));
+// de la propuesta, la corta (d.ref), con la versión que se veía (el mismo hash que la tarjeta): una petición NUEVA del mismo
+// trabajo no queda oculta tras la marca.
+const retirarCeo = (d) => [...new Set([ceo.ref, d?.ref].filter((x) => x && x !== 'general'))]
+  .map((id) => retirada.retirar({ tipo: 'decision', id, version: id === d?.ref ? d?.version : null }));
 /** Decidir desde la conversación (barra de la decisión o un mensaje del CEO): con la versión que se ve. */
 async function decidirCeo(accion, b, mensaje = null, version = null) {
   const d = ceo.conv?.decision;

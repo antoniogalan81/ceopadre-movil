@@ -6,7 +6,7 @@
 // edita aquí mismo (añadir, modificar, quitar, reordenar tareas y fases) sin rehacer el objetivo.
 import { claro, h } from './dom.js';
 import { marca } from './mama-contexto.js'; // T-A: contrato único de contexto para MAMA
-import { EFECTOS_NEC, proyectosEn } from './zones.js';
+import { EFECTOS_NEC, esPreguntaSimple, proyectosEn } from './zones.js';
 import { advice, comunes, decideRow, explica } from './map.js';
 import { miniTarjeta } from './tarjeta.js';
 
@@ -26,29 +26,40 @@ function senal(t) {
 const TONE = { DEFINIENDO: 'work', ESPERANDO_APROBACION: 'ask', ACTIVA: 'work', ESPERANDO_ANTONIO: 'ask', PAUSADA: 'idle', ALCANZADA: 'ok', BLOQUEADA: 'bad', CANCELADA: 'idle',
   EN_SEGUIMIENTO: 'wait', CERRADA: 'idle', ACEPTADA: 'ok' };
 const CLOSED = ['ALCANZADA', 'CANCELADA', 'CERRADA', 'ACEPTADA'];
-// PROGRESO REAL (sin IA, sin tokens): tareas HECHAS de la hoja de ruta frente a las del alcance actual (las quitadas o
-// descartadas no cuentan). Sin hoja no se inventa un porcentaje. Es avance de TAREAS, no de esfuerzo ni del resultado.
+// PROGRESO REAL (sin IA, sin tokens): tareas HECHAS de la hoja de ruta frente a las del alcance actual (las quitadas,
+// descartadas o agrupadas en otra no cuentan). Sin hoja no se inventa un porcentaje. El % es SÓLO lo verificado; lo entregado
+// que falta cargar o acreditar se ve aparte (tramo claro), y los resultados de fase acreditados también: actividad ≠ progreso.
 export function progreso(hj, compacto = false) {
   const c = hj?.cuenta;
   const total = c ? c.hechas + c.en_curso + c.pendientes : 0;
   if (!total) return null;
   const pct = Math.round((100 * c.hechas) / total);
-  return h('div', { class: `prog${compacto ? ' compacto' : ''}`, title: 'Tareas de la hoja de ruta hechas y verificadas frente a las del alcance actual (no mide esfuerzo ni el resultado de negocio)' },
-    h('div', { class: 'prog-bar', role: 'progressbar', 'aria-valuemin': '0', 'aria-valuemax': String(total), 'aria-valuenow': String(c.hechas), 'aria-label': `${c.hechas} de ${total} tareas hechas` },
-      h('span', { style: `width:${pct}%` })),
-    h('small', {}, `${c.hechas} de ${total} tareas hechas · ${pct} %${c.en_curso ? ` · ${c.en_curso} en marcha` : ''}${compacto ? '' : ` · ${c.pendientes} por hacer`}`));
+  const espera = c.hechas_espera || 0;
+  const pctEspera = Math.round((100 * espera) / total);
+  const enMarcha = c.en_curso - espera;
+  return h('div', { class: `prog${compacto ? ' compacto' : ''}`, title: 'Verde: tareas terminadas y verificadas. Tramo claro: entregadas con pruebas, falta cargarlas o acreditarlas en uso real. No mide esfuerzo ni el resultado de negocio.' },
+    h('div', { class: 'prog-bar', role: 'progressbar', 'aria-valuemin': '0', 'aria-valuemax': String(total), 'aria-valuenow': String(c.hechas), 'aria-label': `${c.hechas} de ${total} tareas verificadas${espera ? `, ${espera} entregadas sin cerrar` : ''}` },
+      h('span', { style: `width:${pct}%` }), espera ? h('span', { class: 'espera', style: `width:${pctEspera}%` }) : null),
+    h('small', {}, `${c.hechas} de ${total} verificadas · ${pct} %${espera ? ` · ${espera} entregada${espera > 1 ? 's' : ''}, falta cargar o acreditar` : ''}${enMarcha > 0 ? ` · ${enMarcha} en marcha` : ''}${compacto ? '' : ` · ${c.pendientes} por hacer`}${!compacto && c.fases ? ` · resultado acreditado en ${c.fases_verificadas || 0} de ${c.fases} fases` : ''}`));
+}
+// ORGANIZAR vs EJECUTAR (medido en el PC, sólo en la ficha): avisa si el objetivo gasta más en planificar que en resolver.
+function coste(c) {
+  if (!c || !(c.organizar_min + c.ejecutar_min)) return null;
+  return h('small', { class: `muted${c.exceso ? ' t-ask' : ''}`, title: 'Minutos de rondas del CEO supervisor y del diagnóstico frente a minutos de ejecución de Claude, revisiones del director y trabajos terminados' },
+    `Organizar ${c.organizar_min} min · ejecutar ${c.ejecutar_min} min · ${c.revisiones} revisiones del director · ${c.terminados} trabajos terminados${c.exceso ? ' · ⚠ más organización que ejecución' : ''}`);
 }
 const TIPO_NEC = { CONEXION: 'Conectar una cuenta', DATO: 'Un dato', ACCION: 'Algo que sólo puedes hacer tú', DECISION: 'Una decisión', CAPACIDAD: 'Herramienta nueva para el catálogo', AUTOMATIZACION: 'Activar una automatización',
   KPI: 'Revisar un comando de medición', MENSAJES: 'Incluir contactos en Mensajes' };
 // Estado de una tarea de la hoja tal como lo ve Antonio.
 const TAREA = { PENDIENTE: ['Pendiente', 'idle'], EN_CURSO: ['Ahora', 'work'], BLOQUEADA: ['Te necesita', 'ask'], PAUSADA: ['En pausa', 'idle'], HECHA: ['Hecho', 'ok'],
+  HECHA_ESPERA: ['Entregado · falta cargar o acreditar', 'wait'],
   ELIMINADA: ['Quitada', 'idle'], DESCARTADA: ['Descartada por el CEO', 'idle'], NO_NECESARIA: ['No necesaria tras el cierre', 'idle'] };
 const fecha = (iso) => (iso ? new Date(iso).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '');
 const chip = (label, tone) => h('span', { class: `a-chip t-${tone}` }, label);
 // Resúmenes de la vista principal en lenguaje claro (web/dom.js claro: sin comandos, rutas ni hashes; nada inventado).
 const corto = (s, n = 140) => { const t = claro(String(s || '').split('\n')[0]); return t.length > n ? `${t.slice(0, n - 1)}…` : t; };
 
-export function negocioUi({ api, ask, toast, show, data, run, viewText, onChange = () => {} }) {
+export function negocioUi({ api, ask, toast, show, data, run, viewText, onChange = () => {}, consultar = null }) {
   let mode = null, list = [], viewing = null, sig = '', timer = null, huella = null;
   const projects = () => data().proyectos || [];
   const online = () => data().pc?.online !== false;
@@ -140,6 +151,8 @@ export function negocioUi({ api, ask, toast, show, data, run, viewText, onChange
     if (!projects().length) { toast('Primero vincula algún proyecto', 'bad'); return; }
     const r = await ventanaObjetivo({ titulo: 'Nuevo objetivo', ok: 'Crear objetivo', ...(borradorCrear || {}) });
     if (!r) return;
+    // 20-11: una pregunta no crea un objetivo: la contesta el CEO en «Consultar» (sin diagnóstico ni trabajo).
+    if (consultar && esPreguntaSimple(r.texto)) { borradorCrear = null; toast('Es una pregunta: te contesta el CEO directamente, sin crear un objetivo', 'ok'); consultar(r.texto); return; }
     if (await after(cmd('negocio.crear', { texto: r.texto, modo: r.modo, proyectos: r.modo === 'MANUAL' ? r.proyectos : [] }, 'Creado: el CEO se organiza', btn))) borradorCrear = null;
   }
   async function editarObjetivo(o, btn) {
@@ -466,7 +479,7 @@ Elige qué hacer:`,
     if (r) await hojaCmd(o, { op: 'fase_añadir', nombre: r.nombre, objetivo: r.objetivo }, 'Fase añadida', btn);
   }
   function tareaRow(o, t, editable) {
-    const [label, tone] = TAREA[t.visible] || TAREA[t.estado] || [t.estado, 'idle'];
+    const [label, tone] = (t.agrupada_en ? [`Dentro de ${t.agrupada_en}`, 'idle'] : null) || TAREA[t.visible] || TAREA[t.estado] || [t.estado, 'idle'];
     const abierta = ['PENDIENTE', 'EN_CURSO'].includes(t.estado);
     const ico = (txt, aria, on, cls = '') => h('button', { class: `btn ghost small t-ico ${cls}`, type: 'button', 'aria-label': aria, title: aria, onclick: (e) => on(e.currentTarget) }, txt);
     return h('li', { class: `road-t t-${tone}`, 'data-tarea': t.id },
@@ -547,7 +560,7 @@ Elige qué hacer:`,
     const o = viewing;
     return [h('section', { class: 'panel dir' }, h('div', { class: 'dir-head' }, chip(o.estado_texto, TONE[o.estado] || 'idle'),
       h('p', { class: 'muted small obj-proys-line' }, o.seleccion?.modo === 'EXTERNO' ? `Lo ejecuta ${o.seleccion.responsable || 'otra sesión'}: CEOPadre sólo lo sigue (no lanza trabajos). Proyectos: ${o.proyectos.map((p) => p.nombre).join(', ') || '—'}` : `${o.seleccion?.modo === 'AUTO' ? 'Proyectos elegidos por el CEO' : 'Proyectos elegidos por ti (el CEO puede sumar otros)'}: ${o.proyectos.map((p) => p.nombre).join(', ') || '—'}`)),
-      progreso(o.hoja), cuatro(o), actions(o), needBox(o)),
+      progreso(o.hoja), coste(o.coste), cuatro(o), actions(o), needBox(o)),
     aprobacion(o), necesidades(o), hojaView(o), resultados(o), planView(o),
     Object.keys(o.respuestas || {}).length ? h('details', { class: 'panel fold' }, h('summary', {}, 'Tus respuestas e instrucciones'), h('ul', { class: 'a-pend' }, Object.entries(o.respuestas).map(([k, v]) => h('li', {}, h('b', {}, k), ` · ${v}`)))) : null,
     h('details', { class: 'panel fold' }, h('summary', {}, `Trabajos realizados (${o.trabajos_lista.length})`), o.trabajos_lista.length ? o.trabajos_lista.map((t) => h('article', { class: `a-runrow t-${t.estado === 'TERMINADO' ? 'ok' : ['CANCELADO'].includes(t.estado) ? 'idle' : 'work'}` },

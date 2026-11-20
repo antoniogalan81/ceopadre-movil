@@ -473,3 +473,11 @@ const PASO_CORTO = { CONTINUAR: 'sigue', TERMINADO: 'terminó', TERMINAR: 'cierr
 /** Las 3 últimas acciones: en el PC las de las herramientas (acciones); si no hay (móvil), los pasos por ronda. */
 export const antes = (c) => (c?.acciones?.length ? c.acciones.slice(0, 3).map((a) => ({ at: a.at, texto: a.texto }))
   : (c?.pasos || []).slice(0, 3).map((p) => ({ at: p.at, texto: `${p.tipo} ${PASO_CORTO[p.estado] || String(p.estado || '').toLowerCase()}`, largo: `${p.tipo} · ${p.estado}` })));
+
+// 20-11 · PREGUNTA SIMPLE: se contesta en «Consultar» (el CEO responde con lo que ya sabe) y NO crea un objetivo ni un trabajo.
+// Una pregunta corta, de un solo párrafo, que no pide hacer nada («¿Puedes arreglar…?» es un encargo, no una pregunta).
+const PIDE_HACER = /\b(haz|hazlo|hagas|crea|crear|implementa|implementar|a[nñ]ade|a[nñ]adir|arregla|arreglar|corrige|corregir|cambia|cambiar|programa|publica|publicar|env[ií]a|enviar|construye|mejora|mejorar|quiero que|necesito que|prepara|preparar|monta|instala|elimina|borra|quita|configura|automatiza|migra|integra)\b/i;
+export function esPreguntaSimple(texto) {
+  const t = String(texto || '').trim();
+  return t.length >= 6 && t.length <= 300 && !/\n\s*\S/.test(t) && (/^¿/.test(t) || /\?$/.test(t)) && !PIDE_HACER.test(t);
+}

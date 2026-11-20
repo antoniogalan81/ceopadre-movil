@@ -2454,7 +2454,7 @@ async function start() {
   rui ??= remoteUi({ api, ask, toast, show, data: () => data, ago, local: LOCAL, ai });
   aui ??= autoUi({ api, ask, toast, show, data: () => data, run, viewText: (t, x) => view(t, x), ai, alquileres: () => [...copiaMinis(), ...ALQ.minis(data.proyectos)],
     mensajes: LOCAL ? mensajesUi({ api, toast }) : null }); // MENSAJES (16-11): contactos y memoria, sólo en el PC
-  nui ??= negocioUi({ api, ask, toast, show, data: () => data, run, viewText: (t, x) => view(t, x), onChange: () => { goals.at = 0; paintGoals(); } });
+  nui ??= negocioUi({ api, ask, toast, show, data: () => data, run, viewText: (t, x) => view(t, x), onChange: () => { goals.at = 0; paintGoals(); }, consultar: (t) => openCeo('general', { pregunta: t }) });
   mui ??= mamaUi({ api, toast, show, local: LOCAL });
   show('p-list');
   await refresh();

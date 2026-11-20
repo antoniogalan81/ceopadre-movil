@@ -14,6 +14,7 @@ import { alquileresUi } from './alquiler.js';
 import { copiaUi } from './copia.js';
 import { borrador, ventanasUniversales } from './modal.js';
 import { seguimientoUi } from './tarjeta.js';
+import * as retirada from './retirada.js'; // 53099883: lo respondido sale al momento de la lista (PC y móvil)
 
 ventanasUniversales(); // V3.9: clic fuera = Volver/Cerrar en TODAS las ventanas modales (web/modal.js)
 
@@ -108,7 +109,8 @@ async function remoteApi() {
       return { proyectos, pc: { online: online(), visto: pc?.visto_en }, cuenta, cuotas: pc?.datos?.cuotas, remotos, negocio: pc?.datos?.negocio, ui: pc?.datos?.ui, autorizaciones: pc?.datos?.autorizaciones || [] };
     },
     async details(id) { const r = await sb.from('ceo_card').select('detalle').eq('id', id).maybeSingle(); return r.data?.detalle; },
-    async cmd(op, params) {
+    // `alGuardar`: la orden ya está en la cola durable (ceo_orden); aunque el teléfono se cierre o recargue, el PC la aplicará.
+    async cmd(op, params, { alGuardar } = {}) {
       if (!online()) return { ok: false, error: 'El PC no está conectado ahora mismo: la orden no se envía.' };
       if (esPotente(op, params)) {
         const extra = await strongConfirm(sb, op, params);
@@ -119,13 +121,15 @@ async function remoteApi() {
       const usuario = (await sb.auth.getUser()).data.user?.id;
       const ins = await sb.from('ceo_orden').insert({ id, usuario, operacion: op, parametros: params });
       if (ins.error) return { ok: false, error: ins.error.message };
+      alGuardar?.();
       for (const t0 = Date.now(); Date.now() - t0 < 60_000;) {
         await new Promise((r) => setTimeout(r, 700));
         const { data } = await sb.from('ceo_orden').select('estado,respuesta').eq('id', id).maybeSingle();
         if (data?.estado === 'hecha') return data.respuesta;
         if (data?.estado === 'caducada') return { ok: false, error: 'El PC no recogió la orden a tiempo' };
       }
-      return { ok: false, error: 'El PC sigue con ello; mira la tarjeta en un momento' };
+      // La orden está GUARDADA en ceo_orden y el PC la aplicará: no es un fallo (no se repite ni vuelve a la lista).
+      return { ok: false, pendiente: true, error: 'El PC sigue con ello; mira la tarjeta en un momento' };
     },
     watch(cb) {
       sb.channel('ceo-movil')
@@ -376,13 +380,21 @@ function avisoVersionPintar(ui) {
   $('#b-aviso-ui-x').onclick = () => { uiCerrado = clave; bar.hidden = true; medirAviso(); };
 }
 
-async function run(op, params, okMsg, btn) {
+async function run(op, params, okMsg, btn, retiradas = null) {
   if (btn) btn.disabled = true;
+  // RETIRADA INMEDIATA (53099883): lo que se contesta sale YA de la lista (y no vuelve al recargar mientras la orden siga viva).
+  // `retiradas`: marcas ya hechas por quien llama (panel «Consultar», donde el botón no está dentro de la tarjeta).
+  const rets = (retiradas || (btn && retirada.responde(op, params) ? [retirada.retirarDesde(btn)] : [])).filter(Boolean);
+  const ret = rets[0] || null;
+  if (rets.length) { try { paintList(); } catch { /* el contador se pondrá al día con los datos nuevos */ } } // «te espera» baja ya
   try {
-    const r = await api.cmd(op, params);
+    const r = await api.cmd(op, params, { alGuardar: () => rets.forEach((x) => retirada.resolver(x, 'ENVIADA')) }).catch((e) => ({ ok: false, error: e.message }));
+    for (const x of rets) retirada.resolver(x, r?.ok ? 'CONFIRMADA' : r?.pendiente ? 'ENVIADA' : 'FALLIDA');
     // Lo escrito en la última ventana se conserva hasta que el PC CONFIRMA la orden: si falla (PC desconectado, caducada…),
     // al reabrir la misma ventana vuelve el texto (antes se perdía al pulsar Aceptar).
-    if (r?.ok) { toast(r.data?.mensaje || okMsg, 'ok'); for (const k of enviados) borrador.borrar(k); enviados.clear(); } else toast(`${r?.error || 'No se pudo'}${enviados.size ? ' · Lo que escribiste se conserva: vuelve a abrir la ventana.' : ''}`, 'bad');
+    if (r?.ok) { toast(r.data?.mensaje || okMsg, 'ok'); for (const k of enviados) borrador.borrar(k); enviados.clear(); }
+    else if (r?.pendiente) toast('Enviada: tu respuesta está guardada y el PC la aplicará en cuanto pueda (no hace falta repetirla).', 'ok');
+    else toast(`${r?.error || 'No se pudo'}${ret ? ' · Vuelve a estar en tu lista' : ''}${enviados.size ? ' · Lo que escribiste se conserva: vuelve a abrir la ventana.' : ''}`, 'bad');
     detailCache = null; // tras una orden, DETALLES (y el mapa) se vuelven a pedir: nada de estado viejo en pantalla
     await refresh();
     return r?.ok;
@@ -938,12 +950,19 @@ async function enGrupo(b, fn) {
 }
 const grupoHecho = (f, b) => enGrupo(b, async () => {
   const hechas = new Set();
+  const ret = retirada.retirarDesde(b);
+  let ok = false, pendiente = false;
   for (const id of f.esperas) {
     if (hechas.has(id)) continue;
-    const r = await api.cmd('espera.hecho', { id });
+    const r = await api.cmd('espera.hecho', { id }, { alGuardar: () => retirada.resolver(ret, 'ENVIADA') }).catch((e) => ({ ok: false, error: e.message }));
+    if (r?.pendiente) { pendiente = true; break; }
     if (!r?.ok) { toast(`${r?.error || 'No se pudo'}${hechas.size ? ` · ya registradas: ${hechas.size}` : ''}`, 'bad'); break; }
+    ok = true;
     for (const x of r.data?.esperas || [id]) hechas.add(x);
   }
+  // Con alguna ya registrada el grupo sale (lo que falte se verá como espera propia); si no salió ninguna, vuelve.
+  retirada.resolver(ret, ok ? 'CONFIRMADA' : pendiente ? 'ENVIADA' : 'FALLIDA');
+  if (pendiente) toast('Enviada: tu confirmación está guardada y el PC la aplicará en cuanto pueda.', 'ok');
   if (hechas.size) toast(`Registrado: confirmado por ti para ${f.items.length} trabajos (${hechas.size} esperas de la misma acción). Verificando ahora sin IA.`, 'ok');
   detailCache = null;
   await refresh();
@@ -1022,9 +1041,13 @@ function paintList() {
   // Cosas que te esperan (no tarjetas): cada pregunta, cada puesto que te pide algo, las respuestas y los objetivos de negocio.
   const autN = (data.autorizaciones || []).length;
   // T37: una petición tuya que desbloquea varios trabajos es UNA fila y cuenta UNA vez (web/zones.js porAccion).
-  const need = d.kpis.decisiones + d.necesitaSolas.filter((c) => !needsDecision(c)).length + d.peticiones.length + d.tuyasSolas.length + inboxN + negNeed + autN;
+  let need = d.kpis.decisiones + d.necesitaSolas.filter((c) => !needsDecision(c)).length + d.peticiones.length + d.tuyasSolas.length + inboxN + negNeed + autN;
   paintAuts();
   repaint($('#atender'), [...d.necesitaSolas.filter((c) => !needsDecision(c)).map(desk), ...d.peticiones.map(grupoCard), ...d.tuyasSolas.map(tuyaCard)]);
+  // 53099883: lo ya respondido que el PC aún no ha quitado de los datos no cuenta como «te espera» (está oculto); lo que el PC ya
+  // quitó deja de estar marcado.
+  retirada.limpiar();
+  need = Math.max(0, need - retirada.ocultosEn());
   $('#n-need').textContent = String(need);
   $('#z-need').hidden = !need;
   // Con problemas: sólo si hay.
@@ -1485,6 +1508,9 @@ function cerrarCeo(volverAtras = true) {
   if (volverAtras && new URLSearchParams(location.search).has('ceo')) navPush({ ceo: null });
 }
 const ACC = { APROBAR: 'Aprobar la propuesta', RECHAZAR: 'Rechazar la propuesta' };
+// La decisión del panel «Consultar» sale ya de las listas: la tarjeta de la necesidad usa la referencia completa (ceo.ref) y la
+// de la propuesta, la corta (d.ref).
+const retirarCeo = (d) => [...new Set([ceo.ref, d?.ref].filter((x) => x && x !== 'general'))].map((id) => retirada.retirar({ tipo: 'decision', id }));
 /** Decidir desde la conversación (barra de la decisión o un mensaje del CEO): con la versión que se ve. */
 async function decidirCeo(accion, b, mensaje = null, version = null) {
   const d = ceo.conv?.decision;
@@ -1493,8 +1519,12 @@ async function decidirCeo(accion, b, mensaje = null, version = null) {
   const op = accion === 'ALTERNATIVA' ? 'decision.alternativa' : 'decision.resolver';
   const etiqueta = accion === 'APROBAR' ? d.aprobar : accion === 'RECHAZAR' ? d.rechazar : d.alternativa?.etiqueta;
   if (b) b.disabled = true;
-  const r = await api.cmd(op, { proyecto: d.proyecto, ref: d.ref, version: version || d.version, accion, etiqueta, ...(mensaje ? { mensaje } : {}) }).catch((e) => ({ ok: false, error: e.message }));
+  const rets = retirarCeo(d);
+  const r = await api.cmd(op, { proyecto: d.proyecto, ref: d.ref, version: version || d.version, accion, etiqueta, ...(mensaje ? { mensaje } : {}) },
+    { alGuardar: () => rets.forEach((x) => retirada.resolver(x, 'ENVIADA')) }).catch((e) => ({ ok: false, error: e.message }));
+  for (const x of rets) retirada.resolver(x, r?.ok ? 'CONFIRMADA' : r?.pendiente ? 'ENVIADA' : 'FALLIDA');
   if (b) b.disabled = false;
+  if (!r?.ok && r?.pendiente) { toast('Enviada: tu decisión está guardada y el PC la aplicará en cuanto pueda (no hace falta repetirla).', 'ok'); return; }
   if (!r?.ok) {
     // Sin cerrar: se ve el problema y se puede reintentar o preguntar.
     fill($('#ceo-res'), h('p', { class: 'ceo-res bad', role: 'alert' }, `No se pudo: ${r?.error || 'el PC no responde'}`));
@@ -1562,11 +1592,11 @@ async function otraCeo(d, b, responder = false) {
   const [op, params] = d.tipo === 'necesidad' ? ['negocio.necesidad', responder ? { id: d.necesidad, respuesta: r.t } : { id: d.necesidad, instruccion: r.t }]
     : d.tipo === 'pregunta' ? ['decision.responder', { proyecto: d.proyecto, id, respuesta: r.t }]
       : ['trabajo.instruccion', { trabajo: id, texto: r.t, tipo: 'INSTRUCCION' }];
-  if (await run(op, params, 'Enviado', b)) await resueltoCeo({ fase: 'REGISTRADA', mensaje: responder ? 'Respuesta registrada: el director sigue con ella.' : 'Instrucción registrada en lugar de la propuesta.' });
+  if (await run(op, params, 'Enviado', b, op === 'trabajo.instruccion' ? [] : retirarCeo(d))) await resueltoCeo({ fase: 'REGISTRADA', mensaje: responder ? 'Respuesta registrada: el director sigue con ella.' : 'Instrucción registrada en lugar de la propuesta.' });
 }
 async function posponerCeo(d, b) {
-  const ok = d.tipo === 'necesidad' ? await run('negocio.posponer', { id: d.necesidad, dias: 7 }, 'Pospuesta 7 días', b)
-    : await run('decision.posponer', { proyecto: d.proyecto, id: d.ref.slice(d.ref.indexOf(':') + 1), dias: 7 }, 'Pospuesta 7 días', b);
+  const ok = d.tipo === 'necesidad' ? await run('negocio.posponer', { id: d.necesidad, dias: 7 }, 'Pospuesta 7 días', b, retirarCeo(d))
+    : await run('decision.posponer', { proyecto: d.proyecto, id: d.ref.slice(d.ref.indexOf(':') + 1), dias: 7 }, 'Pospuesta 7 días', b, retirarCeo(d));
   if (ok) await resueltoCeo({ fase: 'REGISTRADA', mensaje: 'Pospuesta 7 días: sigue pendiente, sin avisos; lo demás continúa.' });
 }
 function ceoMsg(m, aplicados) {
@@ -1755,7 +1785,7 @@ function autCard(a, despues = () => {}) {
     : `${f.cambia.length} archivo${f.cambia.length === 1 ? '' : 's'} (${f.cambia.slice(0, 3).map((c) => c.archivo).join(', ')}${f.cambia.length > 3 ? '…' : ''})${asuntos.length ? ` — ${asuntos.slice(0, 2).join('; ')}${asuntos.length > 2 ? '…' : ''}` : ''}`;
   const dias = Math.max(1, Math.round((Date.parse(a.hasta) - Date.parse(a.created_at)) / 86_400_000));
   const usosCad = `${a.usos_total ? `${a.usos_total} uso${a.usos_total === 1 ? '' : 's'} en total · ` : 'sin tope total · '}${a.limite_semana ? `máx. ${a.limite_semana}/semana` : 'sin tope semanal'} · ${a.estado === 'SOLICITADA' ? `caduca a los ${dias} días de aprobarla` : a.hasta ? `vigente hasta el ${new Date(a.hasta).toLocaleDateString('es-ES')}` : 'sin caducidad'}`;
-  return h('div', { class: 'need-card compacta aut-card', 'data-aut': String(a.id), role: 'group', 'aria-label': `Permiso #${a.id}: ${f?.que || a.accion_texto}` },
+  return h('div', { class: 'need-card compacta aut-card', 'data-aut': String(a.id), ...(a.estado === 'SOLICITADA' ? marca({ tipo: 'decision', id: `autorizacion:${a.id}`, titulo: f?.que || a.accion_texto }) : {}), role: 'group', 'aria-label': `Permiso #${a.id}: ${f?.que || a.accion_texto}` },
     h('p', { class: 'need-t' }, h('b', {}, f?.que || a.accion_texto), ` — ${a.categoria || 'Autorización'} · ${a.proyecto_nombre || a.project_id} · #${a.id}`),
     f ? [linea('Por qué', f.porque), linea('Qué cambia', cambia), linea('Dónde', f.donde), linea('Usos y caducidad', usosCad), linea('Riesgo', f.riesgo), linea('Si apruebas', f.si_autorizo)]
       : [linea('Qué permite', a.texto && a.texto !== a.accion_texto ? a.texto : a.accion_texto), linea('Usos y caducidad', usosCad)],

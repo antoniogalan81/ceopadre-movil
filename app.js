@@ -1509,10 +1509,27 @@ async function openInforme(horas = 24) {
     sec('bad', 'Dependencias internas paradas más de 6 h', x.rendimiento?.dependencias_paradas || [], (i) => [h('b', {}, i.proyecto), ` — ${i.que}`, h('small', { class: 'muted' }, `Espera #${i.espera} · ${i.horas} h`)]),
     sec('next', 'Después', x.despues, (i) => [h('b', {}, i.cuando ? hhmm(i.cuando) : 'En cola'), ` — ${i.que} · ${i.proyecto}`]),
     x.rendimiento ? h('p', { class: 'muted' }, `Rendimiento: ${x.rendimiento.iniciados} iniciados · ${x.rendimiento.terminados} terminados · ${x.rendimiento.cancelados} cancelados${x.rendimiento.horas_hasta_terminar != null ? ` · ${x.rendimiento.horas_hasta_terminar} h de media hasta terminar` : ''} · ${x.rendimiento.abiertos} abiertos ahora`) : null,
-    x.consumo?.linea ? h('p', { class: 'muted' }, `Consumo (${x.horas} h): ${x.consumo.linea}`) : null,
+    consumoInforme(x.consumo, x.horas),
     x.automatizaciones.length ? h('p', { class: 'muted' }, `Agentes ejecutados: ${x.automatizaciones.map((a) => `${a.n} ${a.estado.toLowerCase()}`).join(' · ')}`) : null,
     hechos.every((n) => !n) && !x.negocio.length && !x.esperando.length ? h('p', { class: 'muted' }, 'Sin actividad en este periodo.') : null,
     h('p', { class: 'muted small' }, `Del ${new Date(x.desde).toLocaleString('es-ES', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })} a ahora · datos de CEOPadre, sin estimaciones.`));
+}
+// CONSUMO DE IA del informe (src/consumo.js, T26): lo que el PC ya calculó, con su unidad, igual en PC y móvil; aquí no se
+// recalcula nada. «M» = millones de tokens. Plegado: lo importante (por trabajo terminado) en el resumen.
+function consumoInforme(c, horas) {
+  if (!c) return null;
+  const M = (n) => `${fmt(n)} M`;
+  const li = (txt) => h('li', {}, txt);
+  const n = (k, palabra) => `${k} ${palabra}${k === 1 ? '' : 's'}`;
+  return h('details', { class: 'fold inf-consumo', 'data-k': 'inf-consumo' },
+    h('summary', {}, `📊 Consumo de IA (${horas} h): ${c.millones_por_terminado != null ? `${M(c.millones_por_terminado)} tokens por trabajo terminado (${c.terminados})` : 'ningún trabajo terminado'}`),
+    h('ul', { class: 'kv' },
+      ...c.por_quien.map((f) => li(`${f.quien}: ${M(f.millones_entrada)} tokens de entrada (${f.pct} %) · ${fmt(f.miles_salida)} mil de salida · ${n(f.rondas, 'ronda')}${f.fallidas ? ` · ${n(f.fallidas, 'fallida')} (${M(f.millones_en_fallidas)})` : ''}${f.sin_dato ? ` · ${f.sin_dato} sin dato` : ''}`)),
+      li(`Mediana por ronda de trabajador: ${M(c.mediana_ronda_millones)} tokens`),
+      c.proyectos.length ? li(`Más consumo: ${c.proyectos.map((p) => `${p.proyecto} ${M(p.millones)} (${n(p.rondas, 'ronda')})`).join(' · ')}`) : null,
+      c.desviaciones.length ? li(`Rondas >3× la mediana: ${c.desviaciones.map((d) => `${d.proyecto} ronda ${d.ronda} ${M(d.millones)} (${d.veces_mediana}×)`).join(' · ')}`) : null,
+      ...Object.entries(c.por_perfil).map(([k, v]) => li(`Perfil ${k}: ${M(v.millones_por_ronda)} tokens por ronda (${n(v.rondas, 'ronda')}; ${v.corregir} CORREGIR, ${v.ampliar} ampliar)`))),
+    h('small', { class: 'muted' }, `Medido: ${c.medido}.`));
 }
 // CONSULTAR AL CEO: una conversación persistente por elemento (decisión, proyecto, objetivo, trabajo, espera, agente o
 // general). El CEO responde con el contexto ACTUAL; preguntar no aprueba nada; un cambio pedido se aplica con «Aplicar».

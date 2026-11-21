@@ -1656,7 +1656,8 @@ body:has(#p-mama:not([hidden])) .mama-fab { display: none; }
 @media (max-width: 520px) { .mama-hilos summary .muted { display: none; } }
 
 /* F2 · semáforo y últimas acciones: UNA línea cada una (dos como mucho por tarjeta); el texto completo, en el title y en DETALLES. */
-.ln.pulso, .ln.antes { display: flex; align-items: baseline; gap: 6px; white-space: nowrap; -webkit-line-clamp: unset; }
+/* .z-need .desk .ln (display:block) pesa más: sin flex, la línea nowrap ensanchaba Dirección a 1310 px en el móvil. */
+.ln.pulso, .ln.antes, .z-need .desk .ln.antes { display: flex; align-items: baseline; gap: 6px; white-space: nowrap; -webkit-line-clamp: unset; min-width: 0; overflow: hidden; }
 .ln.pulso { overflow: hidden; text-overflow: ellipsis; display: block; }
 .ln.pulso .sem { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 5px; background: var(--idle, #888); vertical-align: 0; }
 .ln.pulso b { margin-right: 4px; }

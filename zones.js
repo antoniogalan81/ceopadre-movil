@@ -270,7 +270,7 @@ export function direccion(cards, now = Date.now()) {
   const esperando = [...by('esperando').map((c) => ({ c, trabajo: c.trabajo, objetivo: c.objetivo, esperas: cuotaSola(c) ? [] : c.esperas_info || [], condicion: cuotaSola(c) ? cuotaTexto(c) : c.condicion })),
     ...cards.flatMap((c) => (c.esperando || []).filter((x) => !x.te_necesita).map((x) => ({ c, trabajo: x.trabajo, objetivo: x.objetivo, esperas: x.esperas || [], condicion: x.condicion, otro: true })))];
   // Otro objetivo del proyecto que espera algo que SÓLO puede hacer Antonio: le necesita (no es «externo»).
-  const tuyas = cards.flatMap((c) => (c.esperando || []).filter((x) => x.te_necesita).map((x) => ({ c, trabajo: x.trabajo, objetivo: x.objetivo, condicion: x.condicion })));
+  const tuyas = cards.flatMap((c) => (c.esperando || []).filter((x) => x.te_necesita).map((x) => ({ c, trabajo: x.trabajo, objetivo: x.objetivo, condicion: x.condicion, tuya: x.tuya })));
   // T37 (18-11): LAS ESPERAS AGRUPADAS POR ACCIÓN COMÚN. Varios trabajos que esperan la misma acción tuya (el trabajo que enseña
   // la tarjeta en ESPERANDO_ANTONIO, otros objetivos del proyecto o una espera externa) = UNA petición en «Necesita tu
   // intervención»; varios que esperan lo mismo y no te necesitan = UNA fila en «En espera». Lo que va solo, como siempre.

@@ -1758,7 +1758,7 @@ function paintCeo() {
     vb.onclick = () => { cerrarCeo(false); if (k === 'proyecto') { const p = (data.proyectos || []).find((x) => x.id === c.vuelta.proyecto); if (p) actions.details(p); } else if (k === 'objetivo') nui?.openOne(c.vuelta.objetivo); else if (k === 'agentes') goTab('autos'); else goTab('home'); };
   }
   const aplicados = new Map(c.mensajes.filter((m) => m.rol === 'sistema').map((m) => [/^(Aplicado|Entregado|Registrado) \(#(\d+)\)/.exec(m.texto), m]).filter(([x]) => x)
-    .map(([x, m]) => [Number(x[2]), { marca: x[1], seguimiento: m.seguimiento }]));
+    .map(([x, m]) => [Number(x[2]), { marca: x[1] === 'Aplicado' && / — (Entregado|Enviado)/.test(m.texto) ? 'Entregado' : x[1], seguimiento: m.seguimiento }])); // los antiguos «Aplicado … — Entregado» también
   const descartados = new Set(c.mensajes.filter((m) => m.rol === 'sistema').map((m) => Number((/^Descartado \(#(\d+)\)/.exec(m.texto) || [])[1])).filter(Boolean));
   aplicados.descartados = descartados;
   fill($('#ceo-dec'), ceoDecision(c));

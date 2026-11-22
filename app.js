@@ -172,11 +172,14 @@ async function strongConfirm(sb, op, params) {
  *  aplicará, a quién va y qué equipo la ejecuta, antes de pedir la identidad. Sale de la propuesta que se ve en pantalla. */
 function aplicarQue(params) {
   const m = ceo.conv?.mensajes?.find((x) => x.id === Number(params?.mensaje));
-  const c = m?.datos?.cambio, para = m?.datos?.para;
-  const texto = String(params?.texto || c?.texto || c?.resumen || '(sin texto)');
+  const c = m?.datos?.cambio, para = params?.muestra ? params.muestra.para : m?.datos?.para;
+  const texto = String(params?.muestra?.texto || params?.texto || c?.texto || c?.resumen || '(sin texto)');
   return { title: 'Confirmar «Aplicar»', ok: 'Aplicar',
     text: `Se aplicará exactamente esta instrucción: «${texto}». Va a: ${para?.nombre || 'el elemento de esta conversación'}. Lo ejecuta: ${para?.equipo || 'tu PC'}. Se aplica una sola vez.` };
 }
+/** 22-11 (T37): lo que ESTA pantalla enseña de una propuesta (instrucción exacta y destino/equipo). Viaja con «Aplicar» y el PC
+ *  lo compara con lo que aplicaría: si cambió entre verlo y confirmarlo, no aplica nada (src/conversacion.js aplicar()). */
+const muestraDe = (d, texto = null) => ({ texto: String(texto || d.cambio?.texto || d.cambio?.resumen || '').trim(), para: d.para ?? null });
 
 // ------------------------------------------------------------------ vocabulario
 
@@ -1730,13 +1733,13 @@ function cambioBox(m, d, aplicados) {
       : vieja ? h('p', { class: 'small muted' }, cur ? 'Propuesto para una versión anterior de la decisión: vuelve a preguntar.' : 'La decisión ya no está pendiente.')
         : h('button', { class: 'btn primary small', type: 'button', onclick: async (e) => {
           if (decide) { await decidirCeo(k, e.currentTarget, m.id, d.version); return; }
-          if (await run('ceo.aplicar', { mensaje: m.id }, 'Aplicado', e.currentTarget)) void refreshCeo();
+          await run('ceo.aplicar', { mensaje: m.id, muestra: muestraDe(d) }, 'Aplicado', e.currentTarget); void refreshCeo(); // también si se rechaza: enseña lo vigente
         } }, k === 'ALTERNATIVA' ? `Elegir: ${d.cambio.resumen || 'la alternativa'}` : k === 'APROBAR' ? (cur?.aprobar || ACC.APROBAR) : k === 'RECHAZAR' ? (cur?.rechazar || ACC.RECHAZAR) : 'Aplicar'),
     // Modificar / descartar (no en las decisiones: ésas tienen sus propios botones de aprobar y rechazar).
     !decide && !vieja && !aplicados.has(m.id) && !aplicados.descartados?.has(m.id) ? h('div', { class: 'row small-gap' },
       ['INSTRUCCION', 'OBJETIVO_NUEVO'].includes(k) ? h('button', { class: 'btn ghost small', type: 'button', onclick: async (e) => {
         const r = await ask({ title: 'Modificar y enviar', help: 'Ajusta lo que el CEO propone. Se envía al mismo trabajo con tu texto.', ok: 'Enviar instrucción', fields: [{ name: 't', label: 'Instrucción', type: 'textarea', value: d.cambio.texto }] });
-        if (r?.t && await run('ceo.aplicar', { mensaje: m.id, texto: r.t }, 'Enviado', e.currentTarget)) void refreshCeo();
+        if (r?.t && await run('ceo.aplicar', { mensaje: m.id, texto: r.t, muestra: muestraDe(d, r.t) }, 'Enviado', e.currentTarget)) void refreshCeo();
       } }, 'Modificar') : null,
       h('button', { class: 'btn ghost small', type: 'button', onclick: async (e) => { if (await run('ceo.descartar', { mensaje: m.id }, 'Descartada', e.currentTarget)) void refreshCeo(); } }, 'Descartar')) : null);
 }
@@ -1765,7 +1768,7 @@ function paintCeo() {
   // POSICIÓN DE LECTURA (11-11): antes cada sondeo (1,5 s mientras piensa) repintaba y bajaba al final, sacando a Antonio
   // de lo que leía y cerrando los desplegables. Ahora: sin cambios no se repinta; sólo se baja si ya estaba abajo (o si
   // acaba de escribir él); si no, se conserva su posición y se avisa de la respuesta nueva.
-  const firma = `${c.id}|${c.mensajes.length}|${c.mensajes.at(-1)?.id}|${c.pensando}|${c.enviando || ''}|${c.error}|${c.mensajes.map((m) => (m.seguimiento ? `${m.seguimiento.estado}:${m.seguimiento.actualizado}` : '')).join('')}`; // el seguimiento avanza sin mensajes nuevos
+  const firma = `${c.id}|${c.mensajes.length}|${c.mensajes.at(-1)?.id}|${c.pensando}|${c.enviando || ''}|${c.error}|${c.mensajes.map((m) => (m.seguimiento ? `${m.seguimiento.estado}:${m.seguimiento.actualizado}` : '')).join('')}|${c.mensajes.map((m) => (m.datos?.para ? `${m.datos.para.nombre}:${m.datos.para.equipo}` : '')).join('')}`; // el seguimiento avanza sin mensajes nuevos; el destino/equipo de «Aplicar» puede cambiar (T37)
   if (firma === box.dataset.firma && !forzarAbajo) return;
   const nuevos = box.dataset.conv === c.id ? c.mensajes.length - Number(box.dataset.n || 0) : 0;
   const abajo = forzarAbajo || box.dataset.conv !== c.id || box.scrollHeight - box.scrollTop - box.clientHeight < 60;

@@ -866,11 +866,11 @@ function desk(c) {
 
 /** Otro objetivo del proyecto que espera algo que sólo puedes hacer tú (renovar un permiso…): qué y el botón que lo resuelve. */
 function tuyaCard(x) {
-  const hum = esperaHumana(x.condicion || '');
+  const hum = esperaHumana(x.tuya || x.condicion || '');
   return h('article', { class: 'desk m-need', 'data-id': `${x.c.id}:${x.trabajo}`, ...marca({ tipo: 'espera', id: x.trabajo, proyecto: x.c.id, version: retirada.huella(x.condicion), titulo: x.c.nombre, acciones: ['espera.hecho', 'trabajo.instruccion'] }) },
     h('header', { class: 'unit-head' }, logo(x.c), h('div', { class: 'title' }, h('h3', {}, x.c.nombre), status({ estado: 'ESPERANDO_ANTONIO' }))),
     h('p', { class: 'ln goal', title: x.objetivo }, cleanGoal(x.objetivo)),
-    line('TE NECESITA', hum.que ? hum.que.charAt(0).toUpperCase() + hum.que.slice(1) : x.condicion),
+    line('TE NECESITA', hum.que ? hum.que.charAt(0).toUpperCase() + hum.que.slice(1) : x.tuya || x.condicion),
     h('p', { class: 'ln muted' }, 'Cuando lo hagas, CEOPadre lo comprueba solo y sigue. Si ya lo has hecho, pulsa el botón.'),
     h('div', { class: 'row' }, h('button', { class: 'btn primary small', type: 'button', onclick: (e) => run('espera.hecho', { trabajo: x.trabajo }, 'Registrado', e.currentTarget) }, 'Ya lo he hecho'),
       h('button', { class: 'btn ghost small', type: 'button', onclick: () => openCeo(`trabajo:${x.trabajo}`, { pregunta: '¿Qué necesitas exactamente de mí, para qué, y hay alguna alternativa que no me necesite?' }) }, '💬 Consultar'),
@@ -1719,6 +1719,7 @@ function ceoMsg(m, aplicados) {
 }
 const CAMBIO_T = { ALTERNATIVA: 'ALTERNATIVA DEL CEO', APROBAR: 'APROBAR LA PROPUESTA (lo pediste)', RECHAZAR: 'RECHAZAR LA PROPUESTA (lo pediste)', PAUSAR: 'PAUSAR', REANUDAR: 'REANUDAR', INSTRUCCION: 'INSTRUCCIÓN', OBJETIVO_NUEVO: 'OBJETIVO NUEVO' };
 /** El cambio que el CEO identificó: qué se ejecutará exactamente y el botón que lo autoriza (o por qué ya no vale). */
+const MARCA_APLICAR = { Entregado: '✓ Instrucción enviada: ya la tiene su destino (abajo, su estado real)', Registrado: '✓ Registrada: queda guardada y se entrega en cuanto su destino pueda leerla', Aplicado: '✓ Hecho' };
 function cambioBox(m, d, aplicados) {
   const k = d.cambio.tipo;
   const decide = ['APROBAR', 'RECHAZAR', 'ALTERNATIVA'].includes(k);
@@ -1728,12 +1729,13 @@ function cambioBox(m, d, aplicados) {
     h('p', {}, h('b', {}, `${CAMBIO_T[k] || 'CAMBIO PROPUESTO'}: `), d.cambio.resumen || d.cambio.texto),
     k === 'ALTERNATIVA' && d.cambio.texto ? h('details', { class: 'msg-more' }, h('summary', {}, 'Qué se ejecutará exactamente'), h('p', {}, d.cambio.texto)) : null,
     d.para?.nombre ? h('p', { class: 'small muted msg-para' }, `Va a: ${d.para.nombre}${d.para.equipo ? ` · lo ejecuta ${d.para.equipo}` : ''}`) : null, // 22-11: a quién y en qué equipo
-    aplicados.has(m.id) ? h('p', { class: 'small ok' }, '✓ Aplicado')
+    // 22-11 (Antonio: «✓ Aplicado» y la operación seguía pendiente): se dice lo que pasó DE VERDAD (entregada ≠ hecha) y su estado real.
+    aplicados.has(m.id) ? h('p', { class: 'small ok' }, MARCA_APLICAR[aplicados.get(m.id).marca] || '✓ Aplicado')
       : aplicados.descartados?.has(m.id) ? h('p', { class: 'small muted' }, 'Descartada por ti: no se ejecutó')
       : vieja ? h('p', { class: 'small muted' }, cur ? 'Propuesto para una versión anterior de la decisión: vuelve a preguntar.' : 'La decisión ya no está pendiente.')
         : h('button', { class: 'btn primary small', type: 'button', onclick: async (e) => {
           if (decide) { await decidirCeo(k, e.currentTarget, m.id, d.version); return; }
-          await run('ceo.aplicar', { mensaje: m.id, muestra: muestraDe(d) }, 'Aplicado', e.currentTarget); void refreshCeo(); // también si se rechaza: enseña lo vigente
+          await run('ceo.aplicar', { mensaje: m.id, muestra: muestraDe(d) }, 'Enviado', e.currentTarget); void refreshCeo(); // también si se rechaza: enseña lo vigente
         } }, k === 'ALTERNATIVA' ? `Elegir: ${d.cambio.resumen || 'la alternativa'}` : k === 'APROBAR' ? (cur?.aprobar || ACC.APROBAR) : k === 'RECHAZAR' ? (cur?.rechazar || ACC.RECHAZAR) : 'Aplicar'),
     // Modificar / descartar (no en las decisiones: ésas tienen sus propios botones de aprobar y rechazar).
     !decide && !vieja && !aplicados.has(m.id) && !aplicados.descartados?.has(m.id) ? h('div', { class: 'row small-gap' },
@@ -1755,7 +1757,8 @@ function paintCeo() {
     vb.textContent = c.ref.startsWith('decision:') ? 'Ir a la decisión' : VUELTA[k] || 'Volver';
     vb.onclick = () => { cerrarCeo(false); if (k === 'proyecto') { const p = (data.proyectos || []).find((x) => x.id === c.vuelta.proyecto); if (p) actions.details(p); } else if (k === 'objetivo') nui?.openOne(c.vuelta.objetivo); else if (k === 'agentes') goTab('autos'); else goTab('home'); };
   }
-  const aplicados = new Set(c.mensajes.filter((m) => m.rol === 'sistema').map((m) => Number((/^(?:Aplicado|Entregado|Registrado) \(#(\d+)\)/.exec(m.texto) || [])[1])).filter(Boolean));
+  const aplicados = new Map(c.mensajes.filter((m) => m.rol === 'sistema').map((m) => [/^(Aplicado|Entregado|Registrado) \(#(\d+)\)/.exec(m.texto), m]).filter(([x]) => x)
+    .map(([x, m]) => [Number(x[2]), { marca: x[1], seguimiento: m.seguimiento }]));
   const descartados = new Set(c.mensajes.filter((m) => m.rol === 'sistema').map((m) => Number((/^Descartado \(#(\d+)\)/.exec(m.texto) || [])[1])).filter(Boolean));
   aplicados.descartados = descartados;
   fill($('#ceo-dec'), ceoDecision(c));

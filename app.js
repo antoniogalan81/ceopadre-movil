@@ -155,9 +155,10 @@ async function strongConfirm(sb, op, params) {
     : op === 'proyecto.revisar' ? { title: 'Confirmar revisión', text: `Claude revisará «${where}» en tu PC (sólo lectura: no cambia código ni datos).` }
     : op === 'autorizacion.aprobar' ? { title: 'Confirmar autorización', text: 'Concedes la autorización que acabas de elegir, con los límites de su ficha (usos, semana y caducidad). Si es una publicación del móvil, tu PC la publica ahora y gasta un uso (ninguno si ya estaba publicada).' }
     : op === 'autorizacion.crear' ? { title: 'Confirmar autorización nueva', text: 'Concedes al CEO lo que acabas de rellenar, con esos límites. Puedes revocarla cuando quieras desde este mismo panel.' }
+    : op === 'ceo.aplicar' ? aplicarQue(params)
     : op.startsWith('negocio.') ?{ title: 'Confirmar objetivo de negocio', text: 'El director de CEOPadre lanzará trabajos de Claude en tu PC para este objetivo (gasto 0 €, nada sale a terceros sin ti).' }
     : { title: 'Confirmar orden a Claude', text: `Vas a enviar texto libre a Claude en «${where}». Claude puede ejecutar código en tu PC.` };
-  const r = await ask({ title: what.title, ok: 'Enviar al PC',
+  const r = await ask({ title: what.title, ok: what.ok || 'Enviar al PC',
     help: `${what.text}${fresh ? '' : ' Por seguridad, escribe tu contraseña (como mucho una vez cada 30 min).'}`,
     fields: fresh ? [] : [{ name: 'password', type: 'password', label: 'Contraseña de CEOPadre' }] });
   if (!r) return null;
@@ -165,6 +166,16 @@ async function strongConfirm(sb, op, params) {
   const { data: d, error } = await sb.auth.signInWithPassword({ email: s.user.email, password: r.password });
   if (error) return { ok: false, error: `Contraseña no válida: no se ha enviado nada (${error.message})` };
   return { ok: true, token: d.session.access_token };
+}
+
+/** 22-11 (añadido #2 T37): «Aplicar» desde una conversación (p. ej. la de una espera) dice EXACTAMENTE qué instrucción se
+ *  aplicará, a quién va y qué equipo la ejecuta, antes de pedir la identidad. Sale de la propuesta que se ve en pantalla. */
+function aplicarQue(params) {
+  const m = ceo.conv?.mensajes?.find((x) => x.id === Number(params?.mensaje));
+  const c = m?.datos?.cambio, para = m?.datos?.para;
+  const texto = String(params?.texto || c?.texto || c?.resumen || '(sin texto)');
+  return { title: 'Confirmar «Aplicar»', ok: 'Aplicar',
+    text: `Se aplicará exactamente esta instrucción: «${texto}». Va a: ${para?.nombre || 'el elemento de esta conversación'}. Lo ejecuta: ${para?.equipo || 'tu PC'}. Se aplica una sola vez.` };
 }
 
 // ------------------------------------------------------------------ vocabulario
@@ -1713,13 +1724,14 @@ function cambioBox(m, d, aplicados) {
   return h('div', { class: `msg-cambio${k === 'ALTERNATIVA' ? ' alt' : ''}` },
     h('p', {}, h('b', {}, `${CAMBIO_T[k] || 'CAMBIO PROPUESTO'}: `), d.cambio.resumen || d.cambio.texto),
     k === 'ALTERNATIVA' && d.cambio.texto ? h('details', { class: 'msg-more' }, h('summary', {}, 'Qué se ejecutará exactamente'), h('p', {}, d.cambio.texto)) : null,
+    d.para?.nombre ? h('p', { class: 'small muted msg-para' }, `Va a: ${d.para.nombre}${d.para.equipo ? ` · lo ejecuta ${d.para.equipo}` : ''}`) : null, // 22-11: a quién y en qué equipo
     aplicados.has(m.id) ? h('p', { class: 'small ok' }, '✓ Aplicado')
       : aplicados.descartados?.has(m.id) ? h('p', { class: 'small muted' }, 'Descartada por ti: no se ejecutó')
       : vieja ? h('p', { class: 'small muted' }, cur ? 'Propuesto para una versión anterior de la decisión: vuelve a preguntar.' : 'La decisión ya no está pendiente.')
         : h('button', { class: 'btn primary small', type: 'button', onclick: async (e) => {
           if (decide) { await decidirCeo(k, e.currentTarget, m.id, d.version); return; }
           if (await run('ceo.aplicar', { mensaje: m.id }, 'Aplicado', e.currentTarget)) void refreshCeo();
-        } }, k === 'ALTERNATIVA' ? `Elegir: ${d.cambio.resumen || 'la alternativa'}` : k === 'APROBAR' ? (cur?.aprobar || ACC.APROBAR) : k === 'RECHAZAR' ? (cur?.rechazar || ACC.RECHAZAR) : 'Aceptar y ejecutar'),
+        } }, k === 'ALTERNATIVA' ? `Elegir: ${d.cambio.resumen || 'la alternativa'}` : k === 'APROBAR' ? (cur?.aprobar || ACC.APROBAR) : k === 'RECHAZAR' ? (cur?.rechazar || ACC.RECHAZAR) : 'Aplicar'),
     // Modificar / descartar (no en las decisiones: ésas tienen sus propios botones de aprobar y rechazar).
     !decide && !vieja && !aplicados.has(m.id) && !aplicados.descartados?.has(m.id) ? h('div', { class: 'row small-gap' },
       ['INSTRUCCION', 'OBJETIVO_NUEVO'].includes(k) ? h('button', { class: 'btn ghost small', type: 'button', onclick: async (e) => {

@@ -1205,7 +1205,8 @@ dialog.ceo-chat::backdrop { background: oklch(0 0 0 / .25); }
 .msg-more ul { margin: 4px 0 0; padding-left: 18px; font-size: 13px; }
 .seguimiento { margin-top: 6px; padding: 6px 8px; border-left: 3px solid var(--idle); border-radius: 6px; background: var(--card, transparent); text-align: left; }
 .seguimiento.t-work { border-left-color: var(--work); } .seguimiento.t-ask { border-left-color: var(--ask); } .seguimiento.t-ok { border-left-color: var(--ok); }
-.seguimiento .a-chip { white-space: normal; display: inline-block; max-width: 100%; overflow-wrap: anywhere; border-radius: 10px; } /* T37: el motivo largo no desborda a 390 px */
+.seguimiento .a-chip { white-space: normal; display: inline-block; max-width: 100%; overflow-wrap: anywhere; border-radius: 10px; margin-right: 6px; } /* T37: el motivo largo no desborda a 390 px */
+.seguimiento .msg-who { display: block; } /* el estado corto («En pausa») no se parte letra a letra: chip en línea, el título fluye detrás */
 .seguimiento.t-wait { border-left-color: var(--wait); } .a-chip.t-wait { background: var(--wait-bg); color: var(--wait); } .seguimiento.t-bad { border-left-color: var(--bad); }
 .msg-cambio { border: 1px dashed var(--accent); border-radius: 10px; padding: 8px; display: grid; gap: 6px; }
 .msg.pensando .dots { letter-spacing: 2px; animation: ceo-pulso 1.2s infinite ease-in-out; }

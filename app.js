@@ -277,6 +277,17 @@ function acusarAviso() {
   history.replaceState(history.state, '', u.pathname + u.search + u.hash);
   void api.cmd('mama.push.acuse', { id: m, app: viva ? 'abierta' : 'cerrada' }).catch(() => {});
 }
+/** T3 · ENLACE COMPARTIDO desde otra app (share_target del manifiesto: ?hub_enlace · hub_texto · hub_titulo): abre HUB Intelligence
+ *  en Agentes con el enlace YA ESCRITO en su entrada (no se envía ni se analiza solo). La URL se limpia: recargar no lo repite. */
+function compartidoHub() {
+  const u = new URL(location.href), q = u.searchParams;
+  const [enlace, texto, titulo] = ['hub_enlace', 'hub_texto', 'hub_titulo'].map((k) => (q.get(k) || '').trim());
+  if (!enlace && !texto && !titulo) return;
+  for (const k of ['hub_enlace', 'hub_texto', 'hub_titulo']) q.delete(k);
+  history.replaceState(history.state, '', u.pathname + u.search + u.hash);
+  // Android suele mandar el enlace dentro de «texto»: se queda el enlace; si no hay ninguno, el texto o el título.
+  aui?.openHub(enlace || /https?:\/\/\S+/.exec(texto)?.[0] || texto || titulo);
+}
 window.addEventListener('popstate', aplicarRuta);
 window.addEventListener('ceo:nav', (e) => navPush(e.detail || {}));
 window.addEventListener('ceo:abrir', (e) => { if (e.detail?.ref) void openCeo(e.detail.ref, { pregunta: e.detail.pregunta || null, destino: e.detail.destino || null }); });
@@ -1538,8 +1549,9 @@ const ceo = { conv: null, ref: null, timer: null, t0: 0, destino: 'AUTO', elemen
 // tarea… con id y versión). Se lee al abrir y se guarda como dato: un repintado de la tarjeta no lo pierde.
 let ultimoClic = null;
 document.addEventListener('click', (e) => { if (!e.target.closest?.('#ceo')) ultimoClic = e.target; }, true);
-const DESTINO_TXT = { AUTO: 'Automático', MAMA: 'MAMA', CEO: 'CEO' };
-const DESTINO_PH = { AUTO: 'Escribe lo que necesitas: CEOPadre decide quién lo resuelve…', MAMA: 'Pide a MAMA lo que necesites…', CEO: 'Pregunta o da una orden al CEO…' };
+const DESTINO_TXT = { AUTO: 'Automático', MAMA: 'MAMA', CEO: 'CEO', HUB: 'HUB' };
+const DESTINO_PH = { AUTO: 'Escribe lo que necesitas: CEOPadre decide quién lo resuelve…', MAMA: 'Pide a MAMA lo que necesites…', CEO: 'Pregunta o da una orden al CEO…',
+  HUB: 'Qué vas a construir, o pega un enlace: el HUB te dice qué reutilizar, sin IA…' };
 function pintarDestino() {
   for (const b of document.querySelectorAll('#ceo-destino button')) b.setAttribute('aria-pressed', String(b.dataset.destino === ceo.destino));
   $('#ceo-input').placeholder = DESTINO_PH[ceo.destino];
@@ -1679,8 +1691,8 @@ function ceoMsg(m, aplicados) {
   if (m.rol === 'sistema') return h('div', { class: 'msg sis' }, h('p', {}, m.texto), seguimientoUi(m.seguimiento));
   const d = m.datos || {};
   const fila = (t, v, cls = '') => (v ? [h('dt', { class: cls }, t), h('dd', { class: cls }, v)] : null);
-  return h('div', { class: 'msg ceo' },
-    h('p', { class: 'msg-who' }, d.via === 'MAMA' ? 'MAMA' : d.auto ? 'CEO · explicación inicial' : d.proveedor === 'CLAUDE' ? 'CEO · Claude (sustituto)' : 'CEO',
+  return h('div', { class: `msg ceo${d.via === 'HUB' ? ' hub' : ''}` },
+    h('p', { class: 'msg-who' }, d.via === 'HUB' ? `HUB Intelligence · sin IA${d.ms != null ? ` · ${d.ms} ms` : ''}` : d.via === 'MAMA' ? 'MAMA' : d.auto ? 'CEO · explicación inicial' : d.proveedor === 'CLAUDE' ? 'CEO · Claude (sustituto)' : 'CEO',
       h('button', { class: 'link msg-copy', type: 'button', title: 'Copiar esta respuesta', onclick: async (e) => { if (await copiar(m.texto)) { e.currentTarget.textContent = '✓'; toast('Respuesta copiada'); } } }, '📋')),
     h('p', { class: 'msg-r' }, m.texto),
     d.quiere_hacer || d.recomienda || d.por_que || d.riesgo || d.si_no ? h('dl', { class: 'msg-dl' },
@@ -1748,7 +1760,7 @@ function paintCeo() {
   const y = box.scrollTop;
   box.dataset.firma = firma; box.dataset.conv = c.id; box.dataset.n = String(c.mensajes.length);
   fill(box, c.mensajes.length ? c.mensajes.map((m) => ceoMsg(m, aplicados)) : h('p', { class: 'muted ceo-vacio' }, c.ref === 'general' ? 'Pregúntale lo que quieras sobre tus proyectos: «¿Qué es lo más importante que nos queda pendiente?»' : 'Pregúntale lo que quieras sobre esto. Responde con los datos actuales de CEOPadre.'),
-    c.pensando ? h('div', { class: 'msg ceo pensando', role: 'status' }, h('p', {}, h('span', { class: 'dots', 'aria-hidden': 'true' }, '• • •'), c.enviando ? ` ${c.enviando}` : c.mensajes.at(-1)?.datos?.destino === 'MAMA' ? ' Recibida. MAMA está respondiendo…' : ' Recibida. Respondiendo (si hace falta, se consulta a MAMA)…')) : null,
+    c.pensando ? h('div', { class: 'msg ceo pensando', role: 'status' }, h('p', {}, h('span', { class: 'dots', 'aria-hidden': 'true' }, '• • •'), c.enviando ? ` ${c.enviando}` : c.mensajes.at(-1)?.datos?.destino === 'MAMA' ? ' Recibida. MAMA está respondiendo…' : c.mensajes.at(-1)?.datos?.destino === 'HUB' ? ' Buscando en el HUB (sin IA)…' : ' Recibida. Respondiendo (si hace falta, se consulta a MAMA)…')) : null,
     // El fallo se ve (antes sólo desaparecía «respondiendo…») y se reintenta SIN volver a guardar la pregunta.
     !c.pensando && c.error && c.mensajes.at(-1)?.rol === 'antonio' ? h('div', { class: 'msg sis ceo-err', role: 'alert' }, h('p', {}, h('b', {}, 'El CEO no ha podido responder: '), c.error),
       h('button', { class: 'btn primary small', type: 'button', onclick: async (e) => { if (await run('ceo.reintentar', { conversacion: c.id }, 'Reintentando', e.currentTarget)) { ceo.t0 = Date.now(); void refreshCeo(); pollCeo(); } } }, 'Reintentar')) : null);
@@ -1814,6 +1826,7 @@ async function enviarCeo(texto) {
   borradorCEO.set(ceo.ref, '');
   marcar(r?.pendiente ? 'Guardada: tu PC sigue con ella' : '');
   ceo.t0 = Date.now();
+  if (destino === 'HUB' && r?.ok) await refreshCeo(); // T3: el HUB ya respondió (sin IA): se pinta sin esperar al sondeo
   pollCeo();
 }
 function ceoUi() {
@@ -2576,6 +2589,7 @@ async function start() {
   $('#b-ceo').hidden = false; $('#b-mama-fab').hidden = false;
   acusarAviso();
   aplicarRuta(); // enlace directo (?v= · ?proyecto= · ?objetivo= · ?ceo=)
+  compartidoHub();
   api.watch(() => void refresh());
   $('#b-sync').onclick = () => void syncAll(true);
   if (!LOCAL) { $('#b-logout').hidden = false; $('#b-logout').onclick = logout; }

@@ -5,6 +5,7 @@ import { marca } from './mama-contexto.js'; // T-A: contrato único de contexto 
 import { fraseAutomatizacion } from './zones.js';
 import { miniTarjeta } from './tarjeta.js';
 import { comunes, decideRow } from './map.js';
+import { hubVista } from './hub.js';
 
 // Estado de un botón: disponible · ejecutándose · esperando autorización · completada · parcial · error (y sus matices).
 const STATE = {
@@ -35,6 +36,9 @@ const PRINCIPALES = [
     abrir: () => window.dispatchEvent(new CustomEvent('ceo:abrir', { detail: { ref: 'general', destino: 'CEO' } })) },
   { destino: 'MAMA', nombre: 'MAMA', a: 'a MAMA', sub: 'Tu asistente personal', desc: 'Responde, gestiona tus peticiones, hace lo que tiene autorizado y delega en el CEO o en otros agentes.',
     abrir: () => document.getElementById('b-mama')?.click() },
+  // T3 · HUB Intelligence: tercera entrada; la tarjeta abre su vista única (abrir = null → openHub, que vive en autoUi).
+  { destino: 'HUB', nombre: 'HUB Intelligence', a: 'al HUB', sub: 'Qué reutilizar · sin IA', desc: 'Antes de construir, qué reutilizar: capacidades del HUB, componentes de otros proyectos y lo ya evaluado. Recibe enlaces para el laboratorio.',
+    abrir: null },
 ];
 
 export function autoUi({ api, ask, toast, show, data, run, viewText, ai, alquileres = () => [], mensajes = null }) {
@@ -117,7 +121,14 @@ export function autoUi({ api, ask, toast, show, data, run, viewText, ai, alquile
     if (!r?.ok) { toast(r?.error || 'No se pudo abrir', 'bad'); return; }
     viewing = { id: a.id, ver: r.data }; mode = 'runs'; paint(true); show('p-autos'); window.scrollTo(0, 0);
   }
+  // T3 · HUB Intelligence: su vista única dentro de Agentes (web/hub.js). `texto`: lo que llega ya escrito (enlace compartido).
+  let hub = null;
+  function openHub(texto = '') {
+    hub = hubVista({ api, texto, consultar: (t) => window.dispatchEvent(new CustomEvent('ceo:abrir', { detail: { ref: 'agentes', destino: 'HUB', pregunta: t || null } })) });
+    mode = 'hub'; onlyProject = null; paint(true); show('p-autos'); window.scrollTo(0, 0);
+  }
   function back() {
+    if (mode === 'hub') { hub = null; mode = 'list'; paint(true); return; }
     if (mode === 'edit' || mode === 'runs') { mode = 'list'; form = null; viewing = null; paint(true); return; }
     mode = null; show('p-list');
   }
@@ -346,7 +357,7 @@ export function autoUi({ api, ask, toast, show, data, run, viewText, ai, alquile
     // conversación de esta pantalla (ref «agentes»). La tarjeta abre su conversación de siempre (Hablar con el CEO / chat de MAMA).
     const principales = onlyProject ? [] : PRINCIPALES.filter((x) => !q || `${x.nombre} ${x.desc}`.toLowerCase().includes(q)).map((x) =>
       miniTarjeta({ id: `agente-${x.destino.toLowerCase()}`, clase: 'ag-principal', ctx: { tipo: 'pantalla', id: 'agentes', titulo: `Agentes · ${x.nombre}` }, titulo: x.nombre, sub: x.sub, desc: x.desc, estado: ['Agente principal', 'idle'],
-        accion: { txt: `💬 Consultar ${x.a}`, cls: 'primary', on: () => consultar(x.destino) }, abrir: x.abrir }));
+        accion: { txt: `💬 Consultar ${x.a}`, cls: 'primary', on: () => consultar(x.destino) }, abrir: x.abrir || (() => openHub()) }));
     const buscar = h('input', { type: 'search', class: 'ag-search', placeholder: 'Buscar agente o proyecto', 'aria-label': 'Buscar agente o proyecto' });
     buscar.value = filtro;
     buscar.addEventListener('input', () => { filtro = buscar.value; const pos = buscar.selectionStart; paint(true); const b = document.querySelector('.ag-search'); b?.focus(); b?.setSelectionRange(pos, pos); });
@@ -689,7 +700,13 @@ export function autoUi({ api, ask, toast, show, data, run, viewText, ai, alquile
       return;
     }
     // El editor sólo se pinta al abrirlo o al cambiar su estructura: el refresco periódico no borra lo que se escribe.
-    if (mode === 'edit' && !force) return;
+    if ((mode === 'edit' || mode === 'hub') && !force) return; // la vista del HUB se pide sus propios datos (hub.panel)
+    if (mode === 'hub') {
+      t.textContent = 'HUB Intelligence';
+      document.getElementById('a-sub').textContent = `Qué reutilizar, sin IA · ${online() ? 'PC conectado' : 'PC desconectado'}`;
+      document.getElementById('a-body').replaceChildren(hub.el);
+      return;
+    }
     if (mode === 'runs') {
       // La ficha sigue VIVA: si cambia el estado del agente, se vuelve a pedir su historial y se repinta (sin comerse un
       // diálogo abierto ni un desplegable que estés mirando).
@@ -718,7 +735,7 @@ export function autoUi({ api, ask, toast, show, data, run, viewText, ai, alquile
   document.getElementById('bi-back').addEventListener('click', () => { mode = null; show('p-list'); });
   document.getElementById('b-autos')?.addEventListener('click', () => openList(null));
   document.getElementById('b-inbox')?.addEventListener('click', openInbox);
-  return { paint, openList, openInbox, isOpen: () => !!mode, projectPanel };
+  return { paint, openList, openInbox, openHub, isOpen: () => !!mode, projectPanel };
 
   /** En DETALLES de un proyecto: sus botones y lo que espera aprobación (acceso directo desde la ficha). */
   function projectPanel(c) {

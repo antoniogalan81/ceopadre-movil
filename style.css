@@ -1213,7 +1213,7 @@ dialog.ceo-chat::backdrop { background: oklch(0 0 0 / .25); }
 @media (prefers-reduced-motion: reduce) { .msg.pensando .dots { animation: none; } }
 .ceo-form { display: flex; gap: 8px; align-items: flex-end; }
 /* Consulta contextual (18-11): quién responde — compacto, táctil y sin ocupar una fila entera en el móvil. */
-.ceo-destino { display: flex; gap: 4px; margin: 0 0 6px; }
+.ceo-destino { display: flex; flex-wrap: wrap; gap: 4px; margin: 0 0 6px; }
 .ceo-destino button { min-height: 36px; padding: 4px 12px; border-radius: 999px; }
 .ceo-destino button[aria-pressed="true"] { background: var(--ink); color: var(--paper); border-color: var(--ink); }
 .msg.yo .msg-who { color: inherit; opacity: .85; }
@@ -1342,6 +1342,20 @@ dialog.alq-doc h2 { margin: 0 0 4px; font-size: 18px; }
 .ag-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 14px; }
 .ag-search { flex: 1 1 200px; min-width: 0; max-width: 360px; min-height: 40px; padding: 0 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--paper); color: var(--ink); font: inherit; }
 .ag-grid { display: grid; gap: 10px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 250px), 1fr)); }
+/* T3 · HUB Intelligence (web/hub.js): una sola vista; los enlaces largos parten la línea (nunca desbordan a 390 px). */
+.hub-vista { display: grid; gap: 10px; min-width: 0; }
+.hub-vista .hub-entrada { max-width: none; }
+.hub-sec { min-width: 0; overflow-wrap: anywhere; }
+.hub-filtros { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 8px; }
+.hub-filtros button { min-height: 36px; border-radius: 999px; }
+.hub-filtros button[aria-pressed="true"] { background: var(--ink); color: var(--paper); border-color: var(--ink); }
+.hub-lista { list-style: none; margin: 0; padding: 0; }
+.hub-lista li { padding: 6px 0; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
+.hub-url { overflow-wrap: anywhere; word-break: break-word; }
+.hub-estados { display: flex; flex-wrap: wrap; gap: 6px; }
+.hub-vista .ln { -webkit-line-clamp: unset; display: block; overflow: visible; } /* el resumen se lee entero */
+.hub-vista .hub-estados { display: flex; }
+.msg.hub .msg-r { white-space: pre-line; } /* una línea por bloque (capacidades, skills, componentes…) */
 .ag-mini { display: grid; grid-template-rows: auto auto 1fr auto; gap: 4px; min-width: 0; padding: 11px 12px 10px; cursor: pointer;
   background: var(--paper); border: 1px solid var(--line); border-left: 4px solid var(--idle); border-radius: 12px;
   transition: border-color .15s var(--ease), box-shadow .15s var(--ease), transform .15s var(--ease); }

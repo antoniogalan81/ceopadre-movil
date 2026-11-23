@@ -456,6 +456,8 @@ export function pulso(c, ahora = Date.now(), hora = (iso) => new Date(iso).toISO
   if (['BLOQUEADO', 'ERROR'].includes(c.estado)) return { clase: 'ATASCADO', motivo: `${ret}parado: necesita revisión` };
   if (WORKING.includes(c.estado)) {
     const desde = Number.isFinite(senal) ? ` desde las ${hora(c.ultima_actividad)}` : '';
+    // F4: ronda en otro equipo que dejó de dar latido (engine.js rondaEnEquipo): aquí no se corta ni se reintenta nada.
+    if (c.estado === 'SIN_ACTIVIDAD' && /^El equipo /.test(c.detalle || '')) return { clase: 'ATASCADO', motivo: `${ret}${c.detalle.replace(/: si no vuelve.*$/, '')}: el CEO decide si no vuelve` };
     if (c.estado === 'SIN_ACTIVIDAD' || quieto >= PULSO_ATASCO_MS) return { clase: 'ATASCADO', motivo: `${ret}sin señales${desde}${ret ? '' : ': CEOPadre lo corta y lo reintenta solo'}` };
     if (quieto >= PULSO_LENTO_MS) return { clase: 'LENTO', motivo: `${ret}sin señal nueva${desde}` };
     return { clase: 'ACTIVO', motivo: `${ret}última señal a las ${hora(c.ultima_actividad)}` };

@@ -1680,6 +1680,7 @@ body:has(#p-mama:not([hidden])) .mama-fab { display: none; }
 .ln.pulso.p-lento .sem { background: var(--warn); } .p-lento b { color: var(--warn); }
 .ln.pulso.p-esperando .sem { background: var(--wait); } .p-esperando b { color: var(--wait); }
 .ln.pulso.p-atascado .sem { background: var(--bad); } .p-atascado b { color: var(--bad); }
+.ln.pulso.p-sin_conexion .sem { background: var(--warn); } .p-sin_conexion b { color: var(--warn); }
 .ln.antes .paso { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--ink-2); }
 .ln.antes time { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--ink); }
 ol.acciones { padding-left: 0; list-style: none; } ol.acciones time { font-variant-numeric: tabular-nums; font-weight: 600; margin-right: 4px; }

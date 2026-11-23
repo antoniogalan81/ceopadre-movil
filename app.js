@@ -720,6 +720,8 @@ function botones(c) {
   if (WAITING.includes(e)) return [T('CONTINUAR', 'resume'), I('pause', 'Pausar', 'pause'), add, instr, stop, info];
   if (e === 'TRABAJANDO' || e === 'EN_COLA') return [add, I('pause', 'Pausar', 'pause'), e !== 'EN_COLA' ? instr : null, stop, info];
   // Sin señales: sigue siendo trabajo en curso (CEOPadre lo corta y reintenta solo); relanzarlo ya es una emergencia.
+  // F4 (opción A de Antonio, 23-11): sin conexión con OTRO equipo no se ofrece «Reintentar»: ese equipo puede seguir trabajando.
+  if (e === 'SIN_ACTIVIDAD' && /^Sin conexión con el equipo /.test(c.detalle || '')) return [add, I('pause', 'Pausar', 'pause'), instr, stop, info];
   if (e === 'SIN_ACTIVIDAD') return [add, I('pause', 'Pausar', 'pause'), I('play', 'Reintentar ahora', 'resume'), instr, stop, info];
   return [T(e === 'PAUSADO' ? 'REANUDAR' : 'REINTENTAR', 'resume'), add, instr, stop, info];
 }
@@ -810,8 +812,8 @@ function pulsoLineas(c) {
   const p = pulso(c, Date.now(), hhmm);
   if (!p) return { pulso: null, antes: null };
   const xs = antes(c);
-  return { pulso: h('p', { class: `ln pulso p-${p.clase.toLowerCase()}`, 'data-pulso': p.clase, title: `${p.clase}: ${p.motivo}` },
-      h('i', { class: 'sem', 'aria-hidden': 'true' }), h('b', {}, p.clase), ' ', p.motivo),
+  return { pulso: h('p', { class: `ln pulso p-${p.clase.toLowerCase()}`, 'data-pulso': p.clase, title: `${p.etiqueta || p.clase}: ${p.motivo}` },
+      h('i', { class: 'sem', 'aria-hidden': 'true' }), h('b', {}, p.etiqueta || p.clase), ' ', p.motivo),
     antes: xs.length ? h('p', { class: 'ln antes', title: xs.map((x) => `${hhmm(x.at)} ${x.largo || x.texto}`).join('\n') }, h('b', {}, 'ANTES'),
       ...xs.map((x) => h('span', { class: 'paso' }, h('time', { datetime: x.at }, hhmm(x.at)), ' ', x.texto)))
       // Sólo si el PC ya manda los pasos (servidor con F2): uno anterior no los trae y no se afirma «sin pasos».
@@ -1811,8 +1813,11 @@ async function conMamaPanel(d) {
 }
 async function refreshCeo() {
   if (!ceo.conv) return;
-  const r = await api.cmd('ceo.conversacion', { ref: ceo.ref, id: ceo.conv.id });
-  if (r?.ok && ceo.ref === r.data.ref) { const conv = await conMamaPanel(r.data); if (ceo.ref === conv.ref) { ceo.conv = conv; paintCeo(); } }
+  const id = ceo.conv.id;
+  const r = await api.cmd('ceo.conversacion', { ref: ceo.ref, id });
+  // 23-11 (teléfono real): mismo ref NO es misma conversación. Con la cola del móvil (segundos) una respuesta en vuelo de la
+  // conversación anterior pisaba la elegida en «Anteriores» (volvía a la de antes). Sólo se pinta si sigue siendo la abierta.
+  if (r?.ok && ceo.ref === r.data.ref && ceo.conv?.id === id) { const conv = await conMamaPanel(r.data); if (ceo.ref === conv.ref && ceo.conv?.id === id) { ceo.conv = conv; paintCeo(); } }
   return r?.data;
 }
 function pollCeo() {
@@ -2655,7 +2660,9 @@ function syncAll(manual) {
 
 const standalone = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
 // ¿Hay algo escrito sin enviar? Entonces no se recarga (no se pierde texto de Antonio).
-const typing = () => [...document.querySelectorAll('dialog[open] textarea, dialog[open] input:not([type=password])')].some((x) => x.value.trim());
+// 23-11 (#334, teléfono real): también la entrada de HUB, donde llega un enlace COMPARTIDO; la actualización automática recargaba
+// la app nada más abrirse desde «Compartir» y el enlace (ya quitado de la URL) se perdía.
+const typing = () => [...document.querySelectorAll('dialog[open] textarea, dialog[open] input:not([type=password]), .hub-entrada')].some((x) => x.value.trim());
 
 function pwa() {
   if (LOCAL || !('serviceWorker' in navigator)) return;

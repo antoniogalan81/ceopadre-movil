@@ -1334,7 +1334,7 @@ function paintRecursos() {
       abrir: () => { const d = det(); d.open = true; d.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } }))),
     (r.trabajos || []).length ? h('ul', { class: 'side-list rec-trabajos', 'aria-label': 'Trabajos: equipo y motor' }, r.trabajos.map((t) => h('li', { class: 'rec-perfil' },
       h('b', {}, t.nombre), ' ', h('span', {}, recLinea(t)),
-      ' ', h('button', { class: 'btn ghost small', type: 'button', disabled: sinPc, 'aria-label': `Cambiar equipo y motor de ${t.nombre}`, onclick: (ev) => recTrabajo(t, r, ev.currentTarget) }, 'Cambiar'),
+      ' ', h('button', { class: 'btn ghost small', type: 'button', disabled: sinPc, 'aria-label': `Cambiar equipo y motor de ${t.nombre}: ${t.titulo}`, onclick: (ev) => recTrabajo(t, r, ev.currentTarget) }, 'Cambiar'),
       h('small', { class: 'muted' }, `${t.titulo} — ${t.motivo}`)))) : null,
     fold('rec-det', 'Detalle: cuentas, proyectos y envío',
       (r.reparto || []).length ? h('ul', { class: 'side-list rec-reparto', 'aria-label': 'Reparto propuesto' }, r.reparto.map((x) => h('li', { class: 'rec-perfil' },

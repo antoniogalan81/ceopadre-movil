@@ -380,7 +380,7 @@ export function negocioUi({ api, ask, toast, show, data, run, viewText, onChange
     const p = o.prioridad;
     if (!p || CLOSED.includes(o.estado)) return null;
     const P = (txt, accion, title) => B(txt, (b) => after(cmd('negocio.prioridad', { id: o.id, accion }, 'Prioridad cambiada', b)), 'ghost', { title, 'aria-label': title, disabled: !online() });
-    return h('div', { class: 'prio-fila' }, h('small', {}, `Prioridad ${p.puesto}${p.importante ? ' · ★ importante' : ''} · ${p.manual ? 'fijada por ti' : 'automática'}`),
+    return h('div', { class: 'prio-fila' }, h('small', {}, `Prioridad ${p.puesto}${p.importante ? ' · ★ importante' : ''} · ${p.manual ? 'fijada por ti' : `automática${p.por ? ` · ${p.por}` : ''}`}`),
       P('↑', 'subir', 'Subir la prioridad'), P('↓', 'bajar', 'Bajar la prioridad'),
       P(p.importante ? '☆' : '★', p.importante ? 'normal' : 'importante', p.importante ? 'Quitar la marca de importante' : 'Marcar como importante: va delante de los no marcados'),
       p.manual || p.importante ? P('Auto', 'auto', 'Volver a la prioridad automática') : null);

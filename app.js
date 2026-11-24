@@ -2793,7 +2793,7 @@ function ajustesUi() {
   // sustituto del mismo titular y si lo parado por cuota se reanuda solo. Una sola ventana: la abren «Más → IA» y el indicador
   // de estado de la cabecera. PC y móvil: es una orden más (ajustes.ver / ajustes.guardar / perfil.autenticar).
   {
-    const SESION = { AUTENTICADA: ['t-ok', 'Autenticada'], SIN_COMPROBAR: ['t-ok', 'Autenticada'], ABIERTA: ['t-warn', 'Autenticando…'], PENDIENTE: ['t-warn', 'Pendiente'] };
+    const SESION = { AUTENTICADA: ['t-ok', 'Autenticada'], SIN_COMPROBAR: ['t-ok', 'Autenticada'], ABIERTA: ['t-warn', 'Autenticando…'], PENDIENTE: ['t-warn', 'Requiere autenticación'] };
     const fila = (c) => {
       const [cs, ts] = SESION[c.sesion] || SESION.PENDIENTE;
       const disp = c.sesion === 'PENDIENTE' || c.sesion === 'ABIERTA' ? null

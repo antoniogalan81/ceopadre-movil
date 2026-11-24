@@ -1297,10 +1297,23 @@ async function recAsignar(e, b) {
 }
 async function recPredeterminado(r, b) {
   const activos = r.perfiles.filter((p) => p.estado === 'ACTIVO');
-  const x = await ask({ title: 'Perfil de IA predeterminado', help: 'Vale para todos los trabajos sin perfil propio ni de su proyecto. Los perfiles PENDIENTES no se pueden elegir.',
+  const x = await ask({ title: 'Perfil de IA predeterminado', help: 'Vale para todos los trabajos sin perfil propio ni de su proyecto. Sólo se pueden elegir cuentas autenticadas y activas.',
     fields: [{ name: 'perfil', label: 'Perfil', type: 'choice', value: r.predeterminado || '', options: [{ value: '', label: 'Ninguno: manda la estrategia de IA' }, ...activos.map((p) => ({ value: p.id, label: `${p.proveedor} · ${p.titular} (${p.equipo})` }))] }], ok: 'Guardar' });
   if (x) await run('perfil.elegir', { ambito: 'predeterminado', perfil: x.perfil || '' }, 'Guardado', b);
 }
+// Instrucción #6 · SELECTOR por trabajo: equipo y motor (perfil) con las órdenes de siempre (trabajo.equipo, perfil.elegir).
+async function recTrabajo(t, r, b) {
+  const eqs = r.equipos.map((e) => ({ value: e.local ? r.local : e.id, label: `${e.id}${e.local ? ' (este PC)' : ''}` }));
+  const pfs = r.perfiles.filter((p) => p.estado === 'ACTIVO');
+  const x = await ask({ title: `Equipo y motor · ${t.nombre}`, help: `Ahora: ${t.equipo} · ${t.motor || 'sin motor'}${t.titular ? ` · ${t.titular}` : ''}. ${t.motivo}. Se aplica desde la siguiente ronda.`,
+    fields: [{ name: 'equipo', label: 'Equipo', type: 'choice', value: t.por === 'trabajo' ? t.asignado : '', options: [{ value: '', label: 'El de su proyecto' }, ...eqs] },
+      { name: 'perfil', label: 'Motor', type: 'choice', value: t.perfil_trabajo || '', options: [{ value: '', label: 'Según el proyecto o el predeterminado' }, ...pfs.map((p) => ({ value: p.id, label: `${p.proveedor} · ${p.titular} (${p.equipo})` }))] }],
+    ok: 'Guardar', ctx: { tipo: 'pantalla', id: 'recursos', titulo: 'Recursos de trabajo' } });
+  if (!x) return;
+  if ((x.equipo || '') !== (t.por === 'trabajo' ? t.asignado : '')) await run('trabajo.equipo', { trabajo: t.id, equipo: x.equipo || '' }, 'Equipo guardado', b);
+  if ((x.perfil || '') !== (t.perfil_trabajo || '')) await run('perfil.elegir', { ambito: 'trabajo', trabajo: t.id, perfil: x.perfil || '' }, 'Motor guardado', b);
+}
+const recLinea = (t) => `${t.equipo}${t.equipo !== t.asignado ? ` (asignado: ${t.asignado})` : ''} · ${t.motor || 'esperando motor'}${t.titular ? ` · ${t.titular}` : ''}`;
 function paintRecursos() {
   const r = data.recursos, box = $('#s-recursos');
   if (!box) return;
@@ -1312,19 +1325,28 @@ function paintRecursos() {
   const det = () => box.querySelector('details[data-k="rec-det"]');
   const abierto = !!det()?.open; // repintar tras una orden no cierra el detalle que Antonio tenía abierto
   const sinPc = data.pc.online === false;
-  fill(box, sideHead('h-recursos', 'Recursos de trabajo', r.equipos.length),
+  fill(box, sideHead('h-recursos', 'Cuentas y motores', r.perfiles.length),
     h('div', { class: 'rec-list' }, r.equipos.map((e) => miniTarjeta({ id: `eq-${e.id}`, clase: 'rec-eq', titulo: `${e.id}${e.local ? ' · este PC' : ''}`,
       estado: REC_ESTADO[e.estado] || [e.estado, 'idle'], sub: [recPerfil(e.perfil), recCuota(e.perfil, e)].filter(Boolean).join(' · '),
       desc: e.local ? `${e.trabajos} en marcha de ${e.tope} posibles · ${e.ram_libre_gb} GB libres` : e.motivo || '',
       ctx: { tipo: 'pantalla', id: 'recursos', titulo: `Recursos · ${e.id}` },
       accion: { txt: 'Asignar proyecto', disabled: sinPc, on: (b) => recAsignar(e, b) },
       abrir: () => { const d = det(); d.open = true; d.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); } }))),
-    fold('rec-det', 'Detalle: perfiles, proyectos y envío',
-      h('p', { class: 'muted small' }, r.envio ? `Envío de rondas a otros equipos: activado (canal ${r.canal === 'SIMULADO' ? 'SIMULADO de pruebas' : r.canal === 'REAL' ? 'conectado' : 'no conectado'}).`
+    (r.trabajos || []).length ? h('ul', { class: 'side-list rec-trabajos', 'aria-label': 'Trabajos: equipo y motor' }, r.trabajos.map((t) => h('li', { class: 'rec-perfil' },
+      h('b', {}, t.nombre), ' ', h('span', {}, recLinea(t)),
+      ' ', h('button', { class: 'btn ghost small', type: 'button', disabled: sinPc, 'aria-label': `Cambiar equipo y motor de ${t.nombre}`, onclick: (ev) => recTrabajo(t, r, ev.currentTarget) }, 'Cambiar'),
+      h('small', { class: 'muted' }, `${t.titulo} — ${t.motivo}`)))) : null,
+    fold('rec-det', 'Detalle: cuentas, proyectos y envío',
+      (r.reparto || []).length ? h('ul', { class: 'side-list rec-reparto', 'aria-label': 'Reparto propuesto' }, r.reparto.map((x) => h('li', { class: 'rec-perfil' },
+        h('b', {}, x.nombre), ` → ${x.propuesto}${x.actual === x.propuesto ? ' (aplicado)' : ` (ahora: ${x.actual})`}${x.confirmar ? ' · por confirmar' : ''} `,
+        x.actual === x.propuesto ? null : h('button', { class: 'btn ghost small', type: 'button', disabled: sinPc, onclick: (ev) => run('proyecto.equipo', { proyecto: x.proyecto, equipo: x.propuesto }, 'Asignado', ev.currentTarget) }, 'Aplicar'),
+        h('small', { class: 'muted' }, x.motivo)))) : null,
+      h('p', { class: 'muted small' }, r.envio ? `Envío de rondas a otros equipos: activado (${[...r.equipos.filter((e) => e.transporte === 'cable').map((e) => `${e.id} por el cable`), r.canal === 'NINGUNO' ? '' : `canal ${r.canal === 'SIMULADO' ? 'SIMULADO de pruebas' : 'conectado'}`].filter(Boolean).join(' · ') || 'canal no conectado'}).`
         : 'Envío de rondas a otros equipos: desactivado. Todo se ejecuta en este PC aunque un proyecto tenga otro equipo asignado.'),
       h('ul', { class: 'side-list rec-perfiles' }, r.perfiles.map((p) => h('li', { class: 'rec-perfil' },
         h('span', { class: `a-chip t-${p.estado === 'ACTIVO' ? 'ok' : p.estado === 'PENDIENTE' ? 'warn' : 'idle'}` }, p.estado === 'ACTIVO' ? 'Activo' : p.estado === 'PENDIENTE' ? 'Pendiente' : 'Desactivado'),
-        ' ', h('b', {}, `${p.proveedor} · ${p.titular}`), h('small', { class: 'muted' }, ` ${p.equipo}${p.id === r.predeterminado ? ' · predeterminado' : ''}${p.estado !== 'ACTIVO' && p.motivo ? ` — ${p.motivo}` : ''}`)))),
+        ' ', h('b', {}, `${p.proveedor} · ${p.titular}`), h('small', { class: 'muted' }, ` ${p.equipo}${p.id === r.predeterminado ? ' · predeterminado' : ''}${p.estado !== 'ACTIVO' && p.motivo ? ` — ${p.motivo}` : ''}`),
+        p.autenticable && p.estado !== 'ACTIVO' ? h('button', { class: 'btn ghost small', type: 'button', disabled: sinPc, 'aria-label': `Autenticar la cuenta de ${p.titular}`, onclick: (ev) => run('perfil.autenticar', { perfil: p.id }, 'Autenticación iniciada', ev.currentTarget) }, 'Autenticar') : null))),
       h('p', { class: 'muted small' }, r.equipos.map((e) => `${e.id}: ${e.proyectos.length ? e.proyectos.join(', ') : e.local ? 'los demás proyectos' : 'ningún proyecto'}`).join(' · ')),
       h('div', { class: 'row side-links' }, h('button', { class: 'btn ghost small', type: 'button', disabled: sinPc, onclick: (ev) => recPredeterminado(r, ev.currentTarget) }, 'Perfil predeterminado…'))));
   if (abierto) det().open = true;

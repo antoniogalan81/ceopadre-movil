@@ -261,13 +261,25 @@ dialog.sheet { max-height: calc(var(--vvh, 100dvh) - 8px); overflow: auto; overs
 .btn.light { background: transparent; border-color: oklch(1 0 0 / 0.35); color: var(--bar-ink); }
 .btn.light:hover { background: oklch(1 0 0 / 0.1); }
 
-/* Conexión: Operativo · PC desconectado · Sin internet. */
-.net { display: inline-flex; align-items: center; gap: 7px; margin: 0; padding: 5px 11px; border-radius: 999px;
-  font-size: 13px; font-weight: 700; background: oklch(1 0 0 / 0.1); color: var(--bar-ink); }
-.net .dot { width: 8px; height: 8px; }
-.net.m-ok .dot { background: oklch(0.82 0.16 150); box-shadow: 0 0 0 3px oklch(0.82 0.16 150 / 0.25); }
-.net.m-need .dot { background: oklch(0.83 0.15 75); box-shadow: 0 0 0 3px oklch(0.83 0.15 75 / 0.25); }
-.net.m-bad .dot { background: oklch(0.72 0.18 27); box-shadow: 0 0 0 3px oklch(0.72 0.18 27 / 0.25); }
+/* Estado de CEOPadre (24-11): un punto de color y una palabra; al pulsarlo, la Estrategia de IA. */
+.net { display: inline-flex; align-items: center; gap: 7px; margin: 0; padding: 5px 11px; border: 0; border-radius: 999px; cursor: pointer;
+  font: inherit; font-size: 12px; font-weight: 800; letter-spacing: 0.04em; text-transform: uppercase;
+  background: oklch(1 0 0 / 0.1); color: var(--bar-ink); white-space: nowrap; }
+.net:hover { background: oklch(1 0 0 / 0.16); }
+.net:focus-visible { outline: 2px solid var(--bar-ink); outline-offset: 2px; }
+.net .dot { width: 8px; height: 8px; --c: oklch(0.7 0 0); background: var(--c); box-shadow: 0 0 0 3px color-mix(in oklch, var(--c) 25%, transparent); }
+.net.m-trabajando .dot { --c: oklch(0.82 0.16 150); }
+.net.m-espera .dot { --c: oklch(0.88 0.16 95); }
+.net.m-cuota .dot { --c: oklch(0.76 0.17 55); }
+.net.m-parado .dot { --c: oklch(0.72 0.01 260); }
+.net.m-problemas .dot { --c: oklch(0.68 0.2 27); }
+.net.m-mant .dot { --c: oklch(0.72 0.14 250); }
+/* Cuentas de IA dentro de la Estrategia de IA: una fila compacta por cuenta. */
+.ia-cuentas { list-style: none; margin: 0 0 4px; padding: 0; display: grid; gap: 6px; }
+.ia-cuenta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 7px 9px; border: 1px solid var(--line); border-radius: 10px; }
+.ia-cuenta b { min-width: 9.5em; }
+.ia-cuenta .ia-cuota { font-variant-numeric: tabular-nums; font-weight: 700; }
+.ia-cuenta .btn { margin-left: auto; }
 
 /* Zonas: título normal con contador (sin rótulos en mayúsculas). */
 .zone { margin: 4px 0 22px; }
@@ -960,7 +972,6 @@ a.btn { display: inline-flex; align-items: center; justify-content: center; text
   .home .bar { grid-template-columns: 1fr; padding: 10px 12px; gap: 8px; }
   .home .bar-side { width: 100%; justify-content: space-between; }
   .home .bar .bar-sub { font-size: 12.5px; }
-  .home .net span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); } /* el punto basta; el texto queda para lectores de pantalla */
   .more-txt { display: none; }
   .glance { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
   .kpi-tile { padding: 10px 12px 10px 14px; }
@@ -1375,6 +1386,7 @@ dialog.alq-doc h2 { margin: 0 0 4px; font-size: 18px; }
 .ag-mas { margin-top: 18px; }
 .obj-cuenta { display: flex; flex-wrap: wrap; gap: 4px 10px; margin: 0; font-size: 12.5px; color: var(--ink-3); }
 .obj-cuenta .t-ok { color: var(--ok); } .obj-cuenta .t-work { color: var(--work); } .obj-cuenta .t-ask { color: var(--ask); font-weight: 700; }
+.prio-fila { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px; } .prio-fila small { color: var(--ink-3); margin-right: auto; } .prio-fila .btn { min-width: 40px; min-height: 36px; }
 @media (pointer: coarse) { .ag-mini-act .btn, .ag-bar .btn, .ag-search { min-height: 44px; } }
 @media (prefers-reduced-motion: reduce) { .ag-mini { transition: none; } .ag-mini:hover { transform: none; } }
 
@@ -1518,6 +1530,8 @@ dialog.alq-zoom .alq-acciones { position: sticky; bottom: -10px; background: var
 .tabs { min-width: 0; max-width: 100%; overflow-x: auto; scrollbar-width: none; }
 .tabs::-webkit-scrollbar { display: none; }
 @media (min-width: 761px) and (max-width: 1100px) { .home .bar .brand { display: none; } .home .bar { gap: 12px; } .more-txt { display: none; } }
+/* 24-11: en el móvil el estado se lee entero («Con problemas»); como a media pantalla, el nombre cede su sitio al logotipo. */
+@media (max-width: 480px) { .appbar.home .bar .brand { display: none; } .appbar.home .net { padding: 5px 9px; letter-spacing: 0.02em; } }
 /* Tarjeta compacta: título hasta DOS líneas y nunca por debajo de ~8 letras; la etiqueta de estado cede (se parte) en vez de
    comerse el título (11-11: «Trabajo hecho · resultado pendiente de acreditar» dejaba el título a 0 px). */
 .ag-mini-top > h3 { flex: 1 1 auto; min-width: min(8em, 55%); white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: break-word; }

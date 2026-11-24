@@ -344,6 +344,8 @@ export function negocioUi({ api, ask, toast, show, data, run, viewText, onChange
   function needBox(o) {
     if (o.estado === 'ESPERANDO_APROBACION') return h('div', { class: 'decision' }, h('p', { class: 'ln' }, h('b', {}, 'TU APROBACIÓN'), ' Este objetivo se creó pidiendo revisar el plan: revísalo y apruébalo.'),
       h('div', { class: 'row' }, B('REVISAR EL PLAN', () => openOne(o.id), 'primary')));
+    if (o.estado === 'ESPERANDO_ANTONIO' && o.categoria === 'CUOTA') return h('div', { class: 'decision' }, h('p', { class: 'ln' }, h('b', {}, 'ESPERANDO CUOTA'), ` ${o.pregunta || ''}`),
+      h('div', { class: 'row' }, B('REANUDAR ya', (b) => after(cmd('negocio.reanudar', { id: o.id }, 'Reanudado', b)))));
     if (o.estado === 'ESPERANDO_ANTONIO' || o.estado === 'BLOQUEADA') return h('div', { class: 'decision' }, h('p', { class: 'ln' }, h('b', {}, o.estado === 'BLOQUEADA' ? 'BLOQUEADO' : 'TE NECESITA'), ` ${o.pregunta || o.evaluacion || ''}`),
       h('div', { class: 'row' }, o.estado === 'ESPERANDO_ANTONIO' ? B('RESPONDER', (b) => responder(o, b), 'primary') : null,
         o.categoria === 'CIERRE' ? B('Sí, darlo por alcanzado', (b) => cerrar(o, b)) : null,
@@ -373,6 +375,16 @@ export function negocioUi({ api, ask, toast, show, data, run, viewText, onChange
         ['ACTIVA', 'ESPERANDO_ANTONIO', 'PAUSADA', 'BLOQUEADA', 'EN_SEGUIMIENTO'].includes(o.estado) ? B('Terminar y seguir midiendo el resultado', (b) => cerrar(o, b)) : null,
         !closed ? B('Cancelar el objetivo', (b) => cancelar(o, b), 'ghost-danger') : null)));
   }
+  // PRIORIDAD (24-11): el puesto REAL (el mismo orden que usa la programación) y ↑ ↓ ★. Lo fijado se mantiene hasta «Auto».
+  function prioridadFila(o) {
+    const p = o.prioridad;
+    if (!p || CLOSED.includes(o.estado)) return null;
+    const P = (txt, accion, title) => B(txt, (b) => after(cmd('negocio.prioridad', { id: o.id, accion }, 'Prioridad cambiada', b)), 'ghost', { title, 'aria-label': title, disabled: !online() });
+    return h('div', { class: 'prio-fila' }, h('small', {}, `Prioridad ${p.puesto}${p.importante ? ' · ★ importante' : ''} · ${p.manual ? 'fijada por ti' : 'automática'}`),
+      P('↑', 'subir', 'Subir la prioridad'), P('↓', 'bajar', 'Bajar la prioridad'),
+      P(p.importante ? '☆' : '★', p.importante ? 'normal' : 'importante', p.importante ? 'Quitar la marca de importante' : 'Marcar como importante: va delante de los no marcados'),
+      p.manual || p.importante ? P('Auto', 'auto', 'Volver a la prioridad automática') : null);
+  }
   // TARJETA COMPACTA de la lista: título, estado, lo que hace ahora, cuánto lleva y la acción principal.
   function card(o) {
     const hj = o.hoja?.cuenta;
@@ -384,8 +396,8 @@ export function negocioUi({ api, ask, toast, show, data, run, viewText, onChange
       sub: o.proyectos.map((p) => p.nombre).join(' · ') || (o.seleccion?.modo === 'AUTO' ? 'El CEO elige los proyectos' : ''),
       desc: ahora ? `Ahora · ${ahora.proyecto}: ${corto(ahora.ahora && ahora.ahora !== 'Aún no se ha hecho nada' ? ahora.ahora : ahora.objetivo, 120)}` : o.evaluacion || corto(o.texto, 160),
       // Una sola línea de avance (antes la barra y «N hecho · N ahora · N pendientes» repetían lo mismo); lo bloqueado, aparte.
-      extra: hj ? h('div', {}, progreso(o.hoja, true),
-        hj.bloqueadas ? h('p', { class: 'obj-cuenta' }, h('span', { class: 't-ask' }, `${hj.bloqueadas} tarea${hj.bloqueadas === 1 ? '' : 's'} esperando algo tuyo`)) : null) : null,
+      extra: h('div', {}, hj ? progreso(o.hoja, true) : null,
+        hj?.bloqueadas ? h('p', { class: 'obj-cuenta' }, h('span', { class: 't-ask' }, `${hj.bloqueadas} tarea${hj.bloqueadas === 1 ? '' : 's'} esperando algo tuyo`)) : null, prioridadFila(o)),
       accion: { txt: necesita ? 'Resolver' : 'Ver', on: abrir, cls: necesita ? 'primary' : 'ghost' } });
   }
 
@@ -609,5 +621,5 @@ Elige qué hacer:`,
   document.getElementById('b-negocio')?.addEventListener('click', open);
   // Desde el centro de dirección: abrir uno concreto o crear uno nuevo sin pasar por la lista.
   return { paint, open, openOne: (id) => { open(); void openOne(id); }, crear: (btn) => { open(); void crear(btn); },
-    intervencion: (o, n) => needCard(o, n, true), respondida };
+    intervencion: (o, n) => needCard(o, n, true), respondida, prioridadFila };
 }

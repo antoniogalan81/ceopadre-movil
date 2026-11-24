@@ -106,7 +106,7 @@ async function remoteApi() {
       }
       for (const x of proyectos) x._logo = x.logo && logos.get(x.id)?.hash === x.logo ? logos.get(x.id).data : null;
       cuenta ??= (await sb.auth.getUser()).data.user?.email || '';
-      return { proyectos, pc: { online: online(), visto: pc?.visto_en }, cuenta, cuotas: pc?.datos?.cuotas, remotos, negocio: pc?.datos?.negocio, ui: pc?.datos?.ui, autorizaciones: pc?.datos?.autorizaciones || [], recursos: pc?.datos?.recursos || null, encargos: pc?.datos?.encargos || [] };
+      return { proyectos, pc: { online: online(), visto: pc?.visto_en }, cuenta, motor: pc?.datos?.estado ? { estado: pc.datos.estado } : null, cuotas: pc?.datos?.cuotas, remotos, negocio: pc?.datos?.negocio, ui: pc?.datos?.ui, autorizaciones: pc?.datos?.autorizaciones || [], recursos: pc?.datos?.recursos || null, encargos: pc?.datos?.encargos || [] };
     },
     async details(id) { const r = await sb.from('ceo_card').select('detalle').eq('id', id).maybeSingle(); return r.data?.detalle; },
     // `alGuardar`: la orden ya está en la cola durable (ceo_orden); aunque el teléfono se cierre o recargue, el PC la aplicará.
@@ -445,12 +445,13 @@ function ask({ title, help = '', fields = [], ok = 'Aceptar', danger = false, ct
   const box = $('#dlg-fields');
   box.textContent = '';
   for (const f of fields) {
+    if (f.type === 'node') { box.append(f.node); continue; } // contenido propio (p. ej. las cuentas de IA): no es un valor
     if (f.type === 'checkbox') { box.append(h('label', { class: 'check' }, h('input', { name: f.name, type: 'checkbox', checked: !!f.value }), ' ', f.label)); continue; }
     const required = f.required !== false;
     // choice: una opción de una lista cerrada (p. ej. TikTok / Instagram), ya elegida si sólo hay una.
     if (f.type === 'choice') {
       box.append(h('label', { class: 'field' }, f.label, h('select', { name: f.name, required },
-        (f.options || []).length > 1 && !f.value ? h('option', { value: '' }, 'Elige…') : null, (f.options || []).map((o) => h('option', { value: o.value, selected: o.value === f.value }, o.label)))));
+        (f.options || []).length > 1 && !f.value ? h('option', { value: '' }, 'Elige…') : null, (f.options || []).map((o) => h('option', { value: o.value, selected: o.value === f.value, disabled: !!o.disabled && o.value !== f.value }, o.label)))));
       continue;
     }
     const input = f.type === 'textarea'
@@ -477,7 +478,7 @@ function ask({ title, help = '', fields = [], ok = 'Aceptar', danger = false, ct
         return resolve(null);
       }
       const out = {};
-      for (const f of fields) { const el = box.querySelector(`[name="${f.name}"]`); out[f.name] = f.type === 'checkbox' ? el.checked : f.type === 'password' ? el.value : el.value.trim(); }
+      for (const f of fields) { if (f.type === 'node') continue; const el = box.querySelector(`[name="${f.name}"]`); out[f.name] = f.type === 'checkbox' ? el.checked : f.type === 'password' ? el.value : el.value.trim(); }
       for (const el of box.querySelectorAll('input[type=password]')) el.value = ''; // la contraseña no se queda en el formulario
       const escrito = {};
       for (const f of fields) if (!f.type || f.type === 'text' || f.type === 'textarea') { if (out[f.name] && out[f.name] !== inicial[f.name]) escrito[f.name] = out[f.name]; }
@@ -1177,7 +1178,7 @@ function paintGoals() {
     return r ? `Resultado: ${r.nombre}: ${r.valor}${r.unidad ? ` ${r.unidad}` : ''} de ${r.objetivo}` : i ? `Resultado aún sin medir · ${kpiIntermedio(i)}`
       : g.kpis.length ? 'Resultado: aún sin medir' : 'Resultado: sin indicadores aprobados';
   };
-  const sig = JSON.stringify([n, data.pc.online, list.map((g) => [g.id, g.estado, g.pregunta, kpi(g), g.trabajos.terminados, g.trabajos.en_curso?.ahora,
+  const sig = JSON.stringify([n, data.pc.online, list.map((g) => [g.id, g.estado, g.pregunta, kpi(g), g.prioridad, g.trabajos.terminados, g.trabajos.en_curso?.ahora,
     (g.necesidades || []).map((x) => [x.id, x.estado, x.version, x.pospuesta, x.consejo?.estado, x.consejo?.veredicto, x.entrega?.estado])])]);
   const box = $('#s-goals');
   if (box.dataset.sig === sig) return;
@@ -1193,7 +1194,8 @@ function paintGoals() {
       : list.length ? h('ul', { class: 'side-list goals' }, list.map((g) => h('li', { class: `g-${g.te_necesita ? 'need' : 'ok'}` },
         h('button', { class: 'side-item', type: 'button', onclick: () => nui?.openOne(g.id) },
           h('b', {}, g.titulo), h('span', { class: `a-chip t-${g.te_necesita ? 'ask' : g.estado === 'ACTIVA' ? 'work' : 'idle'}` }, g.estado_texto),
-          h('small', { class: 'muted' }, `${kpi(g)} · ${g.trabajos.terminados} trabajo${g.trabajos.terminados === 1 ? '' : 's'} hecho${g.trabajos.terminados === 1 ? '' : 's'}${g.trabajos.en_curso ? ` · ahora en ${g.trabajos.en_curso.proyecto}` : ''}`)))))
+          h('small', { class: 'muted' }, `${kpi(g)} · ${g.trabajos.terminados} trabajo${g.trabajos.terminados === 1 ? '' : 's'} hecho${g.trabajos.terminados === 1 ? '' : 's'}${g.trabajos.en_curso ? ` · ahora en ${g.trabajos.en_curso.proyecto}` : ''}`)),
+        nui?.prioridadFila(g))))
         : [h('p', { class: 'muted small' }, 'Escribe el resultado que quieres («Quiero conseguir clientes para GEST7 por redes sociales»): el CEO lo analiza, te pregunta lo necesario, lo organiza y trabaja solo.'),
           h('button', { class: 'btn primary', type: 'button', disabled: data.pc.online === false, onclick: (e) => nui?.crear(e.currentTarget) }, '+ Nuevo objetivo de negocio')]);
 }
@@ -1463,6 +1465,7 @@ function paintNet() {
   const el = $('#net');
   el.className = `net m-${s[0]}`;
   el.lastChild.textContent = s[1];
+  el.title = `${s[1]}${s[2] ? ` · ${s[2]}` : ''} · pulsa para ver la estrategia de IA`;
 }
 // Cuota: sólo un icono con el % que QUEDA de CLAUDE 7D, en rojo si lo que queda por día hasta su reinicio baja de
 // RITMO_MIN; al pulsarlo, la tabla por proveedor y la hora de la última lectura correcta (datos ya leídos, ninguna llamada).
@@ -2786,42 +2789,57 @@ function ajustesUi() {
   $('#b-informe').addEventListener('click', () => openInforme(24));
   $('#b-conex').addEventListener('click', () => listo().then(() => openConexiones()));
   if (new URLSearchParams(location.search).has('informe')) listo().then(() => openInforme(24)); // desde el aviso diario
-  // ESTRATEGIA DE IA (18-11; sustituye a «Reanudar tras cuota»): quién PIENSA (cerebro) y quién TRABAJA, si cada función admite
-  // sustituto y si lo parado por cuota se reanuda solo. PC y móvil: es una orden más (ajustes.guardar).
+  // ESTRATEGIA DE IA (18-11; 24-11 por CUENTAS): quién PIENSA (cerebro) y quién TRABAJA, con qué cuenta, si cada función admite
+  // sustituto del mismo titular y si lo parado por cuota se reanuda solo. Una sola ventana: la abren «Más → IA» y el indicador
+  // de estado de la cabecera. PC y móvil: es una orden más (ajustes.ver / ajustes.guardar / perfil.autenticar).
   {
-    const b = $('#b-cuota');
-    const pintar = (ia) => { if (ia) b.textContent = `🧠 IA · ${ia.resumen}`; };
-    listo().then(() => api.cmd('ajustes.ver', {})).then((x) => { if (x?.ok) pintar(x.data.ia); }).catch(() => {});
-    const EST = { DISPONIBLE: 'disponible', POR_COMPROBAR: 'por comprobar (pasó su hora; se confirma con la próxima llamada)', SIN_SERVICIO: 'sin servicio' };
-    const prov = (n, e) => `${n}: ${EST[e.estado] || e.estado}${e.motivo && e.estado !== 'DISPONIBLE' ? ` (${e.motivo})` : ''}${e.hasta ? `, se vuelve a probar ${resetText(e.hasta)}` : ''}`;
-    const OPC = (pref) => [{ value: 'AUTO', label: `Automático (${pref})` }, { value: 'CODEX', label: 'Codex' }, { value: 'CLAUDE', label: 'Claude' }];
-    b.addEventListener('click', async () => {
+    const SESION = { AUTENTICADA: ['t-ok', 'Autenticada'], SIN_COMPROBAR: ['t-ok', 'Autenticada'], ABIERTA: ['t-warn', 'Autenticando…'], PENDIENTE: ['t-warn', 'Pendiente'] };
+    const fila = (c) => {
+      const [cs, ts] = SESION[c.sesion] || SESION.PENDIENTE;
+      const disp = c.sesion === 'PENDIENTE' || c.sesion === 'ABIERTA' ? null
+        : c.disponible ? ['t-ok', 'Disponible'] : [c.sin_cuota ? 't-bad' : 't-warn', c.sin_cuota ? 'Sin cuota' : 'No disponible'];
+      const vuelve = !c.disponible && c.hasta ? c.hasta : c.cuota?.reinicia;
+      const auth = c.autenticable && c.sesion !== 'AUTENTICADA' && c.sesion !== 'SIN_COMPROBAR'
+        ? h('button', { class: 'btn ghost small', type: 'button', disabled: c.sesion === 'ABIERTA', 'aria-label': `Autenticar ${c.nombre}`,
+          onclick: async (ev) => {
+            const b = ev.currentTarget; b.disabled = true; b.textContent = 'Abriendo…';
+            const r = await api.cmd('perfil.autenticar', { perfil: c.perfil });
+            toast(r?.ok ? r.data.mensaje : r?.error || 'No se pudo', r?.ok ? 'ok' : 'bad');
+            b.textContent = r?.ok && !r.data.sin_cambios ? 'Termina en el navegador' : 'Autenticar'; b.disabled = !!r?.ok;
+          } }, 'Autenticar') : null;
+      return h('li', { class: 'ia-cuenta', title: c.motivo_sesion || '' },
+        h('b', {}, c.nombre), h('span', { class: `a-chip ${cs}` }, ts), disp ? h('span', { class: `a-chip ${disp[0]}` }, disp[1]) : null,
+        c.cuota ? h('span', { class: 'ia-cuota', title: 'Cuota disponible (la ventana más justa)' }, `${c.cuota.disponible} %`) : null,
+        vuelve ? h('small', { class: 'muted' }, `vuelve ${resetText(vuelve)}`) : null,
+        c.equipo ? h('small', { class: 'muted' }, c.equipo) : null, auth);
+    };
+    const OPC = (fn, cuentas, auto) => [{ value: 'AUTO', label: `Automático (${auto})` },
+      ...cuentas.map((c) => ({ value: c.clave, label: c.nombre, disabled: !(fn === 'cerebro' ? c.cerebro_ok : c.trabajador_ok) }))];
+    const abrir = async () => {
       const x = await api.cmd('ajustes.ver', {});
       if (!x?.ok) { toast(x?.error || 'El PC no responde', 'bad'); return; }
       const { ia, reanudar_cuota: reanudar } = x.data;
-      const p = ia.politica;
-      const parados = x.data.en_espera.map((e) => `${e.proyecto}${e.no_reanuda ? ` (${e.no_reanuda})` : ''}`).join(' · ');
+      const s = ia.seleccion, cuentas = ia.cuentas || [];
       const r = await ask({ title: 'Estrategia de IA',
-        help: `Ahora: ${ia.resumen}. ${prov('Codex', ia.proveedores.Codex)} · ${prov('Claude', ia.proveedores.Claude)}.${parados ? ` Esperando cuota: ${parados}.` : ''}
-Automática: Codex dirige y decide (cerebro) y Claude ejecuta los trabajos (trabajador). Si uno se queda sin cuota, el otro asume también su función y se la devuelve en cuanto vuelve, siempre entre rondas (nada en curso se corta). En Personalizada eliges cada función y si admite sustituto: sin sustituto, esa función espera a su proveedor.`,
         fields: [
-          { name: 'modo', type: 'choice', label: 'Modo', value: p.modo, options: [{ value: 'AUTO', label: 'Automática (recomendada)' }, { value: 'PERSONALIZADA', label: 'Personalizada' }] },
-          { name: 'cerebro', type: 'choice', label: 'Cerebro (dirige, decide, revisa)', value: p.cerebro, options: OPC('Codex') },
-          { name: 'sustituir_cerebro', type: 'checkbox', label: 'Si el cerebro se queda sin cuota, el otro puede sustituirlo', value: p.sustituir_cerebro },
-          { name: 'trabajador', type: 'choice', label: 'Trabajador (ejecuta los trabajos)', value: p.trabajador, options: OPC('Claude') },
-          { name: 'sustituir_trabajador', type: 'checkbox', label: 'Si el trabajador se queda sin cuota, el otro puede sustituirlo', value: p.sustituir_trabajador },
-          { name: 'reanudar', type: 'checkbox', label: 'Reanudar solo cuando vuelva la cuota (sin pulsar CONTINUAR)', value: reanudar },
+          { name: 'cuentas', type: 'node', node: h('ul', { class: 'ia-cuentas', 'aria-label': 'Cuentas de IA' }, cuentas.map(fila)) },
+          { name: 'cerebro', type: 'choice', label: 'Cerebro (dirige y decide)', value: s.cerebro, options: OPC('cerebro', cuentas, 'Codex') },
+          { name: 'sustituir_cerebro', type: 'checkbox', label: 'Si se agota, relevo automático del mismo titular', value: s.sustituir_cerebro },
+          { name: 'trabajador', type: 'choice', label: 'Trabajador (ejecuta los trabajos)', value: s.trabajador, options: OPC('trabajador', cuentas, 'Claude Galán') },
+          { name: 'sustituir_trabajador', type: 'checkbox', label: 'Si se agota, relevo automático del mismo titular', value: s.sustituir_trabajador },
+          { name: 'reanudar', type: 'checkbox', label: 'Reanudar solo cuando vuelva la cuota', value: reanudar },
         ], ok: 'Guardar' });
       if (!r) return;
-      const g = await api.cmd('ajustes.guardar', { ia_politica: { modo: r.modo, cerebro: r.cerebro, trabajador: r.trabajador,
+      const g = await api.cmd('ajustes.guardar', { ia_politica: { cuentas: true, cerebro: r.cerebro, trabajador: r.trabajador,
         sustituir_cerebro: r.sustituir_cerebro, sustituir_trabajador: r.sustituir_trabajador } });
       if (g?.ok && r.reanudar !== reanudar) {
         const g2 = await api.cmd('ajustes.guardar', { reanudar_cuota: r.reanudar });
         if (!g2?.ok) toast(g2?.error || 'No se pudo guardar la reanudación', 'bad');
       }
-      if (g?.ok) pintar(g.data.ia);
-      toast(g?.ok ? g.data.mensaje : g?.error || 'No se pudo', g?.ok ? 'ok' : 'bad');
-    });
+      toast(g?.ok ? 'Estrategia de IA guardada: se aplica desde la siguiente ronda' : g?.error || 'No se pudo', g?.ok ? 'ok' : 'bad');
+    };
+    $('#b-cuota').addEventListener('click', () => listo().then(abrir));
+    $('#net').addEventListener('click', () => listo().then(abrir));
   }
 
 }

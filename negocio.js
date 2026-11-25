@@ -177,6 +177,9 @@ export function negocioUi({ api, ask, toast, show, data, run, viewText, onChange
     o.vista?.resultado ? h('p', { class: `q4-res ${o.vista.resultado === 'acreditado' ? 'ok' : 'warn'}` }, o.vista.resultado === 'acreditado' ? 'Resultado ACREDITADO por sus indicadores.' : `Resultado: ${o.vista.resultado}.`) : null);
 
   // LO ESENCIAL: qué ha hecho · qué está haciendo · qué hará después · qué necesita de mí (resumido; detalle debajo).
+  // 25-11: un trabajo parado (BLOQUEADO/ERROR) sin petición a Antonio es un PROBLEMA visible, no «espera algo tuyo» (si de verdad
+  // le necesita, el director crea la necesidad y sale arriba).
+  const parado = (t) => ['BLOQUEADO', 'ERROR'].includes(t.estado) && !t.espera;
   function cuatro(o) {
     const v = o.vista || {};
     const hj = o.hoja || { tareas: [] };
@@ -189,7 +192,7 @@ export function negocioUi({ api, ask, toast, show, data, run, viewText, onChange
     // Objetivo externo: lo que espera a Antonio son sus tareas pendientes marcadas «falta tu autorización/decisión».
     const externas = o.seleccion?.modo === 'EXTERNO' ? hj.tareas.filter((t) => t.estado === 'PENDIENTE' && /falta tu (autorizaci[oó]n|decisi[oó]n)/i.test(t.texto)).map((t) => t.texto) : [];
     const necesito = [...externas, ...(v.te_necesito || []).map((n) => n.que),...(o.pregunta && ['ESPERANDO_ANTONIO', 'BLOQUEADA'].includes(o.estado) ? [o.pregunta] : []),
-      ...ahora.filter((t) => t.te_necesita).map((t) => `${t.proyecto}: un trabajo espera algo tuyo`)];
+      ...ahora.filter((t) => t.te_necesita && !parado(t)).map((t) => `${t.proyecto}: un trabajo espera algo tuyo`)];
     // 14-11 (GOAL 2.0): con criterios de aceptación propios (MAMA), primero QUÉ FUNCIONA y QUÉ FALTA, tal cual su matriz vigente.
     const cr = o.criterios;
     const ESTADO_CR = { ACEPTADO: '✓ aceptado', TECNICO_OK: 'técnico OK · falta tu prueba', PARCIAL: 'parcial', PENDIENTE: 'pendiente' };
@@ -206,7 +209,7 @@ export function negocioUi({ api, ask, toast, show, data, run, viewText, onChange
     return h('div', { class: 'q4-grid' },
       ...criterios,
       linea('QUÉ HA HECHO', 'ok', lista(hechas.length ? [...hechas].reverse() : v.hecho, (t) => `${t.texto ? corto(t.texto) : `${t.proyecto}: ${corto(t.objetivo)}`} ✓`, 'Nada terminado todavía.')),
-      linea('QUÉ ESTÁ HACIENDO', 'work', lista(ahora, (t) => `${t.proyecto}: ${t.pausado ? 'en pausa' : t.te_necesita ? 'esperando algo tuyo' : corto(t.ahora && t.ahora !== 'Aún no se ha hecho nada' ? t.ahora : t.objetivo)}${senal(t)}`,
+      linea('QUÉ ESTÁ HACIENDO', 'work', lista(ahora, (t) => `${t.proyecto}: ${t.pausado ? 'en pausa' : parado(t) ? `PARADO desde ${String(t.parado_desde || '').slice(11, 16)}Z: ${corto(t.detalle || 'sin detalle', 140)} · lo revisa el director` : t.te_necesita ? 'esperando algo tuyo' : corto(t.ahora && t.ahora !== 'Aún no se ha hecho nada' ? t.ahora : t.objetivo)}${senal(t)}`,
         o.estado === 'PAUSADA' ? 'En pausa.' : o.estado === 'DEFINIENDO' ? 'Investigando y preparando la hoja de ruta.' : 'Nada en marcha ahora.')),
       linea('QUÉ HARÁ DESPUÉS', 'next', despues.length ? lista(despues, (t) => corto(t.texto), '') : h('p', { class: 'small' }, CLOSED.includes(o.estado) ? 'Nada: el objetivo está cerrado y no vuelve a ejecutarse.' : v.despues || (o.estado === 'EN_SEGUIMIENTO' ? `Medir el resultado ${o.proxima_revision ? `el ${fecha(o.proxima_revision)}` : 'periódicamente'} (sin IA).` : 'El CEO decide al terminar lo que hay en marcha.'))),
       linea('QUÉ NECESITA DE TI', necesito.length ? 'need' : 'ok', necesito.length ? lista(necesito, (x) => corto(x, 160), '') : h('p', { class: 'muted small' }, 'Nada ahora.')),

@@ -1382,6 +1382,10 @@ dialog.alq-doc h2 { margin: 0 0 4px; font-size: 18px; }
 .ag-mini-desc { margin: 0; font-size: 13.5px; color: var(--ink-2); display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .ag-mini-act { display: flex; justify-content: flex-end; margin-top: 4px; }
 .ag-mini-act .btn { min-width: 112px; }
+/* «Asignar proyecto» a la izquierda: a la derecha quedaba debajo del botón flotante «Hablar con el CEO» (PC, r10 F4). */
+.rec-eq .ag-mini-act { justify-content: flex-start; }
+/* PC: lo último sube por encima del botón del CEO y el foco con teclado nunca queda tapado por él. */
+@media (min-width: 761px) { body { padding-bottom: 88px; } html { scroll-padding-bottom: 88px; } }
 .ag-ficha .a-card { border-left-width: 5px; }
 .ag-mas { margin-top: 18px; }
 .obj-cuenta { display: flex; flex-wrap: wrap; gap: 4px 10px; margin: 0; font-size: 12.5px; color: var(--ink-3); }
@@ -1642,7 +1646,8 @@ body:has(#p-mama:not([hidden])) .ceo-fab { display: none; }
    va encima de sus botones en vez de una palabra por línea. */
 .update.ui-aviso { flex-wrap: wrap; }
 .update.ui-aviso span { flex: 1 1 16rem; }
-@media (max-width: 760px) { body { padding-bottom: calc(80px + 76px + env(safe-area-inset-bottom) + var(--aviso-h, 0px)); } }
+@media (max-width: 760px) { body { padding-bottom: calc(80px + 76px + env(safe-area-inset-bottom) + var(--aviso-h, 0px)); }
+  html { scroll-padding-bottom: calc(80px + 76px + env(safe-area-inset-bottom) + var(--aviso-h, 0px)); } } /* foco y scrollIntoView quedan por encima de la barra inferior y del botón del CEO */
 /* PC estrecho: la lista se acorta para que la caja de escribir quepa en la primera vista, sobre la barra inferior y el aviso. */
 @media (max-width: 860px) { .mama-msgs { max-height: max(200px, min(62dvh, calc(100dvh - var(--appbar-h, 0px) - 260px - var(--aviso-h, 0px)))); } }
 @media (max-width: 760px) { .mama-msgs { max-height: max(200px, min(62dvh, calc(100dvh - var(--appbar-h, 0px) - 260px - var(--pie) - var(--aviso-h, 0px)))); } }

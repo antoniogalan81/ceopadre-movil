@@ -445,6 +445,8 @@ export const PULSO_ATASCO_MS = 30 * 60_000; // el umbral del objetivo: «en marc
 const ESPERA_MOTIVO = { EN_COLA: 'en cola: arranca en cuanto quede libre el hueco', ESPERANDO_CLAUDE: 'sin cuota de Claude: se reanuda solo',
   ESPERANDO_CEO: 'sin cuota del CEO: se reanuda solo', ESPERANDO_DECISION: 'te espera a ti: una decisión', ESPERANDO_ANTONIO: 'te espera a ti: una acción tuya',
   LISTO: 'te espera a ti: tu turno', PAUSADO: 'en pausa' };
+// SIN_ACTIVIDAD por pérdida del latido de un equipo remoto (opción A, 23-11): puede seguir trabajando y NO se repite ni se reencola solo.
+export const sinConexion = (c) => c?.estado === 'SIN_ACTIVIDAD' && /^Sin conexión con el equipo /.test(c.detalle || '');
 export function pulso(c, ahora = Date.now(), hora = (iso) => new Date(iso).toISOString().slice(11, 16)) {
   if (!c?.estado || ['LIBRE', 'TERMINADO', 'CANCELADO'].includes(c.estado)) return null;
   // Lo que hizo CEOPadre va DELANTE (a 390 px se recorta el final de la línea; el texto entero queda en el title).
@@ -456,7 +458,7 @@ export function pulso(c, ahora = Date.now(), hora = (iso) => new Date(iso).toISO
     const desde = Number.isFinite(senal) ? ` desde las ${hora(c.ultima_actividad)}` : '';
     // F4: ronda en otro equipo que dejó de dar latido (engine.js rondaEnEquipo): aquí no se corta ni se reintenta nada.
     // Perder la comunicación no demuestra un atasco (opción A de Antonio, 23-11): SIN CONEXIÓN, en ámbar, no ATASCADO.
-    if (c.estado === 'SIN_ACTIVIDAD' && /^Sin conexión con el equipo /.test(c.detalle || '')) return { clase: 'SIN_CONEXION', etiqueta: 'SIN CONEXIÓN', motivo: `${ret}${c.detalle.replace(/; si no vuelve.*$/, '')}` };
+    if (sinConexion(c)) return { clase: 'SIN_CONEXION', etiqueta: 'SIN CONEXIÓN', motivo: `${ret}${c.detalle.replace(/; si no vuelve.*$/, '')}` };
     if (c.estado === 'SIN_ACTIVIDAD' || quieto >= PULSO_ATASCO_MS) return { clase: 'ATASCADO', motivo: `${ret}sin señales${desde}${ret ? '' : ': CEOPadre lo corta y lo reintenta solo'}` };
     if (quieto >= PULSO_LENTO_MS) return { clase: 'LENTO', motivo: `${ret}sin señal nueva${desde}` };
     return { clase: 'ACTIVO', motivo: `${ret}última señal a las ${hora(c.ultima_actividad)}` };

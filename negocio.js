@@ -6,7 +6,7 @@
 // edita aquí mismo (añadir, modificar, quitar, reordenar tareas y fases) sin rehacer el objetivo.
 import { claro, h } from './dom.js';
 import { marca } from './mama-contexto.js'; // T-A: contrato único de contexto para MAMA
-import { EFECTOS_NEC, esPreguntaSimple, proyectosEn } from './zones.js';
+import { EFECTOS_NEC, esPreguntaSimple, proyectosEn, sinConexion } from './zones.js';
 import { advice, comunes, decideRow, explica } from './map.js';
 import { miniTarjeta } from './tarjeta.js';
 
@@ -15,6 +15,7 @@ const hace = (iso) => { const m = Math.max(0, Math.round((Date.now() - Date.pars
 const QUIEN = { claude: 'Claude', codex: 'Codex', CEO: 'el CEO', ceo: 'el CEO' };
 function senal(t) {
   if (t.estado === 'EN_COLA') return ' · en cola: su proyecto está ocupado por otro trabajo';
+  if (sinConexion(t)) return ' · SIN CONEXIÓN con su equipo (puede seguir trabajando; no se repite ni se reencola solo)';
   if (t.estado === 'SIN_ACTIVIDAD') return ' · SIN ACTIVIDAD VERIFICABLE (CEOPadre lo vigila y lo retoma solo)';
   if (t.estado === 'ESPERANDO_CONDICION') return ' · esperando una condición';
   if (t.estado !== 'TRABAJANDO') return '';

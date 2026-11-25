@@ -1,6 +1,6 @@
 // CEOPadre en el navegador. En el PC habla con la API local; en el móvil, con Supabase.
 // No ejecuta nada: pinta el estado y deja órdenes. Todo el texto se inserta como texto (nunca HTML).
-import { cleanGoal, conditionsText, decisionCount, decisionsText, direccion, esPotente, esperaHumana, gestText, mood, needsDecision, netStatus, office, passwordAt, pcOnline, priority, PROMPT_LIMIT, PROMPT_WARN, quotaView, REAUTH_MS, claude7d, actualizado, resetText, waitingConditions, zone, pulso, antes } from './zones.js';
+import { cleanGoal, conditionsText, decisionCount, decisionsText, direccion, esPotente, esperaHumana, gestText, mood, needsDecision, netStatus, office, passwordAt, pcOnline, priority, PROMPT_LIMIT, PROMPT_WARN, quotaView, REAUTH_MS, claude7d, actualizado, resetText, waitingConditions, zone, pulso, antes, sinConexion } from './zones.js';
 import { describir, leer, marca } from './mama-contexto.js'; // T-A: contrato único de contexto para MAMA (y del panel de consulta)
 import { claro, h } from './dom.js';
 import { advice, comunes, decideRow, EFECTO, explica, mapBody, mapPanel, pendingDecisions, proposals } from './map.js';
@@ -722,7 +722,7 @@ function botones(c) {
   if (e === 'TRABAJANDO' || e === 'EN_COLA') return [add, I('pause', 'Pausar', 'pause'), e !== 'EN_COLA' ? instr : null, stop, info];
   // Sin señales: sigue siendo trabajo en curso (CEOPadre lo corta y reintenta solo); relanzarlo ya es una emergencia.
   // F4 (opción A de Antonio, 23-11): sin conexión con OTRO equipo no se ofrece «Reintentar»: ese equipo puede seguir trabajando.
-  if (e === 'SIN_ACTIVIDAD' && /^Sin conexión con el equipo /.test(c.detalle || '')) return [add, I('pause', 'Pausar', 'pause'), instr, stop, info];
+  if (sinConexion(c)) return [add, I('pause', 'Pausar', 'pause'), instr, stop, info];
   if (e === 'SIN_ACTIVIDAD') return [add, I('pause', 'Pausar', 'pause'), I('play', 'Reintentar ahora', 'resume'), instr, stop, info];
   return [T(e === 'PAUSADO' ? 'REANUDAR' : 'REINTENTAR', 'resume'), add, instr, stop, info];
 }
@@ -789,10 +789,12 @@ function detallesDecision(titulo, k, tipo, extra = []) {
 const MOOD_LABEL = { ESPERANDO_DECISION: 'Necesita tu respuesta', ERROR: 'Hay un problema', BLOQUEADO: 'Bloqueado',
   SIN_ACTIVIDAD: 'Trabajando (sin señales; se recupera solo)', TRABAJANDO: 'Trabajando', ESPERANDO_CLAUDE: 'Sin cuota de Claude · esperando', ESPERANDO_CEO: 'Sin cuota del CEO · esperando',
   ESPERANDO_CONDICION: 'Esperando (otro trabajo o una condición)', ESPERANDO_ANTONIO: 'Necesita que hagas algo', EN_COLA: 'Próximo: en cola', LIBRE: 'Sin objetivo', PAUSADO: 'En pausa', LISTO: 'Te toca: continuar', TERMINADO: 'Terminado y comprobado', CANCELADO: 'Cancelado' };
+// Sin conexión con el equipo remoto: no promete recuperarse solo (no se repite ni se reencola sin comprobar Git).
+const SIN_CONEXION_LABEL = 'Sin conexión con su equipo (no se repite ni se reencola solo)';
 // Una decisión pendiente de Antonio (del objetivo o del canon) manda sobre cualquier otro estado.
 const decisionLabel = (c) => { const n = decisionCount(c); return n > 1 ? `Necesita tu respuesta · ${n}` : 'Necesita tu respuesta'; };
 const status = (c, text) => h('span', { class: 'status' }, h('i', { class: 'dot', 'aria-hidden': 'true' }),
-  text || (needsDecision(c) ? decisionLabel(c) : MOOD_LABEL[c.estado] || c.estado));
+  text || (needsDecision(c) ? decisionLabel(c) : sinConexion(c) ? SIN_CONEXION_LABEL : MOOD_LABEL[c.estado] || c.estado));
 
 /** Decisiones del canon (preguntas y cambios protegidos) en el puesto: cuántas, estado real del objetivo y a decidirlas. */
 function canonDecisionLine(c) {

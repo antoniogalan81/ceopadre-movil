@@ -35,13 +35,13 @@ export function progreso(hj, compacto = false) {
   const total = c ? c.hechas + c.en_curso + c.pendientes : 0;
   if (!total) return null;
   const pct = Math.round((100 * c.hechas) / total);
-  const espera = c.hechas_espera || 0;
+  const espera = c.hechas_espera || 0, obs = c.observando || 0, sinCerrar = espera - obs;
   const pctEspera = Math.round((100 * espera) / total);
   const enMarcha = c.en_curso - espera;
   return h('div', { class: `prog${compacto ? ' compacto' : ''}`, title: 'Verde: tareas terminadas y verificadas. Tramo claro: entregadas con pruebas, falta cargarlas o acreditarlas en uso real. No mide esfuerzo ni el resultado de negocio.' },
     h('div', { class: 'prog-bar', role: 'progressbar', 'aria-valuemin': '0', 'aria-valuemax': String(total), 'aria-valuenow': String(c.hechas), 'aria-label': `${c.hechas} de ${total} tareas verificadas${espera ? `, ${espera} entregadas sin cerrar` : ''}` },
       h('span', { style: `width:${pct}%` }), espera ? h('span', { class: 'espera', style: `width:${pctEspera}%` }) : null),
-    h('small', {}, `${c.hechas} de ${total} verificadas · ${pct} %${espera ? ` · ${espera} entregada${espera > 1 ? 's' : ''}, falta cargar o acreditar` : ''}${enMarcha > 0 ? ` · ${enMarcha} en marcha` : ''}${compacto ? '' : ` · ${c.pendientes} por hacer`}${!compacto && c.fases ? ` · resultado acreditado en ${c.fases_verificadas || 0} de ${c.fases} fases` : ''}`));
+    h('small', {}, `${c.hechas} de ${total} verificadas · ${pct} %${obs ? ` · ${obs} hecha${obs > 1 ? 's' : ''} y probada${obs > 1 ? 's' : ''}, en observación en uso real` : ''}${sinCerrar ? ` · ${sinCerrar} entregada${sinCerrar > 1 ? 's' : ''}, falta cargar o acreditar` : ''}${enMarcha > 0 ? ` · ${enMarcha} en marcha` : ''}${compacto ? '' : ` · ${c.pendientes} por hacer`}${!compacto && c.fases ? ` · resultado acreditado en ${c.fases_verificadas || 0} de ${c.fases} fases` : ''}`));
 }
 // ORGANIZAR vs EJECUTAR (medido en el PC, sólo en la ficha): avisa si el objetivo gasta más en planificar que en resolver.
 function coste(c) {
@@ -53,7 +53,7 @@ const TIPO_NEC = { CONEXION: 'Conectar una cuenta', DATO: 'Un dato', ACCION: 'Al
   KPI: 'Revisar un comando de medición', MENSAJES: 'Incluir contactos en Mensajes' };
 // Estado de una tarea de la hoja tal como lo ve Antonio.
 const TAREA = { PENDIENTE: ['Pendiente', 'idle'], EN_CURSO: ['Ahora', 'work'], BLOQUEADA: ['Te necesita', 'ask'], PAUSADA: ['En pausa', 'idle'], HECHA: ['Hecho', 'ok'],
-  HECHA_ESPERA: ['Entregado · falta cargar o acreditar', 'wait'],
+  HECHA_ESPERA: ['Entregado · falta cargar o acreditar', 'wait'], OBSERVANDO: ['Hecho y probado · en observación en uso real', 'wait'],
   ELIMINADA: ['Quitada', 'idle'], DESCARTADA: ['Descartada por el CEO', 'idle'], NO_NECESARIA: ['No necesaria tras el cierre', 'idle'] };
 const fecha = (iso) => (iso ? new Date(iso).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '');
 const chip = (label, tone) => h('span', { class: `a-chip t-${tone}` }, label);

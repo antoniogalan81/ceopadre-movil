@@ -2618,10 +2618,13 @@ async function start() {
     const { data: s } = await api.sb.auth.getSession();
     if (!s.session) {
       show('p-login');
+      // El correo no va en el HTML publicado (00890417): se recuerda el último que entró en este dispositivo.
+      if (!$('#l-email').value) $('#l-email').value = localStorage.getItem('ceo-login-email') || '';
       $('#l-go').onclick = async () => {
         const { error } = await api.sb.auth.signInWithPassword({ email: $('#l-email').value.trim(), password: $('#l-pass').value });
         if (error) { $('#l-err').textContent = error.message; $('#l-err').hidden = false; return; }
         $('#l-pass').value = '';
+        localStorage.setItem('ceo-login-email', $('#l-email').value.trim());
         start();
       };
       return;

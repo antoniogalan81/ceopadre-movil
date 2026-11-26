@@ -2017,7 +2017,9 @@ async function openConexiones(foco = null) {
         { name: 'servicio', label: 'Servicio (si aplica)', type: 'choice', required: false, options: [{ value: '', label: '—' }, ...x.servicios.filter((sv) => sv.id !== 'demo').map((sv) => ({ value: sv.id, label: sv.nombre }))], value: '' },
         { name: 'usos_total', label: 'Usos en total (vacío = sin tope)', required: false, value: '' },
         { name: 'limite_semana', label: 'Máximo por semana', value: '3' }, { name: 'dias', label: 'Caduca en (días)', value: '30' }] });
-    if (v && await run('autorizacion.crear', { ...v, usos_total: v.usos_total === '' ? null : Number(v.usos_total), limite_semana: Number(v.limite_semana), dias: Number(v.dias) }, 'Autorizado', b)) reabrir();
+    // usos_total tal cual lo escribió Antonio: Number('abc') = NaN viajaba como null (= «sin tope») y el PC lo daba por bueno.
+    const usos = String(v?.usos_total ?? '').trim();
+    if (v && await run('autorizacion.crear', { ...v, usos_total: usos === '' ? null : usos, limite_semana: Number(v.limite_semana), dias: Number(v.dias) }, 'Autorizado', b)) reabrir();
   };
   // 14-11: el botón estaba al final de un panel de ~2.700 px (en el móvil, 4 pantallas más abajo): ahora va arriba, con las
   // solicitudes preparadas (un clic) y cada permiso con su nombre, proyecto, usos y fecha CON año.

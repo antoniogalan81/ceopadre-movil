@@ -1704,3 +1704,9 @@ body:has(#p-mama:not([hidden])) .mama-fab { display: none; }
 .ln.antes time { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--ink); }
 ol.acciones { padding-left: 0; list-style: none; } ol.acciones time { font-variant-numeric: tabular-nums; font-weight: 600; margin-right: 4px; }
 @media (max-width: 480px) { .ln.antes { gap: 4px; } .ln.antes > b { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); } } /* a 390 px caben las tres horas: «ANTES» sólo para lector de pantalla */
+/* T3 (00890417): relaciones entre trabajos. La ficha a la que lleva «Ir al trabajo principal» recibe el foco visible. */
+.ln.rel { display: block; margin-top: 6px; }
+.ln.rel .a-chip { margin-right: 2px; }
+.rel-hist li { margin: 6px 0; }
+.sum[tabindex="-1"]:focus, .notes li[tabindex="-1"]:focus { outline: 3px solid var(--accent); outline-offset: 2px; }
+@media (pointer: coarse) { .rel-link { display: inline-block; min-height: 44px; line-height: 36px; } }

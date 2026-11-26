@@ -266,7 +266,7 @@ function goTab(go, push = true) {
 // el botón Atrás del navegador vuelve a la anterior y un enlace directo abre exactamente eso.
 function navPush(q) {
   const u = new URL(location.href);
-  const nuevo = 'ceo' in q ? q : { v: null, proyecto: null, objetivo: null, ceo: null, ...q }; // cambiar de pantalla limpia lo demás; la conversación se superpone
+  const nuevo = 'ceo' in q ? q : { v: null, proyecto: null, trabajo: null, objetivo: null, ceo: null, ...q }; // cambiar de pantalla limpia lo demás; la conversación se superpone
   for (const [k, v] of Object.entries(nuevo)) { if (v == null) u.searchParams.delete(k); else u.searchParams.set(k, v); }
   u.searchParams.delete('informe');
   if (u.search !== location.search) history.pushState({}, '', u.pathname + u.search);
@@ -274,7 +274,7 @@ function navPush(q) {
 function aplicarRuta() {
   const q = new URLSearchParams(location.search);
   if (q.get('ceo')) void openCeo(q.get('ceo'), { push: false }); else if ($('#ceo').open) cerrarCeo(false);
-  if (q.get('proyecto')) { const c = (data.proyectos || []).find((p) => p.id === q.get('proyecto')); if (c) { actions.details(c, false); return; } }
+  if (q.get('proyecto')) { const c = (data.proyectos || []).find((p) => p.id === q.get('proyecto')); if (c) { if (q.get('trabajo')) void irATrabajo(c.id, q.get('trabajo'), false); else actions.details(c, false); return; } }
   if (q.get('objetivo')) { nui?.openOne(q.get('objetivo')); return; }
   if (!q.get('ceo') || q.get('v')) goTab(q.get('v') || 'home', false);
 }
@@ -2244,7 +2244,9 @@ function summaryPanel(c, d) {
   const execText = exec && future(exec.hasta) ? `limitado hasta ${hhmm(exec.hasta)}` : 'disponible';
   const r = d.resultado;
   const long = (c.objetivo_len || 0) > (c.objetivo || '').length;
-  return h('section', { class: `panel sum m-${mood(c)}` },
+  const relPropia = hasJob ? relDe(d, c.trabajo)[0] : null;
+  const continuan = hasJob ? (d.relaciones || []).filter((x) => x.principal.id === c.trabajo).length : 0;
+  return h('section', { class: `panel sum m-${mood(c)}`, ...(hasJob && c.trabajo ? { id: `trabajo-${c.trabajo}`, tabindex: '-1' } : {}) },
     h('div', { class: 'sum-head' }, h('span', { class: `pill tone-${needsDecision(c) ? 'ask' : tone}` }, needsDecision(c) ? decisionLabel(c) : label),
       c.pendientes ? h('span', { class: 'chip' }, `Pendientes ${c.pendientes}`) : null,
       c.anadidos ? h('span', { class: 'chip' }, `Instrucciones sin incorporar ${c.anadidos}`) : null,
@@ -2270,6 +2272,8 @@ function summaryPanel(c, d) {
       h('p', { class: 'sum-goal' }, c.objetivo),
       long || (c.objetivo || '').length > 180 ? h('button', { class: 'link', type: 'button', onclick: () => openGoal(c) }, 'Ver objetivo completo') : null,
       line('AHORA', ahora), line('SIGUIENTE', siguiente, 'next'),
+      relPropia ? relacionLinea(c.id, relPropia) : null,
+      continuan ? h('p', { class: 'ln rel' }, h('b', {}, 'RELACIONES'), ` ${continuan === 1 ? '1 solicitud relacionada continúa' : `${continuan} solicitudes relacionadas continúan`} en este trabajo: el detalle está en «Historial de trabajo».`) : null,
       c.detalle && (!running || c.estado === 'SIN_ACTIVIDAD') ? h('p', { class: 'note' }, c.detalle) : null,
     ] : h('p', { class: 'muted' }, 'Sin objetivo todavía.'),
     jobDecision(c),
@@ -2466,8 +2470,40 @@ function esperasPanel(c, d) {
 }
 
 /** Historial de rondas: siempre visible, cada ronda plegada. */
+// T3 (00890417): RELACIONES entre trabajos (src/relaciones.js, eventos de T1). La causa tal como se registró y un enlace real
+// (?proyecto=&trabajo=) al trabajo principal que continúa: abre el proyecto y lleva el foco a su ficha. Nada nuevo que pulsar.
+const relDe = (d, trabajo) => (d.relaciones || []).filter((r) => r.solicitud.id === trabajo);
+const relTexto = (t) => `«${one(t.objetivo || 'trabajo sin título', 70)}»`;
+function enlaceTrabajo(pid, t, texto) {
+  return h('a', { class: 'link rel-link', href: `?proyecto=${encodeURIComponent(pid)}&trabajo=${encodeURIComponent(t.id)}`,
+    onclick: (e) => { if (e.ctrlKey || e.metaKey || e.shiftKey || e.button) return; e.preventDefault(); void irATrabajo(pid, t.id); } }, texto);
+}
+function relacionLinea(pid, r) {
+  return h('p', { class: 'ln rel', 'data-rel': r.tipo }, h('span', { class: `a-chip t-${r.tono}` }, r.etiqueta), ' ', r.causa, '. ',
+    enlaceTrabajo(pid, r.principal, `Ir al trabajo principal ${relTexto(r.principal)}`));
+}
+function relacionItem(pid, r) {
+  return h('li', { 'data-rel': r.tipo }, h('time', { datetime: r.at }, when(r.at)), ' ', h('span', { class: `a-chip t-${r.tono}` }, r.etiqueta), ' ',
+    r.solicitud.existe ? relTexto(r.solicitud) : 'Una solicitud que no se creó', ' → continúa en ', enlaceTrabajo(pid, r.principal, relTexto(r.principal)),
+    h('small', { class: 'muted' }, ` · ${r.causa} · ${r.origen}${r.veces > 1 ? ` · ${r.veces} veces` : ''}`));
+}
+async function irATrabajo(pid, jid, push = true) {
+  if (push) navPush({ proyecto: pid, trabajo: jid });
+  if (openId !== pid) { openId = pid; show('p-detail'); window.scrollTo(0, 0); }
+  await paintDetail(true);
+  const el = document.getElementById(`trabajo-${jid}`);
+  if (!el) return;
+  const fold = el.closest('details');
+  if (fold) fold.open = true;
+  el.scrollIntoView({ block: 'start' });
+  el.focus({ preventScroll: true });
+}
 function roundsPanel(d) {
+  const rels = d.relaciones || [];
   return h('section', { class: 'panel' }, h('h4', {}, `Historial de trabajo (${d.rondas?.length || 0} pasos)`),
+    // T3 (00890417): historial de relaciones (agrupado, absorbido, sustituido, duplicado, en revisión) con su causa y el principal.
+    rels.length ? fold('relaciones', `Relaciones con otros trabajos (${rels.length})`,
+      h('ol', { class: 'notes rel-hist' }, rels.map((r) => relacionItem(d.proyecto?.id, r)))) : null,
     // F2: las 20 últimas acciones con su hora, PLEGADAS (sólo el PC las tiene: nunca suben a Supabase).
     d.acciones?.length ? fold('acciones', `Últimas acciones con hora (${d.acciones.length})`,
       h('ol', { class: 'notes acciones' }, d.acciones.map((a) => h('li', {}, h('time', { datetime: a.at }, when(a.at)), ' ', a.texto)))) : null,
@@ -2492,7 +2528,10 @@ function techPanel(c, d) {
       h('ul', { class: 'notes' }, d.notas.map((n) => h('li', {}, h('b', {}, n.kind === 'instruccion' ? `${TIPO[n.tipo] || n.tipo} · CONSUMIDA` : n.kind), ' ',
         n.text, n.chars > n.text.length ? '…' : '')))) : null,
     d.trabajos?.length > 1 ? fold('objetivos', `Objetivos de este proyecto (${d.trabajos.length})`,
-      h('ul', { class: 'notes' }, d.trabajos.map((t) => h('li', {}, h('b', {}, (STATES[t.estado] || [])[1] || t.estado), ' · ', t.objetivo, ' ', h('button', { class: 'link', type: 'button', onclick: () => openCeo(`trabajo:${t.id}`) }, 'Consultar'))))) : null,
+      h('ul', { class: 'notes' }, d.trabajos.map((t) => { const r = relDe(d, t.id)[0];
+        return h('li', t.id === c.trabajo ? {} : { id: `trabajo-${t.id}`, tabindex: '-1' }, h('b', {}, (STATES[t.estado] || [])[1] || t.estado), ' · ', t.objetivo, ' ',
+          h('button', { class: 'link', type: 'button', onclick: () => openCeo(`trabajo:${t.id}`) }, 'Consultar'),
+          r ? [' · ', h('span', { class: `a-chip t-${r.tono}` }, r.etiqueta), ' ', enlaceTrabajo(c.id, r.principal, 'Ir al trabajo principal')] : null); }))) : null,
     fold('proyecto', c.tipo === 'GESTION' ? 'Gestión' : 'Proyecto',
       h('p', { class: 'mono' }, d.proyecto?.ruta || c.ruta),
       c.componentes?.length ? h('p', { class: 'ln' }, h('b', {}, 'COMPONENTES'), ' ', c.componentes.join(' · ')) : null,

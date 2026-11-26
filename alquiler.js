@@ -763,6 +763,7 @@ export function alquileresUi({ run, ask, cmd, toast, LOCAL }) {
         onclick: () => { if (abierto) wa.abierto.delete(m.id); else wa.abierto.add(m.id); repintar(); } }, `${abierto ? 'Ocultar' : 'Ver'} historial (${m.eventos.length})`),
         h('button', { class: 'link', type: 'button', onclick: () => window.dispatchEvent(new CustomEvent('ceo:abrir', { detail: { ref: `borrador:alqmsg-${m.id}` } })) }, 'Consultar')),
       abierto ? h('ul', { class: 'alq-partes small' }, m.eventos.map((e) => h('li', {}, `${fecha(e.at.slice(0, 10))} ${e.at.slice(11, 16)} · ${WA_EV[e.tipo] || e.tipo} · ${e.origen || ''}${e.quien ? ` · ${e.quien}` : ''}`))) : null,
+      abierto && m.editado ? h('div', { class: 'small', 'data-original': '1' }, h('b', {}, 'Texto original (antes de editarlo)'), h('p', { class: 'alq-wa-texto muted' }, m.original)) : null,
       a ? h('button', { class: 'link small', type: 'button', onclick: () => abrirFicha(a) }, `Ficha de ${a.inquilino}`) : null);
   }
   function tabWhatsapp(lst, repintar) {

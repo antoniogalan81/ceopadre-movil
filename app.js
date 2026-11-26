@@ -2082,10 +2082,13 @@ async function openConexiones(foco = null) {
     h('section', { class: 'inf-sec' }, h('h3', {}, 'Cuentas'), h('ul', {}, x.servicios.filter((sv) => sv.id !== 'demo' || x.conexiones.some((c) => c.servicio === 'demo')).map((sv) => {
       const cs = x.conexiones.filter((c) => c.servicio === sv.id && c.estado !== 'REVOCADA');
       return h('li', { class: foco === sv.id ? 'foco' : '' }, h('b', {}, sv.nombre),
-        cs.length ? cs.map((c) => h('small', { class: c.estado === 'CONECTADA' ? 'ok' : 'warn' }, `${c.estado === 'CONECTADA' ? '✓ Conectada' : c.estado === 'EXISTENTE' ? 'La cuenta existe (sin conectar a CEOPadre)' : 'Pendiente'} · ${nombreP(c.proyecto)}${c.cuenta ? ` · ${c.cuenta}` : ''}${c.verificacion ? ` · ${c.verificacion}` : ''}`)) : h('small', { class: 'muted' }, 'Sin conectar'),
+        cs.length ? cs.map((c) => [h('small', { class: c.estado === 'CONECTADA' ? 'ok' : c.estado === 'FALLA' ? 'bad' : 'warn' }, `${c.estado === 'CONECTADA' ? '✓ Funciona' : c.estado === 'FALLA' ? '✗ No funciona' : c.estado === 'EXISTENTE' ? 'La cuenta existe (sin conectar a CEOPadre)' : 'Pendiente'} · ${nombreP(c.proyecto)}${c.cuenta ? ` · ${c.cuenta}` : ''}${c.verificacion ? ` · ${c.verificacion}` : ''}${c.comprobada_at ? ` · comprobada ${when(c.comprobada_at)}` : ''}`),
+          // Lo que se desbloquea al arreglarla: las esperas activas que dependen de este servicio.
+          c.dependen?.length ? h('small', { class: 'muted' }, `Dependen: ${c.dependen.map((d) => `#${d.espera} (trabajo ${String(d.trabajo).slice(0, 8)})`).join(', ')}`) : null]) : h('small', { class: 'muted' }, 'Sin conectar'),
         h('div', { class: 'a-acts' },
           LOCAL ? h('button', { class: 'btn small', type: 'button', onclick: (e) => conectar(sv, e.currentTarget) }, cs.some((c) => c.estado === 'CONECTADA') ? 'Volver a conectar' : 'Conectar')
             : h('button', { class: 'btn ghost small', type: 'button', onclick: () => view(`Conectar ${sv.nombre}`, `${sv.pasos.map((p, i) => `${i + 1}. ${p}`).join('\n')}\n\nEl último paso se hace en el PC: la clave nunca viaja por internet. En cuanto esté, el CEO lo comprueba y sigue solo.`) }, 'Ver pasos'),
+          ...cs.filter((c) => ['CONECTADA', 'FALLA'].includes(c.estado)).map((c) => h('button', { class: 'btn ghost small', type: 'button', onclick: (e) => run('conexion.comprobar', { id: c.id }, 'Comprobada', e.currentTarget).then(reabrir) }, 'Comprobar ahora')),
           ...cs.filter((c) => c.estado === 'CONECTADA').map((c) => h('button', { class: 'btn ghost-danger small', type: 'button', onclick: (e) => run('conexion.revocar', { id: c.id }, 'Revocada', e.currentTarget).then(reabrir) }, 'Revocar'))));
     }))));
   box.scrollTop = 0;

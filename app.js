@@ -1131,11 +1131,16 @@ function paintBrief(d, need, inboxN) {
   const k = d.kpis, prox = k.proxima;
   const negNext = (goals.list || []).find((o) => o.vista?.despues && ['ACTIVA', 'ESPERANDO_ANTONIO'].includes(o.estado));
   const first = d.necesita[0];
+  // «Nada en marcha» con su porqué (src/negocio.js porQueParado): tareas sin lanzar, acciones tuyas, observación, cuota, fallos.
+  const p = !k.trabajando && data.negocio?.parado, pl = (n, a, b) => `${n} ${n === 1 ? a : b}`;
+  const porQue = p ? [p.sin_lanzar && pl(p.sin_lanzar, 'tarea sin lanzar', 'tareas sin lanzar'), p.fallos && pl(p.fallos, 'con fallo técnico', 'con fallo técnico'),
+    p.cuota && pl(p.cuota, 'sin cuota', 'sin cuota'), p.antonio && pl(p.antonio, 'espera tu acción', 'esperan tu acción'),
+    p.observacion && pl(p.observacion, 'en observación', 'en observación'), p.internas && pl(p.internas, 'dependencia interna', 'dependencias internas')].filter(Boolean).join(' · ') : '';
   const items = [
     ['need', '¿Qué necesita de mí?', need ? `${need} ${need === 1 ? 'cosa' : 'cosas'}` : 'Nada ahora',
       need ? [first && `${first.nombre}: ${needsDecision(first) ? 'una respuesta' : (MOOD_LABEL[first.estado] || '').toLowerCase()}`, inboxN && `${inboxN} respuesta${inboxN === 1 ? '' : 's'} por aprobar`, (data.autorizaciones || []).length && `${data.autorizaciones.length} permiso${data.autorizaciones.length === 1 ? '' : 's'} por decidir`].filter(Boolean).join(' · ') : 'CEOPadre sigue solo y te avisará', () => scrollToId('z-need')],
     ['work', '¿Qué está haciendo?', k.trabajando ? `${k.trabajando} en marcha` : 'Nada en marcha',
-      [d.trabajando[0] && `${d.trabajando[0].nombre}: ${d.trabajando[0].actividad || 'trabajando'}`, k.esperando && `${k.esperando} en espera`, k.problemas && `${k.problemas} con problemas`].filter(Boolean).join(' · ') || 'Dale un objetivo a un proyecto', () => scrollToId(k.trabajando ? 'h-marcha' : k.esperando ? 'z-wait' : 'h-marcha')],
+      porQue || [d.trabajando[0] && `${d.trabajando[0].nombre}: ${d.trabajando[0].actividad || 'trabajando'}`, k.esperando && `${k.esperando} en espera`, k.problemas && `${k.problemas} con problemas`].filter(Boolean).join(' · ') || 'Dale un objetivo a un proyecto', () => scrollToId(k.trabajando ? 'h-marcha' : k.esperando ? 'z-wait' : 'h-marcha')],
     ['done', '¿Qué ha conseguido?', `${k.terminados7} ${k.terminados7 === 1 ? 'terminado' : 'terminados'}`,
       `esta semana, comprobados con evidencia${data.negocio?.abiertos ? ` · ${data.negocio.abiertos} objetivo${data.negocio.abiertos === 1 ? '' : 's'} de negocio en marcha` : ''}`, () => scrollToId('s-done')],
     // Lo que el DIRECTOR decidió hacer después (objetivos de negocio) manda sobre los horarios.

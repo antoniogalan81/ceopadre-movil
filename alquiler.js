@@ -630,10 +630,10 @@ export function alquileresUi({ run, ask, cmd, toast, LOCAL }) {
     const pr = f.propuesta;
     if (pr.guardada && pr.diferencia_cent) { editorReparto(f); return; } // faltan céntimos por asignar: se corrige en el editor
     const r = await ask({ title: `Confirmar reparto · ${f.importe_txt}`, ok: 'Confirmar reparto',
-      help: `${pr.criterio}.${pr.probable ? ' Incluye datos probables: confírmalo sólo si es correcto.' : ''} ${pr.guardada ? pr.partes.map((x) => `${x.obligado} ${eur(x.importe_cent)}`).join(' · ') : 'A partes iguales'}. Después cada parte se marca como cobrada cuando te paguen.`, fields: [] });
+      help: `${pr.criterio}.${pr.probable ? ' Incluye datos probables: confírmalo sólo si es correcto.' : ''} ${pr.partes.every((x) => x.importe_cent != null) ? pr.partes.map((x) => `${x.obligado} ${eur(x.importe_cent)}`).join(' · ') : 'A partes iguales'}. Después cada parte se marca como cobrada cuando te paguen.`, fields: [] });
     if (!r) return;
     await run('suministro.repartir', { factura: f.id, criterio: `Propuesta confirmada por Antonio: ${pr.criterio}`,
-      partes: pr.partes.map((x) => ({ obligado: x.obligado, ...(x.alquiler ? { alquiler: x.alquiler } : {}), ...(pr.guardada ? { importe: centTxt(x.importe_cent) } : {}) })) }, 'Reparto confirmado');
+      partes: pr.partes.map((x) => ({ obligado: x.obligado, ...(x.alquiler ? { alquiler: x.alquiler } : {}), ...(pr.partes.every((y) => y.importe_cent != null) ? { importe: x.importe_cent ? centTxt(x.importe_cent) : 0 } : {}) })) }, 'Reparto confirmado');
   }
   function tabSuministros(lst, repintar) {
     const fs = facturasDe(lst);
